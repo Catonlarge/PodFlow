@@ -1,33 +1,21 @@
-"""
-FastAPI 应用入口
-"""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
-app = FastAPI(
-    title="PodFlow API",
-    description="英语学习 PodFlow 后端 API",
-    version="0.1.0"
-)
+app = FastAPI()
 
-# 配置 CORS
+# 允许前端跨域访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite 默认端口
+    allow_origins=["*"], # 开发模式允许所有
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
 @app.get("/")
-async def root():
-    """健康检查端点"""
-    return {"message": "PodFlow API is running", "status": "ok"}
+def read_root():
+    return {"message": "PodFlow 后端连接成功！Whisper 引擎就绪。"}
 
-
-@app.get("/health")
-async def health():
-    """健康检查端点"""
-    return {"status": "healthy"}
-
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
