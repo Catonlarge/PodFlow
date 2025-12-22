@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+backend/data/   # 不上传本地音频和数据库，保护隐私
+
+# Node
+node_modules/
+dist/
+.env
+
+#cursor
+.cursor/
+
