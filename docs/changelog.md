@@ -4,6 +4,47 @@
 
 ---
 
+## [2025-12-24] [docs] - 补充短音频处理设计说明（统一处理策略）
+**变更文件**: `docs/开发计划.md`
+
+**设计说明**：
+明确短音频（duration < SEGMENT_DURATION）的处理策略，确保与长音频使用统一的处理流程。
+
+**关键设计原则**：
+1. **所有音频都创建 AudioSegment**：
+   - 短音频（如 150 秒）：创建 1 个 AudioSegment（segment_index=0, start_time=0, end_time=150）
+   - 长音频（如 600 秒）：创建多个 AudioSegment（segment_index=0,1,2,3...）
+
+2. **所有 TranscriptCue 都有 segment_id**（正常转录场景）：
+   - 短音频：所有 cue 的 segment_id 都指向唯一的 AudioSegment
+   - 长音频：不同 cue 的 segment_id 指向不同的 AudioSegment（按时间范围划分）
+   - 特殊场景（手动导入字幕、历史数据迁移）：segment_id 可为 NULL
+
+3. **转录流程完全统一**：
+   - 无需判断音频是长是短
+   - 同一套转录流程、状态管理、重试机制
+   - 代码极大简化，降低维护成本
+
+**更新内容**：
+- AudioSegment 设计要点：新增"统一处理所有音频"章节
+- TranscriptCue 设计要点：新增"segment_id 关联说明"章节（含短/长音频示例）
+- 关键技术决策：新增"短音频 vs 长音频处理对比表"和完整示例
+
+**对比表格**：
+| 特性 | 短音频（150秒） | 长音频（600秒） |
+|------|----------------|----------------|
+| AudioSegment 数量 | 1 个 | 4 个 |
+| segment_index | 0 | 0, 1, 2, 3 |
+| TranscriptCue.segment_id | 全部指向同一个 | 分别指向不同的 |
+| 转录流程 | ✅ 相同 | ✅ 相同 |
+
+**产出价值**：
+- ✅ 设计文档更完整，消除短音频处理的歧义
+- ✅ 明确 segment_id 的使用场景和含义
+- ✅ 统一处理策略，简化实现和维护
+
+---
+
 ## [2025-12-24] [feat] - 实现 TranscriptCue 模型（字幕片段表）
 **变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`
 
