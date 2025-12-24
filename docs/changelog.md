@@ -4,6 +4,71 @@
 
 ---
 
+## [2025-12-24] [feat] - 实现 Episode 表及分段信息全局配置优化
+**变更文件**: `backend/app/models.py`, `backend/app/config.py`, `backend/tests/test_models_new.py`, `docs/开发计划.md`
+
+**功能实现**：
+1. **Episode 表模型完成**（19 个测试全部通过 ✅）
+   - 核心字段：file_hash（唯一索引）、duration、podcast_id（可选）
+   - 转录时间戳：transcription_started_at、transcription_completed_at
+   - 元数据：language、created_at、updated_at（自动更新）
+
+2. **分段信息全局配置优化**（⭐ 关键优化）
+   - **删除字段**：needs_segmentation、segment_duration、total_segments
+   - **新增全局配置**（`backend/app/config.py`）：
+     ```python
+     SEGMENT_DURATION = 180  # 可调整以找到最优值
+     ```
+   - **实现 @property 动态计算**：
+     ```python
+     @property
+     def segment_duration(self):
+         from app.config import SEGMENT_DURATION
+         return SEGMENT_DURATION
+     
+     @property
+     def needs_segmentation(self):
+         return self.duration > self.segment_duration
+     
+     @property
+     def total_segments(self):
+         if not self.needs_segmentation:
+             return 1
+         import math
+         return math.ceil(self.duration / self.segment_duration)
+     ```
+
+3. **节目名称动态获取**（消除数据冗余）
+   - 删除 show_name 字段
+   - 实现 @property：返回 Podcast.title 或 "本地音频"
+   - 使用 joinedload 优化查询性能
+
+**设计优势**：
+- ✅ **配置集中管理**：修改 SEGMENT_DURATION 后，所有 Episode 自动生效
+- ✅ **便于实验调优**：快速调整阈值（120s → 180s → 300s）测试性能
+- ✅ **无数据冗余**：不存储可计算的值，符合 3NF
+- ✅ **数据一致性**：派生属性实时计算，不会出现不一致
+- ✅ **符合单一数据源原则**：阈值只存在一个地方
+
+**测试覆盖**（9 个 Episode 测试全部通过）：
+- ✅ 基础创建 + @property 验证
+- ✅ Podcast 关联关系 + show_name 动态获取
+- ✅ 本地音频（podcast_id=NULL）
+- ✅ file_hash 唯一性约束（去重）
+- ✅ 分段属性动态计算（短音频/长音频）
+- ✅ 多种时长边界测试（60s, 180s, 181s, 360s, 540s, 541s, 1800s）
+- ✅ 转录时间戳
+- ✅ CRUD 操作
+- ✅ updated_at 自动更新
+
+**产出价值**：
+- ✅ 数据库设计符合第三范式（3NF）
+- ✅ 便于性能实验和调优（无需更新数据库）
+- ✅ 提升代码可维护性（配置集中管理）
+- ✅ 完整的测试覆盖（TDD 原则）
+
+---
+
 ## [2025-12-23] [fix] - 修正虚拟分段的关键技术错误：禁止使用 FFmpeg -c copy（Critical ⚠️）
 **变更文件**: `docs/开发计划.md`
 
