@@ -4,6 +4,106 @@
 
 ---
 
+## [2025-12-24] [refactor] - 优化 Episode 转录时间戳（改为 @property 从 AudioSegment 聚合计算）
+**变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`, `docs/开发计划.md`
+
+**问题识别**：
+- Episode 表存储了 `transcription_started_at` 和 `transcription_completed_at` 字段
+- AudioSegment 表也存储了 `transcription_started_at` 和 `recognized_at` 字段
+- 这两组时间戳存在**严格的逻辑依赖关系**：
+  - `Episode.transcription_started_at` 应该等于第一个开始转录的 Segment 的时间
+  - `Episode.transcription_completed_at` 应该等于所有 Segment 完成后最后一个完成的时间
+- 存储冗余数据导致：
+  - ⚠️ 需要在多处手动同步更新（维护成本高）
+  - ⚠️ Segment 重试后时间变化，Episode 时间可能未同步（数据不一致风险）
+  - ⚠️ 违反单一数据源原则（AudioSegment 才是真实的数据来源）
+
+**优化方案**：
+1. **删除 Episode 的时间戳存储字段**：
+   - ❌ 删除：`transcription_started_at = Column(DateTime, nullable=True)`
+   - ❌ 删除：`transcription_completed_at = Column(DateTime, nullable=True)`
+
+2. **改为 @property 动态聚合计算**：
+   ```python
+   @property
+   def transcription_started_at(self):
+       """转录开始时间（从 AudioSegment 聚合计算）"""
+       if not self.segments:
+           return None
+       started_times = [s.transcription_started_at for s in self.segments if s.transcription_started_at]
+       return min(started_times) if started_times else None
+   
+   @property
+   def transcription_completed_at(self):
+       """转录完成时间（所有 Segment 完成后才有值）"""
+       if not self.segments:
+           return None
+       all_completed = all(s.status == "completed" for s in self.segments)
+       if not all_completed:
+           return None  # 转录未完成
+       completed_times = [s.recognized_at for s in self.segments if s.recognized_at]
+       return max(completed_times) if completed_times else None
+   ```
+
+**设计优势**：
+- ✅ **单一数据源**（AudioSegment 为准），无冗余存储
+- ✅ **数据一致性保证**：Segment 重试后，Episode 时间自动正确
+- ✅ **逻辑清晰**：Episode 的转录时间 = Segment 的聚合结果
+- ✅ **短音频和长音频逻辑统一**：单 Segment（短音频）和多 Segments（长音频）处理方式一致
+- ✅ **自动更新**：无需手动同步 Episode 和 Segment 的时间戳
+- ✅ **符合数据库第三范式（3NF）**：消除派生数据
+
+**测试更新**：
+- 重写 `test_episode_transcription_timestamps`：验证从 AudioSegment 动态计算时间戳
+- 新增 `test_episode_transcription_timestamps_short_audio`：验证短音频（单 Segment）场景
+- 新增 `test_episode_transcription_timestamps_partial_completion`：验证异步转录部分完成场景
+- 新增 `test_episode_transcription_timestamps_with_failed_segment`：验证包含失败 Segment 的场景
+- 所有 30 个测试通过（100% 通过率，0.24s 执行时间）
+
+**关键场景验证**：
+1. **短音频（120 秒，单 Segment）**：
+   - Segment 开始转录 → Episode.transcription_started_at 有值
+   - Segment 完成 → Episode.transcription_completed_at 立即有值
+   
+2. **长音频（600 秒，4 Segments，异步转录）**：
+   - Segment_001 开始 → Episode.transcription_started_at 有值
+   - Segment_003 先完成 → Episode.transcription_completed_at 仍为 None（未全部完成）
+   - 所有 Segments 完成 → Episode.transcription_completed_at 有值（最后完成的时间）
+   
+3. **包含失败 Segment**：
+   - Segment_001 失败，Segment_002 完成 → Episode.transcription_completed_at 为 None
+   - Segment_001 重试成功 → Episode.transcription_completed_at 自动有值（无需手动同步）
+
+**性能考虑**：
+- ✅ 使用 `joinedload` 预加载关联，避免 N+1 查询：
+  ```python
+  episode = db.query(Episode).options(joinedload(Episode.segments)).first()
+  print(episode.transcription_started_at)  # 无额外查询
+  ```
+- ✅ 访问方式不变：仍然可以使用 `episode.transcription_started_at` 访问
+- ✅ 性能影响可忽略：简单的 min/max 聚合运算
+
+**影响范围**：
+- ✅ 访问方式不变：代码中仍然可以使用 `episode.transcription_started_at` 访问
+- ⚠️ 注意：时间戳是只读属性，不能直接赋值（预期行为）
+- ⚠️ 注意：需要预加载 segments 以获得最佳性能
+
+**变更详情**：
+1. `backend/app/models.py`：
+   - 删除 `transcription_started_at` 和 `transcription_completed_at` 存储字段
+   - 添加 `@property transcription_started_at` 和 `@property transcription_completed_at` 方法
+   - 更新 docstring（移至 Properties 部分）
+   
+2. `backend/tests/test_models_new.py`：
+   - 重写 `test_episode_transcription_timestamps`（基础时间戳计算）
+   - 新增 3 个测试用例（短音频、异步转录、失败重试）
+   
+3. `docs/开发计划.md`：
+   - 更新 Episode 表设计（删除时间戳字段）
+   - 添加"转录时间戳优化"设计要点
+
+---
+
 ## [2025-12-24] [refactor] - 优化 AudioSegment.duration 字段（改为 @property 动态计算）
 **变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`, `docs/开发计划.md`
 

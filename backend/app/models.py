@@ -64,8 +64,6 @@ class Episode(Base):
         file_hash (str): MD5 hash（唯一索引，用于去重）
         file_size (int): 文件大小（字节）
         duration (float): 音频总时长（秒）
-        transcription_started_at (datetime): 开始转录时间
-        transcription_completed_at (datetime): 完成转录时间
         language (str): 语言代码（默认 "en-US"）
         created_at (datetime): 创建时间
         updated_at (datetime): 更新时间（自动更新）
@@ -75,6 +73,8 @@ class Episode(Base):
         segment_duration (int): 分段时长（从全局配置获取）
         needs_segmentation (bool): 是否需要分段（duration > segment_duration）
         total_segments (int): 总段数（ceil(duration / segment_duration)）
+        transcription_started_at (datetime): 转录开始时间（从 AudioSegment 聚合计算）
+        transcription_completed_at (datetime): 转录完成时间（从 AudioSegment 聚合计算）
     
     设计要点：
         - file_hash 唯一索引：相同文件只存储一次
@@ -82,6 +82,7 @@ class Episode(Base):
         - 删除 show_name 字段：使用 @property 动态获取（消除数据冗余）
         - 删除分段相关字段：使用全局配置 + @property（便于实验调优）
         - 删除转录状态字段：使用 @property 从 AudioSegment 聚合计算（双层设计）
+        - 删除转录时间戳字段：使用 @property 从 AudioSegment 聚合计算（单一数据源，保证一致性）
     """
     __tablename__ = "episodes"
     
@@ -100,9 +101,8 @@ class Episode(Base):
     file_size = Column(Integer, nullable=True)
     duration = Column(Float, nullable=False)
     
-    # 转录状态（时间戳，具体状态由 AudioSegment 聚合计算）
-    transcription_started_at = Column(DateTime, nullable=True)
-    transcription_completed_at = Column(DateTime, nullable=True)
+    # 转录状态（时间戳通过 @property 从 AudioSegment 聚合计算）
+    # transcription_started_at 和 transcription_completed_at 改为动态属性
     
     # 元数据
     language = Column(String, default="en-US", nullable=False)
@@ -160,6 +160,76 @@ class Episode(Base):
             return 1
         import math
         return math.ceil(self.duration / self.segment_duration)
+    
+    @property
+    def transcription_started_at(self):
+        """
+        转录开始时间（从 AudioSegment 动态聚合计算）
+        
+        计算逻辑：
+        - 返回第一个开始转录的 Segment 的时间（min(segment.transcription_started_at)）
+        - 如果没有任何 Segment 开始转录 → 返回 None
+        
+        数据一致性：
+        - ✅ 单一数据源（AudioSegment 为准），无冗余存储
+        - ✅ Segment 重试后时间戳改变，Episode 自动正确
+        - ✅ 短音频（单 segment）和长音频（多 segments）逻辑统一
+        
+        性能优化：
+        - 使用 joinedload 预加载：
+          episode = db.query(Episode).options(joinedload(Episode.segments)).first()
+        """
+        if not self.segments:
+            return None
+        
+        # 收集所有已开始转录的 Segment 的时间戳
+        started_times = [
+            seg.transcription_started_at 
+            for seg in self.segments 
+            if seg.transcription_started_at is not None
+        ]
+        
+        # 返回最早的时间（第一个开始转录的 Segment）
+        return min(started_times) if started_times else None
+    
+    @property
+    def transcription_completed_at(self):
+        """
+        转录完成时间（从 AudioSegment 动态聚合计算）
+        
+        计算逻辑：
+        - **只有所有 Segment 都完成** → 返回最后一个完成的时间（max(segment.recognized_at)）
+        - **否则（转录未完成）** → 返回 None
+        
+        完成条件：
+        - 所有 Segment 的 status == "completed"
+        
+        数据一致性：
+        - ✅ 单一数据源（AudioSegment 为准），无冗余存储
+        - ✅ 清晰语义：None = 未完成，有值 = 已完成
+        - ✅ 短音频（单 segment）和长音频（多 segments）逻辑统一
+        
+        性能优化：
+        - 使用 joinedload 预加载：
+          episode = db.query(Episode).options(joinedload(Episode.segments)).first()
+        """
+        if not self.segments:
+            return None
+        
+        # 检查是否所有 Segment 都已完成
+        all_completed = all(seg.status == "completed" for seg in self.segments)
+        if not all_completed:
+            return None  # 转录未完成
+        
+        # 收集所有已完成 Segment 的完成时间
+        completed_times = [
+            seg.recognized_at 
+            for seg in self.segments 
+            if seg.recognized_at is not None
+        ]
+        
+        # 返回最晚的时间（最后一个完成的 Segment）
+        return max(completed_times) if completed_times else None
     
     def __repr__(self):
         """字符串表示"""

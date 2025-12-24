@@ -419,27 +419,55 @@ def test_episode_segmentation_properties_with_different_durations(db_session):
 
 
 def test_episode_transcription_timestamps(db_session):
-    """测试转录时间戳字段"""
-    from app.models import Episode
-    from datetime import datetime
+    """测试转录时间戳属性（从 AudioSegment 动态计算）"""
+    from app.models import Episode, AudioSegment
+    from datetime import datetime, timedelta
     
+    # 创建 Episode
     episode = Episode(
         title="Timestamp Test",
         file_hash="timestamp001",
-        duration=300.0,
-        transcription_started_at=datetime.utcnow()
+        duration=300.0
     )
     db_session.add(episode)
     db_session.commit()
     
-    # 验证：started_at 已设置
-    assert episode.transcription_started_at is not None
+    # 验证：没有 Segment 时，时间戳为 None
+    assert episode.transcription_started_at is None
+    assert episode.transcription_completed_at is None
     
-    # 模拟转录完成
-    episode.transcription_completed_at = datetime.utcnow()
+    # 创建 AudioSegment（模拟转录开始）
+    now = datetime.utcnow()
+    segment1 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        status="processing",
+        transcription_started_at=now
+    )
+    db_session.add(segment1)
     db_session.commit()
     
-    # 验证：completed_at 已设置
+    # 刷新 Episode（重新加载关联）
+    db_session.refresh(episode)
+    
+    # 验证：started_at 自动计算（来自第一个 Segment）
+    assert episode.transcription_started_at is not None
+    assert episode.transcription_started_at == now
+    
+    # 验证：转录未完成时，completed_at 为 None
+    assert episode.transcription_completed_at is None
+    
+    # 模拟第一个 Segment 转录完成
+    segment1.status = "completed"
+    segment1.recognized_at = now + timedelta(seconds=10)
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：只有一个 Segment 完成时，completed_at 就有值了
     assert episode.transcription_completed_at is not None
     assert episode.transcription_completed_at >= episode.transcription_started_at
 
@@ -875,5 +903,229 @@ def test_audio_segment_duration_property(db_session):
         assert False, "不应该能够直接设置 duration 属性"
     except AttributeError:
         pass  # 预期行为：不能设置只读属性
+
+
+def test_episode_transcription_timestamps_short_audio(db_session):
+    """测试短音频（单 segment）的转录时间戳"""
+    from app.models import Episode, AudioSegment
+    from datetime import datetime, timedelta
+    
+    # 创建短音频 Episode（120 秒，小于分段阈值 180 秒）
+    episode = Episode(
+        title="Short Audio",
+        file_hash="short_audio_001",
+        duration=120.0  # 120 秒，不需要分段
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 验证：短音频也需要创建一个 AudioSegment
+    assert episode.needs_segmentation is False
+    assert episode.total_segments == 1
+    
+    # 验证：没有 Segment 时，时间戳为 None
+    assert episode.transcription_started_at is None
+    assert episode.transcription_completed_at is None
+    
+    # 创建单个 AudioSegment（短音频的完整分段）
+    now = datetime.utcnow()
+    segment = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=120.0,
+        status="processing",
+        transcription_started_at=now
+    )
+    db_session.add(segment)
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：started_at 自动计算
+    assert episode.transcription_started_at == now
+    
+    # 验证：转录未完成时，completed_at 为 None
+    assert episode.transcription_completed_at is None
+    
+    # 模拟转录完成
+    segment.status = "completed"
+    segment.recognized_at = now + timedelta(seconds=5)
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：短音频只有一个 Segment，完成后 completed_at 立即有值
+    assert episode.transcription_completed_at is not None
+    assert episode.transcription_completed_at == segment.recognized_at
+    assert episode.transcription_completed_at >= episode.transcription_started_at
+
+
+def test_episode_transcription_timestamps_partial_completion(db_session):
+    """测试长音频（多 segments）部分完成的转录时间戳"""
+    from app.models import Episode, AudioSegment
+    from datetime import datetime, timedelta
+    
+    # 创建长音频 Episode（600 秒，需要分段）
+    episode = Episode(
+        title="Long Audio",
+        file_hash="long_audio_001",
+        duration=600.0  # 600 秒，需要分段为 4 段（180 * 3 + 60）
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 验证：长音频需要分段
+    assert episode.needs_segmentation is True
+    assert episode.total_segments == 4
+    
+    # 创建 4 个 AudioSegment
+    now = datetime.utcnow()
+    segments = []
+    for i in range(4):
+        start = i * 180
+        end = min((i + 1) * 180, 600)
+        segment = AudioSegment(
+            episode_id=episode.id,
+            segment_index=i,
+            segment_id=f"segment_{i+1:03d}",
+            segment_path=None,
+            start_time=start,
+            end_time=end,
+            status="pending"
+        )
+        segments.append(segment)
+        db_session.add(segment)
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：所有 Segment 都是 pending 时，时间戳为 None
+    assert episode.transcription_started_at is None
+    assert episode.transcription_completed_at is None
+    
+    # 场景 1：第一个 Segment 开始转录（异步，segment_001 先开始）
+    segments[0].status = "processing"
+    segments[0].transcription_started_at = now
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：started_at 有值了（第一个开始转录的 Segment）
+    assert episode.transcription_started_at == now
+    
+    # 验证：转录未完成时，completed_at 仍为 None
+    assert episode.transcription_completed_at is None
+    
+    # 场景 2：第三个 Segment 先完成了（异步完成，乱序）
+    segments[2].status = "processing"
+    segments[2].transcription_started_at = now + timedelta(seconds=5)
+    segments[2].status = "completed"
+    segments[2].recognized_at = now + timedelta(seconds=10)
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：started_at 更新为最早的时间（segment_001 的时间）
+    assert episode.transcription_started_at == now  # 仍然是 segment_001 的时间
+    
+    # 验证：不是所有 Segment 都完成，completed_at 仍为 None
+    assert episode.transcription_completed_at is None
+    
+    # 场景 3：第一个 Segment 完成
+    segments[0].status = "completed"
+    segments[0].recognized_at = now + timedelta(seconds=15)
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：completed_at 仍为 None（还有 2 个未完成）
+    assert episode.transcription_completed_at is None
+    
+    # 场景 4：第二个 Segment 开始并完成
+    segments[1].status = "processing"
+    segments[1].transcription_started_at = now + timedelta(seconds=3)
+    segments[1].status = "completed"
+    segments[1].recognized_at = now + timedelta(seconds=20)
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：completed_at 仍为 None（还有 1 个未完成）
+    assert episode.transcription_completed_at is None
+    
+    # 场景 5：最后一个 Segment 完成
+    segments[3].status = "processing"
+    segments[3].transcription_started_at = now + timedelta(seconds=8)
+    segments[3].status = "completed"
+    segments[3].recognized_at = now + timedelta(seconds=25)
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：所有 Segment 完成后，completed_at 有值了（最后完成的时间）
+    assert episode.transcription_completed_at is not None
+    assert episode.transcription_completed_at == segments[3].recognized_at  # 最后完成的是 segment_004
+    assert episode.transcription_completed_at >= episode.transcription_started_at
+
+
+def test_episode_transcription_timestamps_with_failed_segment(db_session):
+    """测试包含失败 Segment 的转录时间戳"""
+    from app.models import Episode, AudioSegment
+    from datetime import datetime, timedelta
+    
+    # 创建 Episode
+    episode = Episode(
+        title="Audio with Failed Segment",
+        file_hash="failed_segment_001",
+        duration=360.0  # 360 秒，2 段
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 创建 2 个 AudioSegment
+    now = datetime.utcnow()
+    segment1 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        status="processing",
+        transcription_started_at=now
+    )
+    segment2 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=1,
+        segment_id="segment_002",
+        segment_path=None,
+        start_time=180.0,
+        end_time=360.0,
+        status="processing",
+        transcription_started_at=now + timedelta(seconds=2)
+    )
+    db_session.add_all([segment1, segment2])
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 场景：第一个 Segment 失败，第二个 Segment 完成
+    segment1.status = "failed"
+    segment1.error_message = "Transcription API error"
+    segment2.status = "completed"
+    segment2.recognized_at = now + timedelta(seconds=10)
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：有失败的 Segment，completed_at 仍为 None
+    assert episode.transcription_completed_at is None
+    
+    # 场景：重试第一个 Segment 并成功
+    segment1.status = "processing"
+    segment1.transcription_started_at = now + timedelta(seconds=15)
+    segment1.retry_count = 1
+    segment1.status = "completed"
+    segment1.recognized_at = now + timedelta(seconds=20)
+    segment1.error_message = None
+    db_session.commit()
+    db_session.refresh(episode)
+    
+    # 验证：所有 Segment 完成后，completed_at 有值了
+    assert episode.transcription_completed_at is not None
+    assert episode.transcription_completed_at == segment1.recognized_at  # 最后完成的是 segment_001（重试后）
 
 
