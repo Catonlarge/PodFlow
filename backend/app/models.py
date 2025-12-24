@@ -1,7 +1,7 @@
 """
 数据库模型定义
 """
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, ForeignKey, Boolean, UniqueConstraint, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -111,7 +111,7 @@ class Episode(Base):
     
     # 关系映射
     podcast = relationship("Podcast", back_populates="episodes")
-    # segments = relationship("AudioSegment", back_populates="episode", cascade="all, delete-orphan")  # 待实现
+    segments = relationship("AudioSegment", back_populates="episode", cascade="all, delete-orphan")
     
     @property
     def show_name(self):
@@ -164,6 +164,82 @@ class Episode(Base):
     def __repr__(self):
         """字符串表示"""
         return f"<Episode(id={self.id}, title='{self.title}', show_name='{self.show_name}', duration={self.duration}s)>"
+
+
+class AudioSegment(Base):
+    """
+    音频虚拟分段模型
+    
+    用于支持异步转录和重试机制。不存储物理文件，只记录时间范围。
+    
+    Attributes:
+        id (int): 主键
+        episode_id (int): 外键 → Episode
+        segment_index (int): 段序号（从 0 开始，用于排序）
+        segment_id (str): 分段 ID（如 "segment_001"）
+        segment_path (str): 物理文件路径（虚拟分段为 NULL）
+        start_time (float): 在原音频中的开始时间（秒）
+        end_time (float): 在原音频中的结束时间（秒）
+        duration (float): 分段时长（秒）
+        status (str): 识别状态（pending/processing/completed/failed）
+        error_message (str): 错误信息
+        retry_count (int): 重试次数（默认 0）
+        transcription_started_at (datetime): 开始转录时间（用于排序和监控）
+        recognized_at (datetime): 识别完成时间
+        created_at (datetime): 创建时间
+    
+    设计要点：
+        - 虚拟分段：segment_path 为 NULL，不存储物理文件
+        - 只记录时间范围（start_time, end_time）
+        - 转录时用 FFmpeg 实时提取到临时文件
+        - 支持异步识别：用户滚动时按需识别后续 segment
+        - 顺序保证：segment_index 必须连续（0, 1, 2, 3...）
+        - 重试机制：retry_count 记录失败重试次数
+    """
+    __tablename__ = "audio_segments"
+    
+    # 主键
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # 关联 Episode（必需）
+    episode_id = Column(Integer, ForeignKey("episodes.id", ondelete="CASCADE"), nullable=False)
+    
+    # 分段信息
+    segment_index = Column(Integer, nullable=False)  # 段序号（从 0 开始）
+    segment_id = Column(String, nullable=False)      # 分段 ID（如 "segment_001"）
+    segment_path = Column(String, nullable=True)     # 物理文件路径（虚拟分段为 NULL）
+    
+    # 时间范围（核心）
+    start_time = Column(Float, nullable=False)       # 在原音频中的开始时间（秒）
+    end_time = Column(Float, nullable=False)         # 在原音频中的结束时间（秒）
+    duration = Column(Float, nullable=False)         # 分段时长（秒）
+    
+    # 识别状态
+    status = Column(String, default="pending", nullable=False)  # pending/processing/completed/failed
+    error_message = Column(Text, nullable=True)      # 错误信息
+    retry_count = Column(Integer, default=0, nullable=False)  # 重试次数
+    transcription_started_at = Column(DateTime, nullable=True)  # 开始转录时间
+    recognized_at = Column(DateTime, nullable=True)  # 识别完成时间
+    
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # 关系映射
+    episode = relationship("Episode", back_populates="segments")
+    # cues = relationship("TranscriptCue", back_populates="segment", cascade="all, delete-orphan")  # 待实现
+    
+    # 表级约束和索引
+    __table_args__ = (
+        # 唯一约束：同一个 Episode 的 segment_index 不能重复
+        UniqueConstraint('episode_id', 'segment_index', name='_episode_segment_uc'),
+        # 索引优化
+        Index('idx_episode_segment', 'episode_id', 'segment_index'),  # 按 episode 和 segment_index 排序
+        Index('idx_segment_status', 'status'),  # 按状态查询（用于监控和重试）
+        Index('idx_episode_status_segment', 'episode_id', 'status', 'segment_index'),  # 复合索引
+    )
+    
+    def __repr__(self):
+        """字符串表示"""
+        return f"<AudioSegment(id={self.id}, episode_id={self.episode_id}, segment_index={self.segment_index}, status='{self.status}')>"
 
 
 # ==================== 旧数据库模型（待迁移）====================

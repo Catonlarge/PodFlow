@@ -510,3 +510,318 @@ def test_episode_updated_at_auto_update(db_session):
     assert episode.updated_at > original_updated_at
 
 
+# ==================== AudioSegment 表测试 ====================
+
+def test_audio_segment_model_creation(db_session):
+    """测试 AudioSegment 模型创建（包含所有字段）"""
+    from app.models import Episode, AudioSegment
+    
+    # 先创建 Episode
+    episode = Episode(
+        title="Test Episode for Segment",
+        file_hash="segment_test_001",
+        duration=600.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 创建 AudioSegment
+    segment = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,  # 虚拟分段
+        start_time=0.0,
+        end_time=180.0,
+        duration=180.0,
+        status="pending",
+        retry_count=0
+    )
+    db_session.add(segment)
+    db_session.commit()
+    
+    # 验证数据已插入
+    assert segment.id is not None
+    assert segment.episode_id == episode.id
+    assert segment.segment_index == 0
+    assert segment.segment_id == "segment_001"
+    assert segment.segment_path is None  # 虚拟分段
+    assert segment.start_time == 0.0
+    assert segment.end_time == 180.0
+    assert segment.duration == 180.0
+    assert segment.status == "pending"
+    assert segment.error_message is None
+    assert segment.retry_count == 0
+    assert segment.transcription_started_at is None
+    assert segment.recognized_at is None
+    assert segment.created_at is not None
+
+
+def test_audio_segment_relationship_with_episode(db_session):
+    """测试 AudioSegment 与 Episode 的关系"""
+    from app.models import Episode, AudioSegment
+    
+    # 创建 Episode
+    episode = Episode(
+        title="Episode with Segments",
+        file_hash="episode_segments_001",
+        duration=600.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 创建多个 AudioSegment
+    segment1 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        duration=180.0,
+        status="pending"
+    )
+    segment2 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=1,
+        segment_id="segment_002",
+        segment_path=None,
+        start_time=180.0,
+        end_time=360.0,
+        duration=180.0,
+        status="pending"
+    )
+    db_session.add_all([segment1, segment2])
+    db_session.commit()
+    
+    # 验证关系
+    assert len(episode.segments) == 2
+    assert episode.segments[0].segment_index == 0
+    assert episode.segments[1].segment_index == 1
+    assert segment1.episode == episode
+    assert segment2.episode == episode
+
+
+def test_audio_segment_status_and_retry(db_session):
+    """测试 AudioSegment 状态更新和重试机制"""
+    from app.models import Episode, AudioSegment
+    from datetime import datetime
+    
+    # 创建 Episode 和 Segment
+    episode = Episode(
+        title="Status Test Episode",
+        file_hash="status_test_001",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    segment = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        duration=180.0,
+        status="pending",
+        retry_count=0
+    )
+    db_session.add(segment)
+    db_session.commit()
+    
+    # 模拟开始转录
+    segment.status = "processing"
+    segment.transcription_started_at = datetime.utcnow()
+    db_session.commit()
+    
+    assert segment.status == "processing"
+    assert segment.transcription_started_at is not None
+    
+    # 模拟转录失败
+    segment.status = "failed"
+    segment.error_message = "FFmpeg error: Invalid codec"
+    segment.retry_count += 1
+    db_session.commit()
+    
+    assert segment.status == "failed"
+    assert segment.error_message == "FFmpeg error: Invalid codec"
+    assert segment.retry_count == 1
+    
+    # 模拟重试成功
+    segment.status = "processing"
+    segment.transcription_started_at = datetime.utcnow()
+    db_session.commit()
+    
+    segment.status = "completed"
+    segment.recognized_at = datetime.utcnow()
+    db_session.commit()
+    
+    assert segment.status == "completed"
+    assert segment.recognized_at is not None
+    assert segment.retry_count == 1  # 保留重试次数
+
+
+def test_audio_segment_cascade_delete_with_episode(db_session):
+    """测试删除 Episode 时级联删除 AudioSegment"""
+    from app.models import Episode, AudioSegment
+    
+    # 创建 Episode 和 Segments
+    episode = Episode(
+        title="Cascade Delete Test",
+        file_hash="cascade_test_001",
+        duration=600.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    segment1 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        duration=180.0,
+        status="pending"
+    )
+    segment2 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=1,
+        segment_id="segment_002",
+        segment_path=None,
+        start_time=180.0,
+        end_time=360.0,
+        duration=180.0,
+        status="pending"
+    )
+    db_session.add_all([segment1, segment2])
+    db_session.commit()
+    
+    episode_id = episode.id
+    
+    # 删除 Episode
+    db_session.delete(episode)
+    db_session.commit()
+    
+    # 验证 AudioSegment 被级联删除
+    segments = db_session.query(AudioSegment).filter(
+        AudioSegment.episode_id == episode_id
+    ).all()
+    assert len(segments) == 0
+
+
+def test_audio_segment_unique_constraint(db_session):
+    """测试 AudioSegment 的唯一性约束（同一 Episode 的 segment_index 不能重复）"""
+    from app.models import Episode, AudioSegment
+    from sqlalchemy.exc import IntegrityError
+    
+    # 创建 Episode
+    episode = Episode(
+        title="Unique Constraint Test",
+        file_hash="unique_test_001",
+        duration=600.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 创建第一个 Segment
+    segment1 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        duration=180.0,
+        status="pending"
+    )
+    db_session.add(segment1)
+    db_session.commit()
+    
+    # 尝试创建相同 segment_index 的 Segment（应该失败）
+    segment2 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,  # 相同的 segment_index
+        segment_id="segment_001_duplicate",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        duration=180.0,
+        status="pending"
+    )
+    db_session.add(segment2)
+    
+    # 验证：提交时会抛出 IntegrityError
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_audio_segment_virtual_segmentation(db_session):
+    """测试虚拟分段（segment_path 为 NULL）"""
+    from app.models import Episode, AudioSegment
+    
+    # 创建 Episode
+    episode = Episode(
+        title="Virtual Segment Test",
+        file_hash="virtual_test_001",
+        duration=600.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 创建虚拟分段（segment_path 为 NULL）
+    segment = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,  # ⭐ 虚拟分段，不存储物理文件
+        start_time=0.0,
+        end_time=180.0,
+        duration=180.0,
+        status="pending"
+    )
+    db_session.add(segment)
+    db_session.commit()
+    
+    # 验证：segment_path 为 NULL
+    assert segment.segment_path is None
+    # 验证：时间范围正确
+    assert segment.start_time == 0.0
+    assert segment.end_time == 180.0
+    assert segment.duration == 180.0
+
+
+def test_audio_segment_string_representation(db_session):
+    """测试 AudioSegment 的字符串表示"""
+    from app.models import Episode, AudioSegment
+    
+    # 创建 Episode 和 Segment
+    episode = Episode(
+        title="Repr Test Episode",
+        file_hash="repr_test_001",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    segment = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        duration=180.0,
+        status="pending"
+    )
+    db_session.add(segment)
+    db_session.commit()
+    
+    # 验证字符串表示
+    assert str(segment) is not None
+    assert repr(segment) is not None
+    assert "AudioSegment" in repr(segment)
+    assert f"id={segment.id}" in repr(segment)
+
+

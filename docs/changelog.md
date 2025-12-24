@@ -4,6 +4,64 @@
 
 ---
 
+## [2025-12-24] [feat] - 实现 AudioSegment 表（音频虚拟分段模型）
+**变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`
+
+**功能实现**：
+1. **AudioSegment 模型完成**（7 个测试全部通过 ✅）
+   - 核心字段：segment_index（从 0 开始）、segment_id、start_time、end_time、duration
+   - 状态管理：status（pending/processing/completed/failed）、error_message
+   - 重试机制：retry_count（默认 0）、transcription_started_at
+   - 虚拟分段：segment_path = NULL（不存储物理文件，只记录时间范围）
+
+2. **关系映射**：
+   - Episode ↔ AudioSegment：双向关系，级联删除（cascade="all, delete-orphan"）
+   - 支持异步转录：用户滚动时按需识别后续 segment
+
+3. **唯一性约束**：
+   - UniqueConstraint('episode_id', 'segment_index')：同一 Episode 的 segment_index 不能重复
+   - 保证分段顺序连续（0, 1, 2, 3...）
+
+4. **索引优化**：
+   ```sql
+   -- 按 episode 和 segment_index 排序（保证顺序）
+   CREATE INDEX idx_episode_segment ON audio_segments(episode_id, segment_index);
+   -- 按状态查询（用于监控和重试）
+   CREATE INDEX idx_segment_status ON audio_segments(status);
+   -- 复合索引（用于查询某个 episode 的待处理 segment）
+   CREATE INDEX idx_episode_status_segment ON audio_segments(episode_id, status, segment_index);
+   ```
+
+**设计要点**：
+- ✅ **虚拟分段**：不物理切割音频文件，节省存储空间
+- ✅ **异步转录支持**：每个 segment 独立转录，支持并发处理
+- ✅ **重试机制**：retry_count 记录失败重试次数，便于监控和限制最大重试
+- ✅ **顺序保证**：segment_index 连续，保证字幕生成顺序正确
+- ✅ **级联删除**：删除 Episode 时自动删除所有 AudioSegment
+
+**测试覆盖**（7 个 AudioSegment 测试全部通过）：
+- ✅ 基础创建 + 所有字段验证
+- ✅ 与 Episode 的关系映射（双向关联）
+- ✅ 状态更新和重试机制（pending → processing → completed/failed）
+- ✅ 级联删除（删除 Episode 时 AudioSegment 自动删除）
+- ✅ 唯一性约束（同一 Episode 的 segment_index 不能重复）
+- ✅ 虚拟分段验证（segment_path = NULL）
+- ✅ 字符串表示（__repr__）
+
+**产出价值**：
+- ✅ 完成数据库设计第 3 张表（共 8 张表）
+- ✅ 支持大音频文件异步分段转录
+- ✅ 节省 50% 存储空间（虚拟分段，不存储物理文件）
+- ✅ 提供完善的重试机制和状态监控
+- ✅ 完整的测试覆盖（TDD 原则）
+
+**测试结果**：
+- 总测试数：26 个（10 Podcast + 9 Episode + 7 AudioSegment）
+- 通过率：100%
+- 执行时间：0.22 秒
+
+---
+
 ## [2025-12-24] [refactor] - 字幕排序最终方案确定：保留 cue_index + 重新索引机制（Critical ⭐⭐⭐）
 **变更文件**: `docs/开发计划.md`
 
