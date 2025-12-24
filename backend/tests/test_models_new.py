@@ -1476,3 +1476,552 @@ def test_transcript_cue_string_representation(db_session):
     assert "..." in cue_repr
 
 
+# ==================== Highlight 模型测试 ====================
+
+def test_highlight_model_creation(db_session):
+    """测试 Highlight 模型的基本创建"""
+    from app.models import Episode, TranscriptCue, Highlight
+    
+    # 创建 Episode 和 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_001",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 先提交获取 ID
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        speaker="Lenny",
+        text="Thank you so much for being here."
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    # 创建 Highlight（单 cue 划线）
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=9,  # "Thank you"
+        highlighted_text="Thank you",
+        highlight_group_id=None,  # 单 cue 划线
+        color="#9C27B0"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 验证：基本属性
+    assert highlight.id is not None
+    assert highlight.episode_id == episode.id
+    assert highlight.cue_id == cue.id
+    assert highlight.start_offset == 0
+    assert highlight.end_offset == 9
+    assert highlight.highlighted_text == "Thank you"
+    assert highlight.highlight_group_id is None
+    assert highlight.color == "#9C27B0"
+    assert highlight.created_at is not None
+    assert highlight.updated_at is not None
+
+
+def test_highlight_color_default_value(db_session):
+    """测试 Highlight color 字段的默认值"""
+    from app.models import Episode, TranscriptCue, Highlight
+    
+    # 创建 Episode 和 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_002",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    # 创建 Highlight（不指定 color）
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 验证：color 默认为 #9C27B0（紫色）
+    assert highlight.color == "#9C27B0"
+
+
+def test_highlight_updated_at_auto_update(db_session):
+    """测试 Highlight updated_at 字段的自动更新"""
+    from app.models import Episode, TranscriptCue, Highlight
+    import time
+    
+    # 创建 Episode 和 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_003",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    # 创建 Highlight
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    original_updated_at = highlight.updated_at
+    
+    # 等待一小段时间，然后修改 color
+    time.sleep(0.1)
+    highlight.color = "#FF5722"  # 改为红色
+    db_session.commit()
+    
+    # 验证：updated_at 已更新
+    assert highlight.updated_at > original_updated_at
+
+
+def test_highlight_single_cue_highlight(db_session):
+    """测试单 cue 划线（highlight_group_id = NULL）"""
+    from app.models import Episode, TranscriptCue, Highlight
+    
+    # 创建 Episode 和 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_004",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="This is a test sentence."
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    # 创建单 cue 划线（90% 场景）
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=10,
+        end_offset=14,  # "test"
+        highlighted_text="test",
+        highlight_group_id=None  # 单 cue 划线，无需分组
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 验证：highlight_group_id 为 NULL
+    assert highlight.highlight_group_id is None
+    assert highlight.highlighted_text == "test"
+
+
+def test_highlight_cross_cue_with_group(db_session):
+    """测试跨 cue 划线（多个 Highlight 共享 highlight_group_id）"""
+    from app.models import Episode, TranscriptCue, Highlight
+    import uuid
+    
+    # 创建 Episode 和两个 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_005",
+        duration=300.0
+    )
+    db_session.add(episode)
+
+    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    
+    cue1 = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="First sentence."
+    )
+    cue2 = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=2,
+        start_time=2.5,
+        end_time=4.0,
+        text="Second sentence."
+    )
+    db_session.add_all([cue1, cue2])
+    db_session.commit()
+
+    db_session.commit()
+    
+    # 创建跨 cue 划线（10% 场景）
+    group_id = str(uuid.uuid4())
+    
+    highlight1 = Highlight(
+        episode_id=episode.id,
+        cue_id=cue1.id,
+        start_offset=6,  # "sentence."
+        end_offset=15,
+        highlighted_text="sentence.",
+        highlight_group_id=group_id  # 同一组
+    )
+    highlight2 = Highlight(
+        episode_id=episode.id,
+        cue_id=cue2.id,
+        start_offset=0,  # "Second"
+        end_offset=6,
+        highlighted_text="Second",
+        highlight_group_id=group_id  # 同一组
+    )
+    db_session.add_all([highlight1, highlight2])
+    db_session.commit()
+    
+    # 验证：两个 Highlight 共享同一个 highlight_group_id
+    assert highlight1.highlight_group_id == highlight2.highlight_group_id
+    assert highlight1.highlight_group_id == group_id
+
+
+def test_highlight_delete_by_group(db_session):
+    """测试按组删除 Highlight"""
+    from app.models import Episode, TranscriptCue, Highlight
+    import uuid
+    
+    # 创建 Episode 和两个 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_006",
+        duration=300.0
+    )
+    db_session.add(episode)
+
+    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+
+    
+    cue1 = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="First sentence."
+    )
+    cue2 = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=2,
+        start_time=2.5,
+        end_time=4.0,
+        text="Second sentence."
+    )
+    db_session.add_all([cue1, cue2])
+
+    db_session.commit()
+    
+    # 创建跨 cue 划线
+    group_id = str(uuid.uuid4())
+    
+    highlight1 = Highlight(
+        episode_id=episode.id,
+        cue_id=cue1.id,
+        start_offset=0,
+        end_offset=5,
+        highlighted_text="First",
+        highlight_group_id=group_id
+    )
+    highlight2 = Highlight(
+        episode_id=episode.id,
+        cue_id=cue2.id,
+        start_offset=0,
+        end_offset=6,
+        highlighted_text="Second",
+        highlight_group_id=group_id
+    )
+    db_session.add_all([highlight1, highlight2])
+    db_session.commit()
+    
+    # 保存 ID（删除前）
+    highlight1_id = highlight1.id
+    highlight2_id = highlight2.id
+    
+    # 按组删除（模拟删除逻辑）
+    db_session.query(Highlight).filter(
+        Highlight.highlight_group_id == group_id
+    ).delete()
+    db_session.commit()
+    
+    # 验证：两个 Highlight 都被删除了
+    assert db_session.query(Highlight).filter_by(id=highlight1_id).first() is None
+    assert db_session.query(Highlight).filter_by(id=highlight2_id).first() is None
+
+
+def test_highlight_relationship_with_episode(db_session):
+    """测试 Highlight 与 Episode 的关系"""
+    from app.models import Episode, TranscriptCue, Highlight
+    
+    # 创建 Episode 和 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_007",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    # 创建两个 Highlight
+    highlight1 = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    highlight2 = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=5,
+        end_offset=8,
+        highlighted_text="cue"
+    )
+    db_session.add_all([highlight1, highlight2])
+    db_session.commit()
+    
+    # 验证：Episode 可以访问其 highlights
+    db_session.refresh(episode)
+    assert len(episode.highlights) == 2
+
+
+def test_highlight_relationship_with_cue(db_session):
+    """测试 Highlight 与 TranscriptCue 的关系"""
+    from app.models import Episode, TranscriptCue, Highlight
+    
+    # 创建 Episode 和 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_008",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="This is a test sentence for highlighting."
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    # 创建多个 Highlight
+    highlight1 = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=10,
+        end_offset=14,
+        highlighted_text="test"
+    )
+    highlight2 = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=15,
+        end_offset=23,
+        highlighted_text="sentence"
+    )
+    db_session.add_all([highlight1, highlight2])
+    db_session.commit()
+    
+    # 验证：Cue 可以访问其 highlights
+    db_session.refresh(cue)
+    assert len(cue.highlights) == 2
+    assert cue.highlights[0].highlighted_text in ["test", "sentence"]
+
+
+def test_highlight_cascade_delete_with_episode(db_session):
+    """测试删除 Episode 时级联删除 Highlight"""
+    from app.models import Episode, TranscriptCue, Highlight
+    
+    # 创建 Episode、Cue 和 Highlight
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_009",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    highlight_id = highlight.id
+    
+    # 删除 Episode
+    db_session.delete(episode)
+    db_session.commit()
+    
+    # 验证：Highlight 也被删除了（级联删除）
+    deleted_highlight = db_session.query(Highlight).filter_by(id=highlight_id).first()
+    assert deleted_highlight is None
+
+
+def test_highlight_cascade_delete_with_cue(db_session):
+    """测试删除 TranscriptCue 时级联删除 Highlight"""
+    from app.models import Episode, TranscriptCue, Highlight
+    
+    # 创建 Episode、Cue 和 Highlight
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_010",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    highlight_id = highlight.id
+    
+    # 删除 Cue
+    db_session.delete(cue)
+    db_session.commit()
+    
+    # 验证：Highlight 也被删除了（级联删除）
+    deleted_highlight = db_session.query(Highlight).filter_by(id=highlight_id).first()
+    assert deleted_highlight is None
+
+
+def test_highlight_string_representation(db_session):
+    """测试 Highlight 的字符串表示"""
+    from app.models import Episode, TranscriptCue, Highlight
+    import uuid
+    
+    # 创建 Episode 和 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_highlight_011",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    # 测试单 cue 划线（无 group_id）
+    highlight1 = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="This is a very long highlighted text that should be truncated"
+    )
+    db_session.add(highlight1)
+    db_session.commit()
+    
+    highlight1_repr = repr(highlight1)
+    assert "Highlight" in highlight1_repr
+    assert f"id={highlight1.id}" in highlight1_repr
+    assert f"cue_id={cue.id}" in highlight1_repr
+    # 验证：text 被截断到 20 字符
+    assert "..." in highlight1_repr
+    
+    # 测试跨 cue 划线（有 group_id）
+    group_id = str(uuid.uuid4())
+    highlight2 = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test",
+        highlight_group_id=group_id
+    )
+    db_session.add(highlight2)
+    db_session.commit()
+    
+    highlight2_repr = repr(highlight2)
+    assert "Highlight" in highlight2_repr
+    assert "group=" in highlight2_repr  # 有 group_id 时显示
+
+

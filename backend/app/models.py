@@ -113,6 +113,7 @@ class Episode(Base):
     podcast = relationship("Podcast", back_populates="episodes")
     segments = relationship("AudioSegment", back_populates="episode", cascade="all, delete-orphan")
     transcript_cues = relationship("TranscriptCue", back_populates="episode", cascade="all, delete-orphan")
+    highlights = relationship("Highlight", back_populates="episode", cascade="all, delete-orphan")
     
     @property
     def show_name(self):
@@ -388,6 +389,7 @@ class TranscriptCue(Base):
     # 关系映射
     episode = relationship("Episode", back_populates="transcript_cues")
     segment = relationship("AudioSegment", back_populates="transcript_cues")
+    highlights = relationship("Highlight", back_populates="cue", cascade="all, delete-orphan")
     
     # 表级约束和索引
     __table_args__ = (
@@ -402,6 +404,79 @@ class TranscriptCue(Base):
     def __repr__(self):
         """字符串表示"""
         return f"<TranscriptCue(id={self.id}, episode_id={self.episode_id}, cue_index={self.cue_index}, speaker='{self.speaker}', text='{self.text[:30]}...')>"
+
+
+class Highlight(Base):
+    """
+    用户划线模型（简化设计：单 cue 关联 + 分组管理）
+    
+    支持单 cue 划线和跨 cue 划线（通过分组管理实现）。
+    
+    Attributes:
+        id (int): 主键
+        episode_id (int): 外键 → Episode
+        cue_id (int): 外键 → TranscriptCue（只关联一个 cue）
+        start_offset (int): 在 cue 内的字符起始位置（从 0 开始）
+        end_offset (int): 在 cue 内的字符结束位置
+        highlighted_text (str): 被划线的文本内容（快照，用于快速渲染）
+        highlight_group_id (str): 分组 ID（UUID），跨 cue 划线时共享（可为 NULL）
+        color (str): 划线颜色（默认 #9C27B0，紫色）
+        created_at (datetime): 创建时间
+        updated_at (datetime): 更新时间（支持修改颜色等操作）
+    
+    设计要点：
+        - 简化设计：不允许单个 Highlight 跨 cue，改为自动拆分 + 分组管理
+        - 单 cue 划线（90% 场景）：highlight_group_id = NULL
+        - 跨 cue 划线（10% 场景）：前端自动拆分成多个 Highlight，使用 highlight_group_id 关联
+        - 使用 cue.id（主键）关联，不使用 cue_index（解决异步转录问题）
+        - 删除逻辑：如果 highlight_group_id 不为空，需要按组删除
+    """
+    __tablename__ = "highlights"
+    
+    # 主键
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # 关联字段
+    episode_id = Column(Integer, ForeignKey("episodes.id", ondelete="CASCADE"), nullable=False)
+    cue_id = Column(Integer, ForeignKey("transcript_cues.id", ondelete="CASCADE"), nullable=False)
+    
+    # 划线范围（在 cue 内的字符偏移量）
+    start_offset = Column(Integer, nullable=False)  # 字符起始位置（从 0 开始）
+    end_offset = Column(Integer, nullable=False)    # 字符结束位置
+    
+    # 划线内容（快照，用于快速渲染）
+    highlighted_text = Column(Text, nullable=False)
+    
+    # 分组管理（跨 cue 划线支持）
+    highlight_group_id = Column(String, nullable=True)  # UUID，同一次划线产生的多个 Highlight 共享
+    
+    # 样式
+    color = Column(String, default="#9C27B0", nullable=False)  # 默认紫色
+    
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # 关系映射
+    episode = relationship("Episode", back_populates="highlights")
+    cue = relationship("TranscriptCue", back_populates="highlights")
+    
+    # 表级约束和索引
+    __table_args__ = (
+        # Episode 级别的划线查询
+        Index('idx_episode_highlight', 'episode_id'),
+        # Cue 级别的划线查询（高频）
+        Index('idx_highlight_cue', 'cue_id'),
+        # 分组查询（用于按组删除和渲染）
+        Index('idx_highlight_group', 'highlight_group_id'),
+        # 复合索引（提高查询性能）
+        Index('idx_highlight_episode_cue', 'episode_id', 'cue_id'),
+    )
+    
+    def __repr__(self):
+        """字符串表示"""
+        group_info = f", group='{self.highlight_group_id[:8]}...'" if self.highlight_group_id else ""
+        return f"<Highlight(id={self.id}, cue_id={self.cue_id}, text='{self.highlighted_text[:20]}...'{group_info})>"
 
 
 # ==================== 旧数据库模型（待迁移）====================

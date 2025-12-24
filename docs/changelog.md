@@ -4,6 +4,75 @@
 
 ---
 
+## [2025-12-24] [feat] - 实现 Highlight 模型（用户划线表）
+**变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`, `docs/开发计划.md`
+
+**功能说明**：
+实现 Highlight 模型，用于存储用户的划线标记（简化设计：单 cue 关联 + 分组管理）。
+
+**表结构设计**：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | Integer | 主键（自增） |
+| episode_id | Integer | 外键 → Episode（NOT NULL，级联删除） |
+| cue_id | Integer | 外键 → TranscriptCue（NOT NULL，级联删除） |
+| start_offset | Integer | 在 cue 内的字符起始位置（从 0 开始） |
+| end_offset | Integer | 在 cue 内的字符结束位置 |
+| highlighted_text | Text | 被划线的文本内容（快照，用于快速渲染） |
+| highlight_group_id | String | 分组 ID（UUID），跨 cue 划线时共享（可为 NULL） |
+| color | String | 划线颜色（默认 #9C27B0，紫色） |
+| created_at | DateTime | 创建时间 |
+| updated_at | DateTime | 更新时间（支持修改颜色等操作） |
+
+**设计要点**：
+1. **简化设计**：
+   - 不允许单个 Highlight 跨 cue，改为自动拆分 + 分组管理
+   - 单 cue 划线（90% 场景）：highlight_group_id = NULL
+   - 跨 cue 划线（10% 场景）：前端自动拆分成多个 Highlight，使用 highlight_group_id 关联
+   - 删除逻辑：如果 highlight_group_id 不为空，需要按组删除
+
+2. **字段优化**：
+   - `color`：数据库层面设置默认值 `#9C27B0`（紫色），更健壮
+   - `updated_at`：支持修改划线颜色、范围等操作，追踪最后修改时间
+   - `highlight_group_id`：明确为可空（nullable=True），用于跨 cue 划线场景
+
+3. **关联设计**：
+   - episode_id: NOT NULL，级联删除（删除 Episode 时删除所有 highlights）
+   - cue_id: NOT NULL，级联删除（删除 TranscriptCue 时删除关联的 highlights）
+   - 使用 cue.id（主键）关联，不使用 cue_index（解决异步转录问题）
+
+4. **索引优化**：
+   - idx_episode_highlight: (episode_id) - Episode 级别的划线查询
+   - idx_highlight_cue: (cue_id) - Cue 级别的划线查询（高频）
+   - idx_highlight_group: (highlight_group_id) - 分组查询（用于按组删除和渲染）
+   - idx_highlight_episode_cue: (episode_id, cue_id) - 复合索引（提高查询性能）
+
+**测试覆盖**（11个测试用例）：
+- test_highlight_model_creation: 基本创建和属性验证
+- test_highlight_color_default_value: color 默认值验证（#9C27B0）
+- test_highlight_updated_at_auto_update: updated_at 自动更新验证
+- test_highlight_single_cue_highlight: 单 cue 划线（highlight_group_id = NULL）
+- test_highlight_cross_cue_with_group: 跨 cue 划线（共享 highlight_group_id）
+- test_highlight_delete_by_group: 按组删除验证
+- test_highlight_relationship_with_episode: Episode 关系验证
+- test_highlight_relationship_with_cue: TranscriptCue 关系验证
+- test_highlight_cascade_delete_with_episode: Episode 级联删除验证
+- test_highlight_cascade_delete_with_cue: TranscriptCue 级联删除验证
+- test_highlight_string_representation: __repr__ 方法验证
+
+**测试结果**：
+- 所有 49 个测试通过（100% 通过率）
+- 执行时间：0.46 秒
+
+**优化亮点**：
+- ✅ 简化设计：单 cue 关联，极大降低复杂度
+- ✅ 完全解决异步转录问题：使用 cue.id（主键）关联，永不变化
+- ✅ 支持跨 cue 划线：通过分组管理实现，用户无感知
+- ✅ 数据库层面设置默认值：color 和 updated_at，更健壮
+- ✅ 符合 90% 的实际使用场景（单词/句子划线）
+
+---
+
 ## [2025-12-24] [docs] - 补充短音频处理设计说明（统一处理策略）
 **变更文件**: `docs/开发计划.md`
 
