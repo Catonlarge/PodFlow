@@ -247,7 +247,11 @@ class AudioSegment(Base):
         episode_id (int): 外键 → Episode
         segment_index (int): 段序号（从 0 开始，用于排序）
         segment_id (str): 分段 ID（如 "segment_001"）
-        segment_path (str): 物理文件路径（虚拟分段为 NULL）
+        segment_path (str): 临时音频文件路径（生命周期管理）
+            - 初始状态（pending）: NULL（未提取音频）
+            - 转录前/转录中（processing）: 记录临时文件路径（如 backend/data/temp_segments/segment_001_abc123.wav）
+            - 转录成功后（completed）: 清空为 NULL（临时文件已删除）
+            - 转录失败时（failed）: 保留路径（用于重试，无需重新提取音频）
         start_time (float): 在原音频中的开始时间（秒）
         end_time (float): 在原音频中的结束时间（秒）
         status (str): 识别状态（pending/processing/completed/failed）
@@ -261,13 +265,17 @@ class AudioSegment(Base):
         duration (float): 分段时长（end_time - start_time）
     
     设计要点：
-        - 虚拟分段：segment_path 为 NULL，不存储物理文件
-        - 只记录时间范围（start_time, end_time）
+        - 虚拟分段：只记录时间范围（start_time, end_time），不切割物理文件
         - duration 通过 @property 动态计算，避免数据不一致
-        - 转录时用 FFmpeg 实时提取到临时文件
+        - 临时文件管理：
+            * 转录开始时，FFmpeg 提取片段到持久临时文件，记录路径到 segment_path
+            * 转录成功后，删除临时文件，清空 segment_path
+            * 转录失败时，保留临时文件和路径，重试时可直接使用（节省提取时间）
+            * 定期清理孤儿临时文件（超过 24 小时的失败转录）
         - 支持异步识别：用户滚动时按需识别后续 segment
         - 顺序保证：segment_index 必须连续（0, 1, 2, 3...）
-        - 重试机制：retry_count 记录失败重试次数
+        - 重试机制：retry_count 记录失败重试次数，便于监控和限制最大重试
+        - 中断恢复：服务器重启后，可根据 segment_path 继续转录（如果文件存在）
     """
     __tablename__ = "audio_segments"
     
