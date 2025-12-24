@@ -38,7 +38,18 @@ MAX_FILE_SIZE = 1024 * 1024 * 1024  # 1GB
 
 # ==================== AI 查询配置 ====================
 
+# 默认 AI 提供商
+DEFAULT_AI_PROVIDER = "gpt-3.5-turbo"
+
+# 可选提供商列表
+AVAILABLE_PROVIDERS = [
+    "gpt-3.5-turbo",
+    "gpt-4",
+    "gpt-4-turbo",
+    "claude-3-sonnet",
+    "claude-3-opus"
+]
+
 # OpenAI API 配置（待实现）
 # OPENAI_API_KEY = ""
-# OPENAI_MODEL = "gpt-3.5-turbo"
 

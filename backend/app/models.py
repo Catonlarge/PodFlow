@@ -462,6 +462,7 @@ class Highlight(Base):
     episode = relationship("Episode", back_populates="highlights")
     cue = relationship("TranscriptCue", back_populates="highlights")
     notes = relationship("Note", back_populates="highlight", cascade="all, delete-orphan")
+    ai_queries = relationship("AIQueryRecord", back_populates="highlight", cascade="all, delete-orphan")
     
     # 表级约束和索引
     __table_args__ = (
@@ -525,7 +526,7 @@ class Note(Base):
     # 关联字段
     episode_id = Column(Integer, ForeignKey("episodes.id", ondelete="CASCADE"), nullable=False)
     highlight_id = Column(Integer, ForeignKey("highlights.id", ondelete="CASCADE"), nullable=False)
-    origin_ai_query_id = Column(Integer, nullable=True)  # 暂时不设置外键，等 AIQueryRecord 实现后再添加
+    origin_ai_query_id = Column(Integer, ForeignKey("ai_query_records.id", ondelete="SET NULL"), nullable=True)
     
     # 笔记内容
     content = Column(Text, nullable=True)  # underline 类型时为空
@@ -538,7 +539,8 @@ class Note(Base):
     # 关系映射
     episode = relationship("Episode", back_populates="notes")
     highlight = relationship("Highlight", back_populates="notes")
-    # ai_query = relationship("AIQueryRecord", back_populates="notes")  # 待 AIQueryRecord 实现后添加
+    # 反向关联 AIQueryRecord（不拥有，只是引用）
+    # ai_query 通过 origin_ai_query_id 关联，但不使用 relationship（避免循环依赖）
     
     # 表级约束和索引
     __table_args__ = (
@@ -559,6 +561,96 @@ class Note(Base):
         """字符串表示"""
         content_preview = f"content='{self.content[:20]}...'" if self.content else "content=None"
         return f"<Note(id={self.id}, type='{self.note_type}', {content_preview})>"
+
+
+class AIQueryRecord(Base):
+    """
+    AI 查询记录模型（作为缓存/日志）
+    
+    记录用户的所有 AI 查询，包括查询内容、上下文、AI 响应等。
+    
+    Attributes:
+        id (int): 主键
+        highlight_id (int): 外键 → Highlight（必需）
+        query_text (str): 用户查询的文本（划线内容）
+        context_text (str): 上下文（相邻 2-3 个 cue 的文本，用于专有名词识别）
+        response_text (str): AI 返回的结果
+        query_type (str): 查询类型（word_translation/phrase_explanation/concept）
+        provider (str): AI 提供商（如 "gpt-3.5-turbo", "claude-3-sonnet"）
+        status (str): 查询状态（processing/completed/failed）
+        error_message (str): 错误信息（失败时记录原因）
+        created_at (datetime): 创建时间
+    
+    设计要点：
+        - AIQueryRecord 的定位：
+            * 缓存：避免重复查询同样的内容（节省 Token 成本）
+            * 日志：记录所有 AI 查询历史，用于数据分析
+            * 临时存储：用户可能查询了但没有保存为笔记
+        
+        - 独立存在，不强依赖 Note：
+            * 用户划线 → 点"AI 查询" → 立即创建 AIQueryRecord
+            * 用户可能不保存为笔记（只是临时查看）
+            * 如果保存为笔记，Note 通过 origin_ai_query_id 反向关联
+        
+        - 查询缓存逻辑：
+            * 查询前先检查是否已有缓存（highlight_id + query_type）
+            * 如果有且状态为 completed，直接返回缓存的 response_text
+            * 避免重复调用 AI API，节省成本
+        
+        - provider 全局配置管理：
+            * 默认值从 config.DEFAULT_AI_PROVIDER 获取
+            * 支持灵活切换不同 AI 提供商（实验和对比）
+            * 便于数据分析：统计不同模型的效果和成本
+        
+        - 级联删除：
+            * 删除 Highlight → 删除所有 AIQueryRecord（CASCADE）
+            * 删除 AIQueryRecord → 不影响 Note（Note 已保存 content）
+    """
+    __tablename__ = "ai_query_records"
+    
+    # 主键
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # 关联字段
+    highlight_id = Column(Integer, ForeignKey("highlights.id", ondelete="CASCADE"), nullable=False)
+    
+    # 查询内容
+    query_text = Column(Text, nullable=False)  # 用户查询的文本（必需）
+    context_text = Column(Text, nullable=True)  # 上下文（可选）
+    response_text = Column(Text, nullable=True)  # AI 返回结果（处理中或失败时为空）
+    
+    # 查询类型和提供商
+    query_type = Column(String, nullable=False)  # word_translation/phrase_explanation/concept
+    provider = Column(String, nullable=False)  # AI 提供商（从 config 获取默认值）
+    
+    # 状态和错误信息
+    status = Column(String, default="processing", nullable=False)  # processing/completed/failed
+    error_message = Column(Text, nullable=True)  # 失败时记录错误原因
+    
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # 关系映射
+    highlight = relationship("Highlight", back_populates="ai_queries")
+    # notes = relationship("Note", foreign_keys="Note.origin_ai_query_id")  # 反向关联，不拥有 Note
+    
+    # 表级约束和索引
+    __table_args__ = (
+        # Highlight 级别的查询索引（高频：缓存查询）
+        Index('idx_highlight_query', 'highlight_id'),
+        # 按状态查询（监控失败查询）
+        Index('idx_query_status', 'status'),
+        # 按提供商查询（数据分析）
+        Index('idx_query_provider', 'provider'),
+        # 复合索引（缓存查询优化）
+        Index('idx_query_highlight_type', 'highlight_id', 'query_type'),
+        Index('idx_query_highlight_status', 'highlight_id', 'status'),
+    )
+    
+    def __repr__(self):
+        """字符串表示"""
+        query_preview = f"query='{self.query_text[:20]}...'" if len(self.query_text) > 20 else f"query='{self.query_text}'"
+        return f"<AIQueryRecord(id={self.id}, type='{self.query_type}', status='{self.status}', {query_preview})>"
 
 
 # ==================== 旧数据库模型（待迁移）====================

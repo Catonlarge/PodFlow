@@ -4,7 +4,7 @@ pytest 测试配置文件
 """
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -20,6 +20,14 @@ test_engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+# 启用 SQLite 外键约束（Critical for CASCADE and SET NULL）
+@event.listens_for(test_engine, "connect")
+def set_sqlite_pragma(dbapi_conn, connection_record):
+    """为每个新连接启用外键约束"""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 TestingSessionLocal = sessionmaker(
     autocommit=False, autoflush=False, bind=test_engine

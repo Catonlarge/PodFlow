@@ -4,6 +4,80 @@
 
 ---
 
+## [2025-12-24] [feat] - 实现 AIQueryRecord 模型（AI 查询记录表）
+**变更文件**: `backend/app/models.py`, `backend/app/config.py`, `backend/tests/test_models_new.py`, `backend/tests/conftest.py`, `docs/开发计划.md`
+
+**功能说明**：
+实现 AIQueryRecord 模型，用于记录所有 AI 查询，作为缓存和日志系统。
+
+**表结构设计**：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | Integer | 主键（自增） |
+| highlight_id | Integer | 外键 → Highlight（NOT NULL，级联删除） |
+| query_text | Text | 用户查询的文本（必需） |
+| context_text | Text | 上下文（可选，用于专有名词识别） |
+| response_text | Text | AI 返回的结果（可空，处理中或失败时为空） |
+| query_type | String | 查询类型（word_translation/phrase_explanation/concept，必需） |
+| provider | String | AI 提供商（从 config 获取默认值） |
+| status | String | 查询状态（processing/completed/failed，默认 processing） |
+| error_message | Text | 错误信息（失败时记录，可空） |
+| created_at | DateTime | 创建时间 |
+
+**设计要点**：
+1. **AIQueryRecord 定位**（缓存 + 日志 + 临时存储）：
+   - **缓存**：避免重复查询同样的内容（节省 Token 成本）
+   - **日志**：记录所有 AI 查询历史，用于数据分析
+   - **临时存储**：用户可能查询了但没有保存为笔记
+
+2. **独立存在，不强依赖 Note**：
+   - 用户划线 → 点"AI 查询" → 立即创建 AIQueryRecord
+   - 用户可能不保存为笔记（只是临时查看）
+   - 如果保存为笔记，Note 通过 origin_ai_query_id 反向关联
+
+3. **查询缓存逻辑**：
+   - 查询前先检查是否已有缓存（highlight_id + query_type）
+   - 如果有且状态为 completed，直接返回缓存的 response_text
+   - 避免重复调用 AI API，节省成本
+
+4. **Provider 全局配置管理**：
+   - 默认值从 `config.DEFAULT_AI_PROVIDER` 获取（"gpt-3.5-turbo"）
+   - 支持灵活切换不同 AI 提供商（实验和对比）
+   - 便于数据分析：统计不同模型的效果和成本
+
+5. **级联删除和 SET NULL**：
+   - 删除 Highlight → 删除所有 AIQueryRecord（CASCADE）
+   - 删除 AIQueryRecord → Note 保留，origin_ai_query_id 设为 NULL（SET NULL）
+   - 启用 SQLite 外键约束（`PRAGMA foreign_keys=ON`）
+
+**索引优化**：
+- Highlight 级别的查询索引：`idx_highlight_query`（高频：缓存查询）
+- 按状态查询：`idx_query_status`（监控失败查询）
+- 按提供商查询：`idx_query_provider`（数据分析）
+- 复合索引：`idx_query_highlight_type`, `idx_query_highlight_status`（缓存查询优化）
+
+**测试覆盖**：
+- 10 个全面的测试用例
+- 测试内容：基本创建、默认状态、错误处理、关系映射、级联删除、缓存逻辑、不同提供商、AI 到 Note 转化、查询类型、字符串表示
+- **修复 SQLite 外键约束**：在 conftest.py 中启用 `PRAGMA foreign_keys=ON`
+- 所有 69 个测试通过（100% 通过率，0.75s 执行时间）
+
+**设计优势**：
+- 明确 AI 查询作为缓存/日志的定位
+- Provider 全局配置管理，便于实验和切换
+- 查询缓存逻辑节省 AI API 成本
+- 独立存在，不强依赖 Note，灵活性高
+- 完善的级联删除规则，保证数据一致性
+- 数据库级别的外键约束，确保数据完整性
+
+**技术亮点**：
+- 启用 SQLite 外键约束（conftest.py 中添加 `@event.listens_for`）
+- 实现 CASCADE 和 SET NULL 的正确行为
+- Provider 默认值从全局配置获取
+- 默认状态设置为 "processing"
+
+---
+
 ## [2025-12-24] [feat] - 实现 Note 模型（用户笔记表）
 **变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`, `docs/开发计划.md`
 

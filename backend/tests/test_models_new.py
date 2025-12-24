@@ -2083,7 +2083,7 @@ def test_note_model_creation(db_session):
 
 def test_note_three_types(db_session):
     """测试 Note 的三种类型：underline/thought/ai_card"""
-    from app.models import Episode, TranscriptCue, Highlight, Note
+    from app.models import Episode, TranscriptCue, Highlight, Note, AIQueryRecord
     
     # 创建测试数据
     episode = Episode(
@@ -2114,6 +2114,18 @@ def test_note_three_types(db_session):
     db_session.add(highlight)
     db_session.commit()
     
+    # 创建 AI 查询记录（用于 ai_card 类型）
+    ai_query = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo",
+        status="completed",
+        response_text="AI generated explanation"
+    )
+    db_session.add(ai_query)
+    db_session.commit()
+    
     # 1. underline 类型（纯划线，content 为空）
     note_underline = Note(
         episode_id=episode.id,
@@ -2138,7 +2150,7 @@ def test_note_three_types(db_session):
         highlight_id=highlight.id,
         content="AI generated explanation",
         note_type="ai_card",
-        origin_ai_query_id=999  # 假设的 AI 查询 ID
+        origin_ai_query_id=ai_query.id  # 使用真实的 AI 查询 ID
     )
     db_session.add(note_ai)
     db_session.commit()
@@ -2152,7 +2164,7 @@ def test_note_three_types(db_session):
     
     assert note_ai.note_type == "ai_card"
     assert note_ai.content == "AI generated explanation"
-    assert note_ai.origin_ai_query_id == 999
+    assert note_ai.origin_ai_query_id == ai_query.id
     
     # 验证数据库中有 3 条记录
     assert db_session.query(Note).count() == 3
@@ -2583,5 +2595,612 @@ def test_note_string_representation(db_session):
     assert "Note" in note_repr2
     assert "underline" in note_repr2
     assert "content=None" in note_repr2
+
+
+# ==================== AIQueryRecord Model Tests ====================
+
+def test_ai_query_record_model_creation(db_session):
+    """测试 AIQueryRecord 模型的基本创建"""
+    from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
+    
+    # 创建测试数据
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_ai_query_001",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="This is a taxonomy example"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=10,
+        end_offset=18,
+        highlighted_text="taxonomy"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建 AI 查询记录
+    ai_query = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="taxonomy",
+        context_text="This is a taxonomy example. The study of classification.",
+        response_text="n. 分类学；分类法",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo",
+        status="completed"
+    )
+    db_session.add(ai_query)
+    db_session.commit()
+    
+    # 验证基本字段
+    assert ai_query.id is not None
+    assert ai_query.highlight_id == highlight.id
+    assert ai_query.query_text == "taxonomy"
+    assert ai_query.context_text == "This is a taxonomy example. The study of classification."
+    assert ai_query.response_text == "n. 分类学；分类法"
+    assert ai_query.query_type == "word_translation"
+    assert ai_query.provider == "gpt-3.5-turbo"
+    assert ai_query.status == "completed"
+    assert ai_query.error_message is None
+    assert ai_query.created_at is not None
+
+
+def test_ai_query_record_default_status(db_session):
+    """测试 AIQueryRecord 的默认状态为 processing"""
+    from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_ai_query_status",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test text"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建查询记录，不指定 status
+    ai_query = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo"
+    )
+    db_session.add(ai_query)
+    db_session.commit()
+    
+    # 验证默认状态
+    assert ai_query.status == "processing"
+    assert ai_query.response_text is None
+
+
+def test_ai_query_record_with_error(db_session):
+    """测试 AIQueryRecord 的失败场景（带错误信息）"""
+    from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_ai_query_error",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test text"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建失败的查询记录
+    ai_query = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo",
+        status="failed",
+        error_message="API rate limit exceeded"
+    )
+    db_session.add(ai_query)
+    db_session.commit()
+    
+    # 验证
+    assert ai_query.status == "failed"
+    assert ai_query.error_message == "API rate limit exceeded"
+    assert ai_query.response_text is None
+
+
+def test_ai_query_record_relationship_with_highlight(db_session):
+    """测试 AIQueryRecord 与 Highlight 的关系"""
+    from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_ai_query_highlight",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test text"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建两个查询记录
+    ai_query1 = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo"
+    )
+    ai_query2 = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="phrase_explanation",
+        provider="gpt-4"
+    )
+    db_session.add_all([ai_query1, ai_query2])
+    db_session.commit()
+    
+    # 验证关系
+    assert len(highlight.ai_queries) == 2
+    assert ai_query1 in highlight.ai_queries
+    assert ai_query2 in highlight.ai_queries
+    assert ai_query1.highlight == highlight
+    assert ai_query2.highlight == highlight
+
+
+def test_ai_query_record_cascade_delete_with_highlight(db_session):
+    """测试删除 Highlight 时级联删除 AIQueryRecord"""
+    from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_ai_query_cascade",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test text"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    ai_query = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo"
+    )
+    db_session.add(ai_query)
+    db_session.commit()
+    
+    ai_query_id = ai_query.id
+    
+    # 删除 Highlight
+    db_session.delete(highlight)
+    db_session.commit()
+    
+    # 验证 AIQueryRecord 也被删除
+    assert db_session.query(AIQueryRecord).filter_by(id=ai_query_id).count() == 0
+
+
+def test_ai_query_record_cache_logic(db_session):
+    """测试 AIQueryRecord 的缓存查询逻辑"""
+    from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_ai_query_cache",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test text"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建已完成的查询记录（缓存）
+    ai_query = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo",
+        status="completed",
+        response_text="测试"
+    )
+    db_session.add(ai_query)
+    db_session.commit()
+    
+    # 模拟缓存查询逻辑
+    existing = db_session.query(AIQueryRecord).filter(
+        AIQueryRecord.highlight_id == highlight.id,
+        AIQueryRecord.query_type == "word_translation"
+    ).first()
+    
+    # 验证缓存命中
+    assert existing is not None
+    assert existing.status == "completed"
+    assert existing.response_text == "测试"
+
+
+def test_ai_query_record_different_providers(db_session):
+    """测试不同 AI 提供商的查询记录"""
+    from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_ai_query_providers",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test text"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建不同提供商的查询记录
+    query_gpt35 = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo",
+        status="completed",
+        response_text="GPT-3.5 result"
+    )
+    query_gpt4 = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="gpt-4",
+        status="completed",
+        response_text="GPT-4 result"
+    )
+    query_claude = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="claude-3-sonnet",
+        status="completed",
+        response_text="Claude result"
+    )
+    
+    db_session.add_all([query_gpt35, query_gpt4, query_claude])
+    db_session.commit()
+    
+    # 验证可以按提供商查询
+    gpt_queries = db_session.query(AIQueryRecord).filter(
+        AIQueryRecord.provider.like("gpt%")
+    ).all()
+    assert len(gpt_queries) == 2
+    
+    claude_queries = db_session.query(AIQueryRecord).filter_by(
+        provider="claude-3-sonnet"
+    ).all()
+    assert len(claude_queries) == 1
+
+
+def test_ai_query_record_to_note_conversion(db_session):
+    """测试 AIQueryRecord 到 Note 的转化（Critical）"""
+    from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord, Note
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_ai_to_note",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="This is a taxonomy example"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=10,
+        end_offset=18,
+        highlighted_text="taxonomy"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 1. 用户划线 → AI 查询
+    ai_query = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="taxonomy",
+        context_text="This is a taxonomy example.",
+        response_text="n. 分类学；分类法",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo",
+        status="completed"
+    )
+    db_session.add(ai_query)
+    db_session.commit()
+    
+    # 2. 用户点击"保存笔记" → 创建 Note
+    note = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        origin_ai_query_id=ai_query.id,  # 标记来源
+        content=ai_query.response_text,
+        note_type="ai_card"
+    )
+    db_session.add(note)
+    db_session.commit()
+    
+    # 验证关联
+    assert note.origin_ai_query_id == ai_query.id
+    assert note.note_type == "ai_card"
+    assert note.content == ai_query.response_text
+    
+    # 3. 删除 AIQueryRecord → Note 保留，origin_ai_query_id 设为 NULL
+    ai_query_id = ai_query.id
+    db_session.delete(ai_query)
+    db_session.commit()
+    
+    # 刷新 note 对象
+    db_session.expire(note)
+    db_session.refresh(note)
+    
+    # 验证 Note 仍存在，但 origin_ai_query_id 被设为 NULL
+    assert db_session.query(Note).filter_by(id=note.id).count() == 1
+    assert note.origin_ai_query_id is None  # SET NULL 生效
+    assert note.content == "n. 分类学；分类法"  # content 保留
+
+
+def test_ai_query_record_query_types(db_session):
+    """测试不同查询类型的 AIQueryRecord"""
+    from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_ai_query_types",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test text"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建不同类型的查询
+    query1 = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo",
+        status="completed"
+    )
+    query2 = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test phrase",
+        query_type="phrase_explanation",
+        provider="gpt-3.5-turbo",
+        status="completed"
+    )
+    query3 = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="concept",
+        query_type="concept",
+        provider="gpt-3.5-turbo",
+        status="completed"
+    )
+    
+    db_session.add_all([query1, query2, query3])
+    db_session.commit()
+    
+    # 验证查询类型
+    assert query1.query_type == "word_translation"
+    assert query2.query_type == "phrase_explanation"
+    assert query3.query_type == "concept"
+    
+    # 按类型查询
+    translation_queries = db_session.query(AIQueryRecord).filter_by(
+        query_type="word_translation"
+    ).all()
+    assert len(translation_queries) == 1
+
+
+def test_ai_query_record_string_representation(db_session):
+    """测试 AIQueryRecord 的字符串表示"""
+    from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_ai_query_repr",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test text"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 短查询文本
+    ai_query_short = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        query_type="word_translation",
+        provider="gpt-3.5-turbo",
+        status="completed"
+    )
+    db_session.add(ai_query_short)
+    db_session.commit()
+    
+    repr_short = repr(ai_query_short)
+    assert "AIQueryRecord" in repr_short
+    assert "word_translation" in repr_short
+    assert "completed" in repr_short
+    assert "query='test'" in repr_short
+    
+    # 长查询文本（会被截断）
+    ai_query_long = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="This is a very long query text that should be truncated in repr",
+        query_type="phrase_explanation",
+        provider="gpt-4",
+        status="processing"
+    )
+    db_session.add(ai_query_long)
+    db_session.commit()
+    
+    repr_long = repr(ai_query_long)
+    assert "AIQueryRecord" in repr_long
+    assert "phrase_explanation" in repr_long
+    assert "processing" in repr_long
+    assert "..." in repr_long  # 截断标记
 
 
