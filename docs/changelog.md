@@ -4,6 +4,57 @@
 
 ---
 
+## [2025-12-24] [refactor] - 优化 AudioSegment.duration 字段（改为 @property 动态计算）
+**变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`, `docs/开发计划.md`
+
+**问题识别**：
+- AudioSegment 表存储了 `duration` 字段（Float）
+- duration 实际上可以通过 `end_time - start_time` 计算得出
+- 存储冗余数据可能导致数据不一致性（如果 start_time 或 end_time 改变，duration 不会自动更新）
+- 违反数据库第三范式（3NF）
+
+**优化方案**：
+1. **删除 duration 存储字段**：从 AudioSegment 表定义中移除
+2. **改为 @property 动态计算**：
+   ```python
+   @property
+   def duration(self):
+       """分段时长（动态计算，避免数据不一致）"""
+       return self.end_time - self.start_time
+   ```
+
+**设计优势**：
+- ✅ **符合数据库第三范式（3NF）**：消除派生数据
+- ✅ **保证数据一致性**：start_time 或 end_time 改变时，duration 自动正确
+- ✅ **消除数据冗余**：不存储可计算的值
+- ✅ **与 Episode 设计一致**：保持项目整体设计风格统一（Episode 的 show_name、needs_segmentation 等也是 @property）
+
+**测试更新**：
+- 更新所有测试用例：删除创建 AudioSegment 时的 duration 参数（7 个测试用例）
+- 新增测试：`test_audio_segment_duration_property`（验证动态计算和数据一致性）
+- 所有 27 个测试通过（100% 通过率）
+
+**影响范围**：
+- ✅ 访问方式不变：仍然可以使用 `segment.duration` 访问
+- ✅ 性能影响可忽略：简单减法运算，无性能问题
+- ⚠️ 注意：duration 是只读属性，不能直接赋值（预期行为）
+
+**变更详情**：
+1. `backend/app/models.py`：
+   - 删除 `duration = Column(Float, nullable=False)` 
+   - 添加 `@property duration` 方法
+   - 更新 docstring
+   
+2. `backend/tests/test_models_new.py`：
+   - 删除所有测试用例中的 `duration` 参数（7 处）
+   - 新增 `test_audio_segment_duration_property` 测试（验证动态计算、数据一致性、只读属性）
+   
+3. `docs/开发计划.md`：
+   - 更新 AudioSegment 表设计说明
+   - 添加 duration 动态计算的设计要点
+
+---
+
 ## [2025-12-24] [feat] - 实现 AudioSegment 表（音频虚拟分段模型）
 **变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`
 

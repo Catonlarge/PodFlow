@@ -533,7 +533,6 @@ def test_audio_segment_model_creation(db_session):
         segment_path=None,  # 虚拟分段
         start_time=0.0,
         end_time=180.0,
-        duration=180.0,
         status="pending",
         retry_count=0
     )
@@ -578,7 +577,6 @@ def test_audio_segment_relationship_with_episode(db_session):
         segment_path=None,
         start_time=0.0,
         end_time=180.0,
-        duration=180.0,
         status="pending"
     )
     segment2 = AudioSegment(
@@ -588,7 +586,6 @@ def test_audio_segment_relationship_with_episode(db_session):
         segment_path=None,
         start_time=180.0,
         end_time=360.0,
-        duration=180.0,
         status="pending"
     )
     db_session.add_all([segment1, segment2])
@@ -623,7 +620,6 @@ def test_audio_segment_status_and_retry(db_session):
         segment_path=None,
         start_time=0.0,
         end_time=180.0,
-        duration=180.0,
         status="pending",
         retry_count=0
     )
@@ -682,7 +678,6 @@ def test_audio_segment_cascade_delete_with_episode(db_session):
         segment_path=None,
         start_time=0.0,
         end_time=180.0,
-        duration=180.0,
         status="pending"
     )
     segment2 = AudioSegment(
@@ -692,7 +687,6 @@ def test_audio_segment_cascade_delete_with_episode(db_session):
         segment_path=None,
         start_time=180.0,
         end_time=360.0,
-        duration=180.0,
         status="pending"
     )
     db_session.add_all([segment1, segment2])
@@ -733,7 +727,6 @@ def test_audio_segment_unique_constraint(db_session):
         segment_path=None,
         start_time=0.0,
         end_time=180.0,
-        duration=180.0,
         status="pending"
     )
     db_session.add(segment1)
@@ -747,7 +740,6 @@ def test_audio_segment_unique_constraint(db_session):
         segment_path=None,
         start_time=0.0,
         end_time=180.0,
-        duration=180.0,
         status="pending"
     )
     db_session.add(segment2)
@@ -778,7 +770,6 @@ def test_audio_segment_virtual_segmentation(db_session):
         segment_path=None,  # ⭐ 虚拟分段，不存储物理文件
         start_time=0.0,
         end_time=180.0,
-        duration=180.0,
         status="pending"
     )
     db_session.add(segment)
@@ -812,7 +803,6 @@ def test_audio_segment_string_representation(db_session):
         segment_path=None,
         start_time=0.0,
         end_time=180.0,
-        duration=180.0,
         status="pending"
     )
     db_session.add(segment)
@@ -823,5 +813,67 @@ def test_audio_segment_string_representation(db_session):
     assert repr(segment) is not None
     assert "AudioSegment" in repr(segment)
     assert f"id={segment.id}" in repr(segment)
+
+
+def test_audio_segment_duration_property(db_session):
+    """测试 AudioSegment 的 duration 属性（动态计算）"""
+    from app.models import Episode, AudioSegment
+    
+    # 创建 Episode
+    episode = Episode(
+        title="Duration Property Test",
+        file_hash="duration_prop_001",
+        duration=600.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 创建 Segment（不同的时间范围）
+    segment1 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,  # 180 秒
+        status="pending"
+    )
+    segment2 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=1,
+        segment_id="segment_002",
+        segment_path=None,
+        start_time=180.0,
+        end_time=360.0,  # 180 秒
+        status="pending"
+    )
+    segment3 = AudioSegment(
+        episode_id=episode.id,
+        segment_index=2,
+        segment_id="segment_003",
+        segment_path=None,
+        start_time=360.0,
+        end_time=420.0,  # 60 秒（最后一段）
+        status="pending"
+    )
+    db_session.add_all([segment1, segment2, segment3])
+    db_session.commit()
+    
+    # 验证 duration 属性（动态计算）
+    assert segment1.duration == 180.0  # 180 - 0 = 180
+    assert segment2.duration == 180.0  # 360 - 180 = 180
+    assert segment3.duration == 60.0   # 420 - 360 = 60
+    
+    # 修改 end_time，验证 duration 自动更新（数据一致性）
+    segment1.end_time = 200.0
+    assert segment1.duration == 200.0  # 200 - 0 = 200（自动正确）
+    
+    # 验证：duration 不是存储字段，而是计算属性
+    # 不能直接赋值
+    try:
+        segment1.duration = 999.0
+        assert False, "不应该能够直接设置 duration 属性"
+    except AttributeError:
+        pass  # 预期行为：不能设置只读属性
 
 

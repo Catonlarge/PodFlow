@@ -180,7 +180,6 @@ class AudioSegment(Base):
         segment_path (str): 物理文件路径（虚拟分段为 NULL）
         start_time (float): 在原音频中的开始时间（秒）
         end_time (float): 在原音频中的结束时间（秒）
-        duration (float): 分段时长（秒）
         status (str): 识别状态（pending/processing/completed/failed）
         error_message (str): 错误信息
         retry_count (int): 重试次数（默认 0）
@@ -188,9 +187,13 @@ class AudioSegment(Base):
         recognized_at (datetime): 识别完成时间
         created_at (datetime): 创建时间
     
+    Properties（动态计算属性）:
+        duration (float): 分段时长（end_time - start_time）
+    
     设计要点：
         - 虚拟分段：segment_path 为 NULL，不存储物理文件
         - 只记录时间范围（start_time, end_time）
+        - duration 通过 @property 动态计算，避免数据不一致
         - 转录时用 FFmpeg 实时提取到临时文件
         - 支持异步识别：用户滚动时按需识别后续 segment
         - 顺序保证：segment_index 必须连续（0, 1, 2, 3...）
@@ -212,7 +215,6 @@ class AudioSegment(Base):
     # 时间范围（核心）
     start_time = Column(Float, nullable=False)       # 在原音频中的开始时间（秒）
     end_time = Column(Float, nullable=False)         # 在原音频中的结束时间（秒）
-    duration = Column(Float, nullable=False)         # 分段时长（秒）
     
     # 识别状态
     status = Column(String, default="pending", nullable=False)  # pending/processing/completed/failed
@@ -236,6 +238,19 @@ class AudioSegment(Base):
         Index('idx_segment_status', 'status'),  # 按状态查询（用于监控和重试）
         Index('idx_episode_status_segment', 'episode_id', 'status', 'segment_index'),  # 复合索引
     )
+    
+    @property
+    def duration(self):
+        """
+        分段时长（动态计算，避免数据不一致）
+        
+        计算逻辑：end_time - start_time
+        优点：
+        - 符合数据库第三范式（3NF）
+        - 消除数据冗余
+        - 保证数据一致性（start_time 或 end_time 改变时，duration 自动正确）
+        """
+        return self.end_time - self.start_time
     
     def __repr__(self):
         """字符串表示"""
