@@ -4,6 +4,84 @@
 
 ---
 
+## [2025-12-24] [feat] - 实现 TranscriptCue 模型（字幕片段表）
+**变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`
+
+**功能说明**：
+实现 TranscriptCue 模型，用于存储单句字幕的时间范围、说话人和文本内容（对应 PRD 中的 cue 概念）。
+
+**表结构设计**：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | Integer | 主键（自增） |
+| episode_id | Integer | 外键 → Episode（NOT NULL，级联删除） |
+| segment_id | Integer | 外键 → AudioSegment（可为空，SET NULL） |
+| cue_index | Integer | Episode 级别的全局索引（1, 2, 3...） |
+| start_time | Float | 开始时间戳（秒，绝对时间） |
+| end_time | Float | 结束时间戳（秒，绝对时间） |
+| speaker | String | 说话人标识（默认 "Unknown"） |
+| text | Text | 字幕文本内容 |
+| created_at | DateTime | 创建时间 |
+
+**设计要点**：
+1. **cue_index 设计**：
+   - 存储为数据库字段（而非动态计算）
+   - Episode 级别的全局索引，保证字幕顺序连续性
+   - 每当某个 segment 转录完成时，统一重新计算所有 cue 的 cue_index
+   - 按 start_time 排序后分配（1, 2, 3, 4...）
+   - 支持异步转录和重试场景
+
+2. **时间戳设计**：
+   - start_time/end_time 是相对于原始音频的绝对时间
+   - 作为 cue_index 分配和排序的依据
+   - 用于音频同步和字幕显示
+
+3. **关联设计**：
+   - episode_id: NOT NULL，级联删除（删除 Episode 时删除所有 cues）
+   - segment_id: 可为空，SET NULL（删除 Segment 时保留 cues）
+   - Highlight 关联使用 cue.id（主键），不使用 cue_index（避免重新索引问题）
+
+4. **索引优化**：
+   - idx_episode_cue_index: (episode_id, cue_index) - 快速排序和范围查询
+   - idx_episode_time: (episode_id, start_time) - 音频同步和重新索引
+   - idx_segment_id: (segment_id) - 异步识别
+
+**测试覆盖**（8个测试用例）：
+- test_transcript_cue_model_creation: 基本创建和属性验证
+- test_transcript_cue_relationship_with_episode: Episode 关系验证
+- test_transcript_cue_relationship_with_segment: AudioSegment 关系验证
+- test_transcript_cue_cascade_delete_with_episode: 级联删除验证
+- test_transcript_cue_set_null_when_segment_deleted: SET NULL 验证
+- test_transcript_cue_query_by_cue_index: 按 cue_index 查询和排序
+- test_transcript_cue_default_speaker: speaker 默认值验证
+- test_transcript_cue_string_representation: __repr__ 方法验证
+
+**测试结果**：
+- 所有 38 个测试通过（100% 通过率）
+- 执行时间：0.29 秒
+
+**符合 PRD 格式**：
+```json
+{
+  "cues": [
+    {
+      "id": 0,          → cue_index（从 1 开始更直观）
+      "start": 0.28,    → start_time
+      "end": 2.22,      → end_time
+      "speaker": "Lenny", → speaker
+      "text": "Thank you..." → text
+    }
+  ]
+}
+```
+
+**注意事项**：
+- cue_index 会在异步转录场景下重新分配，但 cue.id（主键）永不改变
+- Highlight 等功能应使用 cue.id 进行关联，而非 cue_index
+- segment_id 可为空，支持手动导入字幕等场景
+
+---
+
 ## [2025-12-24] [refactor] - 优化 AudioSegment.segment_path 生命周期管理（支持中断恢复和重试）
 **变更文件**: `backend/app/models.py`, `docs/开发计划.md`
 

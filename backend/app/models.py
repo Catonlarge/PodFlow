@@ -112,6 +112,7 @@ class Episode(Base):
     # 关系映射
     podcast = relationship("Podcast", back_populates="episodes")
     segments = relationship("AudioSegment", back_populates="episode", cascade="all, delete-orphan")
+    transcript_cues = relationship("TranscriptCue", back_populates="episode", cascade="all, delete-orphan")
     
     @property
     def show_name(self):
@@ -305,7 +306,7 @@ class AudioSegment(Base):
     
     # 关系映射
     episode = relationship("Episode", back_populates="segments")
-    # cues = relationship("TranscriptCue", back_populates="segment", cascade="all, delete-orphan")  # 待实现
+    transcript_cues = relationship("TranscriptCue", back_populates="segment")
     
     # 表级约束和索引
     __table_args__ = (
@@ -333,6 +334,74 @@ class AudioSegment(Base):
     def __repr__(self):
         """字符串表示"""
         return f"<AudioSegment(id={self.id}, episode_id={self.episode_id}, segment_index={self.segment_index}, status='{self.status}')>"
+
+
+class TranscriptCue(Base):
+    """
+    字幕片段模型（对应 PRD 中的 cue 概念）
+    
+    存储单句字幕的时间范围、说话人和文本内容。
+    
+    Attributes:
+        id (int): 主键
+        episode_id (int): 外键 → Episode
+        segment_id (int): 外键 → AudioSegment（可为空，支持手动导入字幕）
+        cue_index (int): Episode 级别的全局索引（1, 2, 3...，用于排序）
+        start_time (float): 开始时间戳（秒，相对于原始音频的绝对时间）
+        end_time (float): 结束时间戳（秒，相对于原始音频的绝对时间）
+        speaker (str): 说话人标识（如 "Lenny", "SPEAKER_01", "Unknown"）
+        text (str): 字幕文本内容
+        created_at (datetime): 创建时间
+    
+    设计要点：
+        - cue_index：Episode 级别的全局索引，保证字幕顺序连续性
+            * 存储为数据库字段（而非动态计算）
+            * 每当某个 segment 转录完成时，统一重新计算所有 cue 的 cue_index
+            * 按 start_time 排序后分配（1, 2, 3, 4...）
+            * 支持异步转录和重试场景
+        - start_time/end_time：相对于原始音频的绝对时间（排序依据）
+        - Highlight 关联：使用 cue.id（主键），不使用 cue_index
+            * cue.id 是自增主键，一旦分配永不改变
+            * 即使 cue_index 重新分配，Highlight 仍然关联正确的 cue
+        - segment_id 可为空：支持手动导入字幕等场景
+        - speaker 字段：支持说话人标识（PRD 必需），默认 "Unknown"
+    """
+    __tablename__ = "transcript_cues"
+    
+    # 主键
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # 关联字段
+    episode_id = Column(Integer, ForeignKey("episodes.id", ondelete="CASCADE"), nullable=False)
+    segment_id = Column(Integer, ForeignKey("audio_segments.id", ondelete="SET NULL"), nullable=True)
+    
+    # 字幕信息
+    cue_index = Column(Integer, nullable=False)  # Episode 级别的全局索引
+    start_time = Column(Float, nullable=False)   # 绝对时间（相对于原始音频）
+    end_time = Column(Float, nullable=False)     # 绝对时间（相对于原始音频）
+    speaker = Column(String, default="Unknown", nullable=False)  # 说话人标识
+    text = Column(Text, nullable=False)          # 字幕文本
+    
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # 关系映射
+    episode = relationship("Episode", back_populates="transcript_cues")
+    segment = relationship("AudioSegment", back_populates="transcript_cues")
+    
+    # 表级约束和索引
+    __table_args__ = (
+        # Episode 级别的全局索引（用于快速排序和范围查询）
+        Index('idx_episode_cue_index', 'episode_id', 'cue_index'),
+        # 时间范围索引（用于音频同步和重新索引）
+        Index('idx_episode_time', 'episode_id', 'start_time'),
+        # Segment 关联索引（用于异步识别）
+        Index('idx_segment_id', 'segment_id'),
+    )
+    
+    def __repr__(self):
+        """字符串表示"""
+        return f"<TranscriptCue(id={self.id}, episode_id={self.episode_id}, cue_index={self.cue_index}, speaker='{self.speaker}', text='{self.text[:30]}...')>"
 
 
 # ==================== 旧数据库模型（待迁移）====================

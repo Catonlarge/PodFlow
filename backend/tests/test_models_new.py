@@ -1129,3 +1129,350 @@ def test_episode_transcription_timestamps_with_failed_segment(db_session):
     assert episode.transcription_completed_at == segment1.recognized_at  # 最后完成的是 segment_001（重试后）
 
 
+# ==================== TranscriptCue 模型测试 ====================
+
+def test_transcript_cue_model_creation(db_session):
+    """测试 TranscriptCue 模型的基本创建"""
+    from app.models import Episode, AudioSegment, TranscriptCue
+    
+    # 创建 Episode
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_001",
+        duration=600.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 创建 AudioSegment
+    segment = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        status="completed"
+    )
+    db_session.add(segment)
+    db_session.commit()
+    
+    # 创建 TranscriptCue
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        segment_id=segment.id,
+        cue_index=1,
+        start_time=0.28,
+        end_time=2.22,
+        speaker="Lenny",
+        text="Thank you so much for being here."
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    # 验证：基本属性
+    assert cue.id is not None
+    assert cue.episode_id == episode.id
+    assert cue.segment_id == segment.id
+    assert cue.cue_index == 1
+    assert cue.start_time == 0.28
+    assert cue.end_time == 2.22
+    assert cue.speaker == "Lenny"
+    assert cue.text == "Thank you so much for being here."
+    assert cue.created_at is not None
+
+
+def test_transcript_cue_relationship_with_episode(db_session):
+    """测试 TranscriptCue 与 Episode 的关系"""
+    from app.models import Episode, TranscriptCue
+    
+    # 创建 Episode
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_002",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 创建多个 TranscriptCue
+    cue1 = TranscriptCue(
+        episode_id=episode.id,
+        segment_id=None,  # 手动导入的字幕
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        speaker="Speaker 1",
+        text="First sentence."
+    )
+    cue2 = TranscriptCue(
+        episode_id=episode.id,
+        segment_id=None,
+        cue_index=2,
+        start_time=2.5,
+        end_time=4.0,
+        speaker="Speaker 2",
+        text="Second sentence."
+    )
+    db_session.add_all([cue1, cue2])
+    db_session.commit()
+    
+    # 验证：Episode 可以访问其 cues
+    db_session.refresh(episode)
+    assert len(episode.transcript_cues) == 2
+    assert episode.transcript_cues[0].text == "First sentence."
+    assert episode.transcript_cues[1].text == "Second sentence."
+
+
+def test_transcript_cue_relationship_with_segment(db_session):
+    """测试 TranscriptCue 与 AudioSegment 的关系"""
+    from app.models import Episode, AudioSegment, TranscriptCue
+    
+    # 创建 Episode 和 Segment
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_003",
+        duration=600.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 先提交 Episode 以获取 ID
+    
+    segment = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        status="completed"
+    )
+    db_session.add(segment)
+    db_session.commit()
+    
+    # 创建属于该 Segment 的 Cue
+    cue1 = TranscriptCue(
+        episode_id=episode.id,
+        segment_id=segment.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="Cue from segment 001"
+    )
+    cue2 = TranscriptCue(
+        episode_id=episode.id,
+        segment_id=segment.id,
+        cue_index=2,
+        start_time=2.5,
+        end_time=4.0,
+        text="Another cue from segment 001"
+    )
+    db_session.add_all([cue1, cue2])
+    db_session.commit()
+    
+    # 验证：Segment 可以访问其 cues
+    db_session.refresh(segment)
+    assert len(segment.transcript_cues) == 2
+    assert segment.transcript_cues[0].cue_index == 1
+    assert segment.transcript_cues[1].cue_index == 2
+
+
+def test_transcript_cue_cascade_delete_with_episode(db_session):
+    """测试删除 Episode 时级联删除 TranscriptCue"""
+    from app.models import Episode, TranscriptCue
+    
+    # 创建 Episode 和 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_004",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        segment_id=None,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    cue_id = cue.id
+    
+    # 删除 Episode（应该级联删除 Cue）
+    db_session.delete(episode)
+    db_session.commit()
+    
+    # 验证：Cue 也被删除了
+    deleted_cue = db_session.query(TranscriptCue).filter_by(id=cue_id).first()
+    assert deleted_cue is None
+
+
+def test_transcript_cue_set_null_when_segment_deleted(db_session):
+    """测试删除 AudioSegment 时，TranscriptCue 的 segment_id 设为 NULL"""
+    from app.models import Episode, AudioSegment, TranscriptCue
+    
+    # 创建 Episode、Segment 和 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_005",
+        duration=600.0
+    )
+    db_session.add(episode)
+    db_session.commit()  # 先提交 Episode 以获取 ID
+    
+    segment = AudioSegment(
+        episode_id=episode.id,
+        segment_index=0,
+        segment_id="segment_001",
+        segment_path=None,
+        start_time=0.0,
+        end_time=180.0,
+        status="completed"
+    )
+    db_session.add(segment)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        segment_id=segment.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    cue_id = cue.id
+    
+    # 删除 Segment
+    db_session.delete(segment)
+    db_session.commit()
+    
+    # 验证：Cue 仍然存在，但 segment_id 变为 NULL
+    db_session.refresh(cue)
+    assert cue.id == cue_id
+    assert cue.segment_id is None
+    assert cue.episode_id == episode.id
+
+
+def test_transcript_cue_query_by_cue_index(db_session):
+    """测试按 cue_index 查询和排序"""
+    from app.models import Episode, TranscriptCue
+    
+    # 创建 Episode
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_006",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 创建多个 Cue（插入顺序不按 cue_index）
+    cue3 = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=3,
+        start_time=5.0,
+        end_time=7.0,
+        text="Third cue"
+    )
+    cue1 = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="First cue"
+    )
+    cue2 = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=2,
+        start_time=2.5,
+        end_time=4.0,
+        text="Second cue"
+    )
+    db_session.add_all([cue3, cue1, cue2])
+    db_session.commit()
+    
+    # 查询：按 cue_index 排序
+    cues = db_session.query(TranscriptCue).filter(
+        TranscriptCue.episode_id == episode.id
+    ).order_by(TranscriptCue.cue_index).all()
+    
+    # 验证：顺序正确
+    assert len(cues) == 3
+    assert cues[0].cue_index == 1
+    assert cues[1].cue_index == 2
+    assert cues[2].cue_index == 3
+    assert cues[0].text == "First cue"
+    assert cues[1].text == "Second cue"
+    assert cues[2].text == "Third cue"
+
+
+def test_transcript_cue_default_speaker(db_session):
+    """测试 speaker 字段的默认值"""
+    from app.models import Episode, TranscriptCue
+    
+    # 创建 Episode
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_007",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 创建 Cue（不指定 speaker）
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        text="Test cue without speaker"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    # 验证：speaker 默认为 "Unknown"
+    assert cue.speaker == "Unknown"
+
+
+def test_transcript_cue_string_representation(db_session):
+    """测试 TranscriptCue 的字符串表示"""
+    from app.models import Episode, TranscriptCue
+    
+    # 创建 Episode 和 Cue
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_008",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.5,
+        end_time=2.0,
+        speaker="Lenny",
+        text="This is a very long text that should be truncated in the string representation"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    # 验证：字符串表示包含关键信息
+    cue_repr = repr(cue)
+    assert "TranscriptCue" in cue_repr
+    assert f"id={cue.id}" in cue_repr
+    assert f"episode_id={episode.id}" in cue_repr
+    assert "cue_index=1" in cue_repr
+    assert "speaker='Lenny'" in cue_repr
+    # 验证：text 被截断到 30 字符
+    assert "..." in cue_repr
+
+
