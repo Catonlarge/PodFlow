@@ -4,6 +4,24 @@
 
 ---
 
+## [2025-01-XX] [fix] - 修复 TranscriptCue 级联删除问题
+
+**变更文件**: `backend/app/models.py`
+
+**问题描述**：
+测试 `test_transcript_cue_cascade_delete_with_segment` 失败，删除 AudioSegment 时，关联的 TranscriptCue 没有被级联删除。
+
+**修复方案**：
+在 `AudioSegment.transcript_cues` relationship 中添加 `cascade="all, delete-orphan"` 参数，使 SQLAlchemy ORM 能够正确处理级联删除。
+
+**技术说明**：
+虽然 ForeignKey 已经设置了 `ondelete="CASCADE"`（数据库级别的级联删除），但 SQLAlchemy 的 ORM 级联删除需要通过 relationship 的 cascade 参数来控制。添加 cascade 参数后，当使用 `db_session.delete(segment)` 删除 AudioSegment 时，SQLAlchemy 会自动删除关联的 TranscriptCue。
+
+**测试结果**：
+所有 70 个测试用例全部通过。
+
+---
+
 ## [2025-12-24] [feat] - 实现 AIQueryRecord 模型（AI 查询记录表）
 **变更文件**: `backend/app/models.py`, `backend/app/config.py`, `backend/tests/test_models_new.py`, `backend/tests/conftest.py`, `docs/开发计划.md`
 

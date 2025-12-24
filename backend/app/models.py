@@ -73,6 +73,11 @@ class Episode(Base):
         segment_duration (int): 分段时长（从全局配置获取）
         needs_segmentation (bool): 是否需要分段（duration > segment_duration）
         total_segments (int): 总段数（ceil(duration / segment_duration)）
+        transcription_progress (float): 转录进度百分比（0-100，用于前端展示）
+        transcription_status_display (str): 友好的状态文本（用于前端展示）
+        estimated_time_remaining (int): 预计剩余秒数（用于前端展示）
+        transcription_stats (dict): 完整的段数统计（用于调试）
+        failed_segments_detail (list): 失败段的详细信息（用于调试）
         transcription_started_at (datetime): 转录开始时间（从 AudioSegment 聚合计算）
         transcription_completed_at (datetime): 转录完成时间（从 AudioSegment 聚合计算）
     
@@ -81,7 +86,8 @@ class Episode(Base):
         - audio_path：保存到项目目录，不依赖用户原始路径
         - 删除 show_name 字段：使用 @property 动态获取（消除数据冗余）
         - 删除分段相关字段：使用全局配置 + @property（便于实验调优）
-        - 删除转录状态字段：使用 @property 从 AudioSegment 聚合计算（双层设计）
+        - transcription_status 物理字段：用于高效查询（避免全表扫描和 N+1 问题）
+        - transcription_progress 等：保留为 @property（仅供前端展示，不用于查询）
         - 删除转录时间戳字段：使用 @property 从 AudioSegment 聚合计算（单一数据源，保证一致性）
     """
     __tablename__ = "episodes"
@@ -101,8 +107,8 @@ class Episode(Base):
     file_size = Column(Integer, nullable=True)
     duration = Column(Float, nullable=False)
     
-    # 转录状态（时间戳通过 @property 从 AudioSegment 聚合计算）
-    # transcription_started_at 和 transcription_completed_at 改为动态属性
+    # 转录状态（物理字段，用于高效查询）
+    transcription_status = Column(String, default="pending", nullable=False, index=True)  # pending/processing/completed/failed
     
     # 元数据
     language = Column(String, default="en-US", nullable=False)
@@ -234,6 +240,95 @@ class Episode(Base):
         # 返回最晚的时间（最后一个完成的 Segment）
         return max(completed_times) if completed_times else None
     
+    @property
+    def transcription_progress(self):
+        """
+        转录进度百分比（0-100，用于前端展示）
+        
+        计算逻辑：
+        - 已完成段数 / 总段数 * 100
+        - 如果没有 Segment → 返回 0.0
+        
+        注意：这是动态属性，不用于数据库查询（避免 N+1 问题）。
+        查询时使用 transcription_status 物理字段。
+        """
+        if not self.segments:
+            return 0.0
+        completed = sum(1 for s in self.segments if s.status == "completed")
+        return round((completed / len(self.segments)) * 100, 2)
+    
+    @property
+    def transcription_status_display(self):
+        """
+        友好的状态文本（用于前端展示，隐藏技术细节）
+        
+        注意：这是动态属性，不用于数据库查询。
+        查询时使用 transcription_status 物理字段。
+        """
+        status_map = {
+            "pending": "等待转录",
+            "processing": "正在转录中...",
+            "completed": "转录完成",
+            "partial_failed": "部分转录失败，可继续使用",
+            "failed": "转录失败，请重试"
+        }
+        return status_map.get(self.transcription_status, "未知状态")
+    
+    @property
+    def estimated_time_remaining(self):
+        """
+        预计剩余秒数（用于前端展示）
+        
+        计算逻辑：
+        - 基于剩余段数和平均转录速度（每段 180 秒，转录速度 0.4x）
+        
+        注意：这是动态属性，不用于数据库查询。
+        """
+        if not self.segments:
+            return 0
+        pending = sum(1 for s in self.segments if s.status in ["pending", "processing"])
+        return int(pending * 180 * 0.4)  # 每段180s，转录速度0.4x
+    
+    @property
+    def transcription_stats(self):
+        """
+        完整的段数统计（用于调试）
+        
+        返回详细的段数统计信息，仅供日志、监控、调试使用。
+        """
+        if not self.segments:
+            return {
+                "total_segments": 0,
+                "completed_segments": 0,
+                "failed_segments": 0,
+                "processing_segments": 0,
+                "pending_segments": 0
+            }
+        return {
+            "total_segments": len(self.segments),
+            "completed_segments": sum(1 for s in self.segments if s.status == "completed"),
+            "failed_segments": sum(1 for s in self.segments if s.status == "failed"),
+            "processing_segments": sum(1 for s in self.segments if s.status == "processing"),
+            "pending_segments": sum(1 for s in self.segments if s.status == "pending")
+        }
+    
+    @property
+    def failed_segments_detail(self):
+        """
+        失败段的详细信息（用于调试）
+        
+        返回所有失败段的详细信息，包括 segment_id 和 error_message。
+        """
+        return [
+            {
+                "segment_id": s.segment_id,
+                "segment_index": s.segment_index,
+                "error_message": s.error_message,
+                "retry_count": s.retry_count
+            }
+            for s in self.segments if s.status == "failed"
+        ]
+    
     def __repr__(self):
         """字符串表示"""
         return f"<Episode(id={self.id}, title='{self.title}', show_name='{self.show_name}', duration={self.duration}s)>"
@@ -308,7 +403,7 @@ class AudioSegment(Base):
     
     # 关系映射
     episode = relationship("Episode", back_populates="segments")
-    transcript_cues = relationship("TranscriptCue", back_populates="segment")
+    transcript_cues = relationship("TranscriptCue", back_populates="segment", cascade="all, delete-orphan")
     
     # 表级约束和索引
     __table_args__ = (
@@ -348,7 +443,6 @@ class TranscriptCue(Base):
         id (int): 主键
         episode_id (int): 外键 → Episode
         segment_id (int): 外键 → AudioSegment（可为空，支持手动导入字幕）
-        cue_index (int): Episode 级别的全局索引（1, 2, 3...，用于排序）
         start_time (float): 开始时间戳（秒，相对于原始音频的绝对时间）
         end_time (float): 结束时间戳（秒，相对于原始音频的绝对时间）
         speaker (str): 说话人标识（如 "Lenny", "SPEAKER_01", "Unknown"）
@@ -356,16 +450,15 @@ class TranscriptCue(Base):
         created_at (datetime): 创建时间
     
     设计要点：
-        - cue_index：Episode 级别的全局索引，保证字幕顺序连续性
-            * 存储为数据库字段（而非动态计算）
-            * 每当某个 segment 转录完成时，统一重新计算所有 cue 的 cue_index
-            * 按 start_time 排序后分配（1, 2, 3, 4...）
-            * 支持异步转录和重试场景
+        - 移除 cue_index 字段：在异步/并发转录场景下，维护全局连续索引成本极高且易出错
+            * 替代方案：只存储 start_time，查询时使用 ORDER BY start_time ASC 获得正确顺序
+            * 前端需要序号时，在内存中动态生成（Index + 1）
         - start_time/end_time：相对于原始音频的绝对时间（排序依据）
-        - Highlight 关联：使用 cue.id（主键），不使用 cue_index
+        - Highlight 关联：使用 cue.id（主键），确保笔记与字幕的锚定永不漂移
             * cue.id 是自增主键，一旦分配永不改变
-            * 即使 cue_index 重新分配，Highlight 仍然关联正确的 cue
+            * 完全解决异步转录的关联问题
         - segment_id 可为空：支持手动导入字幕等场景
+        - segment_id 级联删除：改为 CASCADE（而非 SET NULL），防止重试转录后旧字幕残留
         - speaker 字段：支持说话人标识（PRD 必需），默认 "Unknown"
     """
     __tablename__ = "transcript_cues"
@@ -375,11 +468,10 @@ class TranscriptCue(Base):
     
     # 关联字段
     episode_id = Column(Integer, ForeignKey("episodes.id", ondelete="CASCADE"), nullable=False)
-    segment_id = Column(Integer, ForeignKey("audio_segments.id", ondelete="SET NULL"), nullable=True)
+    segment_id = Column(Integer, ForeignKey("audio_segments.id", ondelete="CASCADE"), nullable=True)  # 改为 CASCADE，防止重试后旧字幕残留
     
     # 字幕信息
-    cue_index = Column(Integer, nullable=False)  # Episode 级别的全局索引
-    start_time = Column(Float, nullable=False)   # 绝对时间（相对于原始音频）
+    start_time = Column(Float, nullable=False)   # 绝对时间（相对于原始音频，用于排序）
     end_time = Column(Float, nullable=False)     # 绝对时间（相对于原始音频）
     speaker = Column(String, default="Unknown", nullable=False)  # 说话人标识
     text = Column(Text, nullable=False)          # 字幕文本
@@ -394,9 +486,7 @@ class TranscriptCue(Base):
     
     # 表级约束和索引
     __table_args__ = (
-        # Episode 级别的全局索引（用于快速排序和范围查询）
-        Index('idx_episode_cue_index', 'episode_id', 'cue_index'),
-        # 时间范围索引（用于音频同步和重新索引）
+        # 时间范围索引（用于排序和范围查询，主要查询索引）
         Index('idx_episode_time', 'episode_id', 'start_time'),
         # Segment 关联索引（用于异步识别）
         Index('idx_segment_id', 'segment_id'),
@@ -404,7 +494,7 @@ class TranscriptCue(Base):
     
     def __repr__(self):
         """字符串表示"""
-        return f"<TranscriptCue(id={self.id}, episode_id={self.episode_id}, cue_index={self.cue_index}, speaker='{self.speaker}', text='{self.text[:30]}...')>"
+        return f"<TranscriptCue(id={self.id}, episode_id={self.episode_id}, start_time={self.start_time:.2f}s, speaker='{self.speaker}', text='{self.text[:30]}...')>"
 
 
 class Highlight(Base):
@@ -429,7 +519,7 @@ class Highlight(Base):
         - 简化设计：不允许单个 Highlight 跨 cue，改为自动拆分 + 分组管理
         - 单 cue 划线（90% 场景）：highlight_group_id = NULL
         - 跨 cue 划线（10% 场景）：前端自动拆分成多个 Highlight，使用 highlight_group_id 关联
-        - 使用 cue.id（主键）关联，不使用 cue_index（解决异步转录问题）
+        - 使用 cue.id（主键）关联，确保笔记与字幕的锚定永不漂移
         - 删除逻辑：如果 highlight_group_id 不为空，需要按组删除
     """
     __tablename__ = "highlights"
