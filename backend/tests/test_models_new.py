@@ -795,7 +795,7 @@ def test_audio_segment_virtual_segmentation(db_session):
         episode_id=episode.id,
         segment_index=0,
         segment_id="segment_001",
-        segment_path=None,  # ⭐ 虚拟分段，不存储物理文件
+        segment_path=None,  # 虚拟分段，不存储物理文件
         start_time=0.0,
         end_time=180.0,
         status="pending"

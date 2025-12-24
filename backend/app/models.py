@@ -35,7 +35,7 @@ class Podcast(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False, index=True)
-    source_url = Column(String, nullable=True, unique=True)  # ⭐ 添加唯一约束
+    source_url = Column(String, nullable=True, unique=True)  # 添加唯一约束
     description = Column(Text, nullable=True)
     cover_image = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -171,9 +171,9 @@ class Episode(Base):
         - 如果没有任何 Segment 开始转录 → 返回 None
         
         数据一致性：
-        - ✅ 单一数据源（AudioSegment 为准），无冗余存储
-        - ✅ Segment 重试后时间戳改变，Episode 自动正确
-        - ✅ 短音频（单 segment）和长音频（多 segments）逻辑统一
+        - 单一数据源（AudioSegment 为准），无冗余存储
+        - Segment 重试后时间戳改变，Episode 自动正确
+        - 短音频（单 segment）和长音频（多 segments）逻辑统一
         
         性能优化：
         - 使用 joinedload 预加载：
@@ -205,9 +205,9 @@ class Episode(Base):
         - 所有 Segment 的 status == "completed"
         
         数据一致性：
-        - ✅ 单一数据源（AudioSegment 为准），无冗余存储
-        - ✅ 清晰语义：None = 未完成，有值 = 已完成
-        - ✅ 短音频（单 segment）和长音频（多 segments）逻辑统一
+        - 单一数据源（AudioSegment 为准），无冗余存储
+        - 清晰语义：None = 未完成，有值 = 已完成
+        - 短音频（单 segment）和长音频（多 segments）逻辑统一
         
         性能优化：
         - 使用 joinedload 预加载：
