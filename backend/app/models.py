@@ -114,6 +114,7 @@ class Episode(Base):
     segments = relationship("AudioSegment", back_populates="episode", cascade="all, delete-orphan")
     transcript_cues = relationship("TranscriptCue", back_populates="episode", cascade="all, delete-orphan")
     highlights = relationship("Highlight", back_populates="episode", cascade="all, delete-orphan")
+    notes = relationship("Note", back_populates="episode", cascade="all, delete-orphan")
     
     @property
     def show_name(self):
@@ -460,6 +461,7 @@ class Highlight(Base):
     # 关系映射
     episode = relationship("Episode", back_populates="highlights")
     cue = relationship("TranscriptCue", back_populates="highlights")
+    notes = relationship("Note", back_populates="highlight", cascade="all, delete-orphan")
     
     # 表级约束和索引
     __table_args__ = (
@@ -477,6 +479,86 @@ class Highlight(Base):
         """字符串表示"""
         group_info = f", group='{self.highlight_group_id[:8]}...'" if self.highlight_group_id else ""
         return f"<Highlight(id={self.id}, cue_id={self.cue_id}, text='{self.highlighted_text[:20]}...'{group_info})>"
+
+
+class Note(Base):
+    """
+    笔记模型（明确 AI 查询转化关系）
+    
+    存储用户的笔记，包括三种类型：纯划线、用户想法、AI 查询结果。
+    
+    Attributes:
+        id (int): 主键
+        episode_id (int): 外键 → Episode
+        highlight_id (int): 外键 → Highlight（必需，所有笔记都源于划线）
+        origin_ai_query_id (int): 外键 → AIQueryRecord（可选，标记来源于哪次 AI 查询）
+        content (str): 笔记内容（underline 类型时为空）
+        note_type (str): 笔记类型（underline/thought/ai_card）
+        created_at (datetime): 创建时间
+        updated_at (datetime): 更新时间
+    
+    设计要点：
+        - note_type 三种类型：
+            * underline：纯划线（只有下划线样式，不显示笔记卡片，content 为空）
+            * thought：用户想法（显示笔记卡片，用户手动输入）
+            * ai_card：保存的 AI 查询结果（显示笔记卡片，来自 AI）
+        
+        - AI 查询到笔记的转化逻辑：
+            1. 用户划线 → 点击"AI 查询" → 创建 AIQueryRecord（临时）
+            2. AI 返回结果 → 前端展示"AI查询卡片"（临时 UI）
+            3. 用户点击"保存笔记" → 创建 Note（持久化）
+            4. origin_ai_query_id 记录来源，但删除 AIQueryRecord 不影响 Note
+        
+        - 级联删除：
+            * 删除 Episode → 删除所有 Note（CASCADE）
+            * 删除 Highlight → 删除关联的 Note（CASCADE）
+            * 删除 AIQueryRecord → Note 保留，origin_ai_query_id 设为 NULL（SET NULL）
+        
+        - content 可为空：underline 类型时 content 为空
+        - note_type 必需：必须显式指定类型，无默认值
+    """
+    __tablename__ = "notes"
+    
+    # 主键
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # 关联字段
+    episode_id = Column(Integer, ForeignKey("episodes.id", ondelete="CASCADE"), nullable=False)
+    highlight_id = Column(Integer, ForeignKey("highlights.id", ondelete="CASCADE"), nullable=False)
+    origin_ai_query_id = Column(Integer, nullable=True)  # 暂时不设置外键，等 AIQueryRecord 实现后再添加
+    
+    # 笔记内容
+    content = Column(Text, nullable=True)  # underline 类型时为空
+    note_type = Column(String, nullable=False)  # underline/thought/ai_card（必须显式指定）
+    
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # 关系映射
+    episode = relationship("Episode", back_populates="notes")
+    highlight = relationship("Highlight", back_populates="notes")
+    # ai_query = relationship("AIQueryRecord", back_populates="notes")  # 待 AIQueryRecord 实现后添加
+    
+    # 表级约束和索引
+    __table_args__ = (
+        # Episode 级别的笔记查询
+        Index('idx_episode_note', 'episode_id'),
+        # Highlight 级别的笔记查询（高频）
+        Index('idx_highlight_note', 'highlight_id'),
+        # 按类型查询
+        Index('idx_note_type', 'note_type'),
+        # AI 查询来源索引
+        Index('idx_origin_ai_query', 'origin_ai_query_id'),
+        # 复合索引（提高查询性能）
+        Index('idx_note_episode_type', 'episode_id', 'note_type'),
+        Index('idx_note_episode_highlight', 'episode_id', 'highlight_id'),
+    )
+    
+    def __repr__(self):
+        """字符串表示"""
+        content_preview = f"content='{self.content[:20]}...'" if self.content else "content=None"
+        return f"<Note(id={self.id}, type='{self.note_type}', {content_preview})>"
 
 
 # ==================== 旧数据库模型（待迁移）====================

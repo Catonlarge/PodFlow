@@ -2025,3 +2025,563 @@ def test_highlight_string_representation(db_session):
     assert "group=" in highlight2_repr  # 有 group_id 时显示
 
 
+# ==================== Note Model Tests ====================
+
+def test_note_model_creation(db_session):
+    """测试 Note 模型的基本创建"""
+    from app.models import Episode, TranscriptCue, Highlight, Note
+    
+    # 创建测试数据
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_note_001",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test cue text"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建 thought 类型的笔记
+    note = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content="This is my thought about this highlight.",
+        note_type="thought"
+    )
+    db_session.add(note)
+    db_session.commit()
+    
+    # 验证基本字段
+    assert note.id is not None
+    assert note.episode_id == episode.id
+    assert note.highlight_id == highlight.id
+    assert note.content == "This is my thought about this highlight."
+    assert note.note_type == "thought"
+    assert note.origin_ai_query_id is None
+    assert note.created_at is not None
+    assert note.updated_at is not None
+
+
+def test_note_three_types(db_session):
+    """测试 Note 的三种类型：underline/thought/ai_card"""
+    from app.models import Episode, TranscriptCue, Highlight, Note
+    
+    # 创建测试数据
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_note_types",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test cue text"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 1. underline 类型（纯划线，content 为空）
+    note_underline = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content=None,  # underline 类型 content 为空
+        note_type="underline"
+    )
+    db_session.add(note_underline)
+    
+    # 2. thought 类型（用户想法）
+    note_thought = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content="My personal thought",
+        note_type="thought"
+    )
+    db_session.add(note_thought)
+    
+    # 3. ai_card 类型（AI 查询结果）
+    note_ai = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content="AI generated explanation",
+        note_type="ai_card",
+        origin_ai_query_id=999  # 假设的 AI 查询 ID
+    )
+    db_session.add(note_ai)
+    db_session.commit()
+    
+    # 验证三种类型
+    assert note_underline.note_type == "underline"
+    assert note_underline.content is None
+    
+    assert note_thought.note_type == "thought"
+    assert note_thought.content == "My personal thought"
+    
+    assert note_ai.note_type == "ai_card"
+    assert note_ai.content == "AI generated explanation"
+    assert note_ai.origin_ai_query_id == 999
+    
+    # 验证数据库中有 3 条记录
+    assert db_session.query(Note).count() == 3
+
+
+def test_note_relationship_with_episode(db_session):
+    """测试 Note 与 Episode 的关系"""
+    from app.models import Episode, TranscriptCue, Highlight, Note
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_note_episode",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建两个笔记
+    note1 = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content="Note 1",
+        note_type="thought"
+    )
+    note2 = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content="Note 2",
+        note_type="thought"
+    )
+    db_session.add_all([note1, note2])
+    db_session.commit()
+    
+    # 验证关系
+    assert len(episode.notes) == 2
+    assert note1 in episode.notes
+    assert note2 in episode.notes
+    assert note1.episode == episode
+    assert note2.episode == episode
+
+
+def test_note_relationship_with_highlight(db_session):
+    """测试 Note 与 Highlight 的关系"""
+    from app.models import Episode, TranscriptCue, Highlight, Note
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_note_highlight",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建笔记
+    note = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content="My note",
+        note_type="thought"
+    )
+    db_session.add(note)
+    db_session.commit()
+    
+    # 验证关系
+    assert len(highlight.notes) == 1
+    assert highlight.notes[0] == note
+    assert note.highlight == highlight
+
+
+def test_note_cascade_delete_with_episode(db_session):
+    """测试删除 Episode 时级联删除 Note"""
+    from app.models import Episode, TranscriptCue, Highlight, Note
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_note_cascade_episode",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    note = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content="Test note",
+        note_type="thought"
+    )
+    db_session.add(note)
+    db_session.commit()
+    
+    note_id = note.id
+    
+    # 删除 Episode
+    db_session.delete(episode)
+    db_session.commit()
+    
+    # 验证 Note 也被删除
+    assert db_session.query(Note).filter_by(id=note_id).count() == 0
+
+
+def test_note_cascade_delete_with_highlight(db_session):
+    """测试删除 Highlight 时级联删除 Note"""
+    from app.models import Episode, TranscriptCue, Highlight, Note
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_note_cascade_highlight",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    note = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content="Test note",
+        note_type="thought"
+    )
+    db_session.add(note)
+    db_session.commit()
+    
+    note_id = note.id
+    
+    # 删除 Highlight
+    db_session.delete(highlight)
+    db_session.commit()
+    
+    # 验证 Note 也被删除
+    assert db_session.query(Note).filter_by(id=note_id).count() == 0
+
+
+def test_note_updated_at_auto_update(db_session):
+    """测试 Note 的 updated_at 自动更新"""
+    from app.models import Episode, TranscriptCue, Highlight, Note
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_note_updated",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    note = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content="Original content",
+        note_type="thought"
+    )
+    db_session.add(note)
+    db_session.commit()
+    
+    original_updated_at = note.updated_at
+    
+    # 稍作延迟
+    import time
+    time.sleep(0.1)
+    
+    # 更新内容
+    note.content = "Updated content"
+    db_session.commit()
+    
+    # 验证 updated_at 已更新
+    assert note.updated_at > original_updated_at
+
+
+def test_note_content_nullable_for_underline(db_session):
+    """测试 underline 类型的 Note 可以有空 content"""
+    from app.models import Episode, TranscriptCue, Highlight, Note
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_note_nullable",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建 underline 类型的笔记，content 为 None
+    note = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content=None,
+        note_type="underline"
+    )
+    db_session.add(note)
+    db_session.commit()
+    
+    # 验证
+    assert note.content is None
+    assert note.note_type == "underline"
+    
+    # 从数据库重新查询验证
+    db_session.expire(note)
+    db_session.refresh(note)
+    assert note.content is None
+
+
+def test_note_query_by_type(db_session):
+    """测试按 note_type 查询笔记"""
+    from app.models import Episode, TranscriptCue, Highlight, Note
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_note_query_type",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 创建不同类型的笔记
+    note1 = Note(episode_id=episode.id, highlight_id=highlight.id, content=None, note_type="underline")
+    note2 = Note(episode_id=episode.id, highlight_id=highlight.id, content="Thought 1", note_type="thought")
+    note3 = Note(episode_id=episode.id, highlight_id=highlight.id, content="Thought 2", note_type="thought")
+    note4 = Note(episode_id=episode.id, highlight_id=highlight.id, content="AI result", note_type="ai_card")
+    
+    db_session.add_all([note1, note2, note3, note4])
+    db_session.commit()
+    
+    # 查询不同类型的笔记
+    underline_notes = db_session.query(Note).filter_by(note_type="underline").all()
+    thought_notes = db_session.query(Note).filter_by(note_type="thought").all()
+    ai_notes = db_session.query(Note).filter_by(note_type="ai_card").all()
+    
+    assert len(underline_notes) == 1
+    assert len(thought_notes) == 2
+    assert len(ai_notes) == 1
+
+
+def test_note_string_representation(db_session):
+    """测试 Note 的字符串表示"""
+    from app.models import Episode, TranscriptCue, Highlight, Note
+    
+    episode = Episode(
+        title="Test Episode",
+        file_hash="test_hash_note_repr",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    cue = TranscriptCue(
+        episode_id=episode.id,
+        cue_index=1,
+        start_time=0.0,
+        end_time=5.0,
+        text="Test cue"
+    )
+    db_session.add(cue)
+    db_session.commit()
+    
+    highlight = Highlight(
+        episode_id=episode.id,
+        cue_id=cue.id,
+        start_offset=0,
+        end_offset=4,
+        highlighted_text="Test"
+    )
+    db_session.add(highlight)
+    db_session.commit()
+    
+    # 测试有 content 的笔记
+    note_with_content = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content="This is a very long content that should be truncated in repr",
+        note_type="thought"
+    )
+    db_session.add(note_with_content)
+    db_session.commit()
+    
+    note_repr = repr(note_with_content)
+    assert "Note" in note_repr
+    assert "thought" in note_repr
+    assert "content=" in note_repr
+    
+    # 测试无 content 的笔记（underline）
+    note_without_content = Note(
+        episode_id=episode.id,
+        highlight_id=highlight.id,
+        content=None,
+        note_type="underline"
+    )
+    db_session.add(note_without_content)
+    db_session.commit()
+    
+    note_repr2 = repr(note_without_content)
+    assert "Note" in note_repr2
+    assert "underline" in note_repr2
+    assert "content=None" in note_repr2
+
+

@@ -4,6 +4,67 @@
 
 ---
 
+## [2025-12-24] [feat] - 实现 Note 模型（用户笔记表）
+**变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`, `docs/开发计划.md`
+
+**功能说明**：
+实现 Note 模型，用于存储用户的笔记，包括三种类型：纯划线、用户想法、AI 查询结果。
+
+**表结构设计**：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | Integer | 主键（自增） |
+| episode_id | Integer | 外键 → Episode（NOT NULL，级联删除） |
+| highlight_id | Integer | 外键 → Highlight（NOT NULL，级联删除） |
+| origin_ai_query_id | Integer | 外键 → AIQueryRecord（可选，SET NULL） |
+| content | Text | 笔记内容（underline 类型时为空，nullable=True） |
+| note_type | String | 笔记类型（underline/thought/ai_card，必需） |
+| created_at | DateTime | 创建时间 |
+| updated_at | DateTime | 更新时间（支持修改笔记内容） |
+
+**设计要点**：
+1. **三种笔记类型**：
+   - `underline`：纯划线（只有下划线样式，不显示笔记卡片，content 为空）
+   - `thought`：用户想法（显示笔记卡片，用户手动输入）
+   - `ai_card`：保存的 AI 查询结果（显示笔记卡片，来自 AI）
+
+2. **AI 查询到笔记的转化逻辑**：
+   - 用户划线 → 点击"AI 查询" → 创建 AIQueryRecord（临时）
+   - AI 返回结果 → 前端展示"AI查询卡片"（临时 UI）
+   - 用户点击"保存笔记" → 创建 Note（持久化）
+   - origin_ai_query_id 记录来源，但删除 AIQueryRecord 不影响 Note
+
+3. **数据独立性**：
+   - 删除 Episode → 删除所有 Note（CASCADE）
+   - 删除 Highlight → 删除关联的 Note（CASCADE）
+   - 删除 AIQueryRecord → Note 保留，origin_ai_query_id 设为 NULL（SET NULL）
+
+4. **字段优化**：
+   - content：nullable=True（underline 类型时为空）
+   - note_type：nullable=False（必须显式指定类型，无默认值）
+   - updated_at：自动更新时间戳（onupdate=datetime.utcnow）
+
+**索引优化**：
+- Episode 级别的笔记查询：`idx_episode_note`
+- Highlight 级别的笔记查询：`idx_highlight_note`（高频）
+- 按类型查询：`idx_note_type`
+- AI 查询来源索引：`idx_origin_ai_query`
+- 复合索引：`idx_note_episode_type`, `idx_note_episode_highlight`
+
+**测试覆盖**：
+- 10 个全面的测试用例
+- 测试内容：基本创建、三种类型、关系映射、级联删除、updated_at 自动更新、content 可空、类型查询、字符串表示
+- 所有 59 个测试通过（100% 通过率，0.66s 执行时间）
+
+**设计优势**：
+- 明确 AI 查询与笔记的转化关系（origin_ai_query_id）
+- 支持三种笔记类型，满足不同使用场景
+- 数据独立性保证：删除 AI 查询不影响已保存的笔记
+- 完善的级联删除规则，保证数据一致性
+- 数据库级别的默认值和约束，减少应用层复杂度
+
+---
+
 ## [2025-12-24] [feat] - 实现 Highlight 模型（用户划线表）
 **变更文件**: `backend/app/models.py`, `backend/tests/test_models_new.py`, `docs/开发计划.md`
 
