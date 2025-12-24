@@ -233,3 +233,280 @@ def test_podcast_null_source_url_allowed(db_session):
     assert podcast2.source_url is None
 
 
+# ==================== Episode 表测试 ====================
+
+def test_episode_model_creation(db_session):
+    """测试 Episode 模型创建（基础字段）"""
+    from app.models import Episode
+    
+    episode = Episode(
+        title="Test Episode",
+        original_filename="test_audio.mp3",
+        original_path="/user/path/test_audio.mp3",
+        audio_path="backend/data/audios/abc123.mp3",
+        file_hash="abc123def456",
+        file_size=10485760,  # 10MB
+        duration=600.0,  # 10 分钟
+        language="en-US"
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 验证数据已插入
+    assert episode.id is not None
+    assert episode.title == "Test Episode"
+    assert episode.file_hash == "abc123def456"
+    assert episode.duration == 600.0
+    assert episode.language == "en-US"
+    assert episode.created_at is not None
+    assert episode.updated_at is not None
+    
+    # 验证 @property 动态计算（基于全局配置 180s）
+    assert episode.segment_duration == 180
+    assert episode.needs_segmentation is True  # 600 > 180
+    assert episode.total_segments == 4  # ceil(600 / 180) = 4
+
+
+def test_episode_with_podcast_relationship(db_session):
+    """测试 Episode 与 Podcast 的关联关系"""
+    from app.models import Podcast, Episode
+    
+    # 创建 Podcast
+    podcast = Podcast(title="Lenny's Podcast")
+    db_session.add(podcast)
+    db_session.commit()
+    
+    # 创建关联的 Episode
+    episode = Episode(
+        title="Episode 1",
+        podcast_id=podcast.id,
+        file_hash="hash001",
+        duration=300.0,
+        language="en-US"
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 验证关联
+    assert episode.podcast_id == podcast.id
+    assert episode.podcast.title == "Lenny's Podcast"
+    
+    # 验证 show_name 属性（从 Podcast 获取）
+    assert episode.show_name == "Lenny's Podcast"
+
+
+def test_episode_local_audio_without_podcast(db_session):
+    """测试本地音频（无 Podcast 关联）"""
+    from app.models import Episode
+    
+    # 创建本地音频（podcast_id 为 NULL）
+    episode = Episode(
+        title="Local Audio File",
+        podcast_id=None,  # 本地音频
+        file_hash="local001",
+        duration=180.0,
+        language="zh-CN"  # 中文音频
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 验证：podcast_id 可以为空
+    assert episode.id is not None
+    assert episode.podcast_id is None
+    
+    # 验证 show_name 属性（返回默认值）
+    assert episode.show_name == "本地音频"
+
+
+def test_episode_file_hash_unique_constraint(db_session):
+    """测试 file_hash 唯一性约束（防止重复上传）"""
+    from app.models import Episode
+    from sqlalchemy.exc import IntegrityError
+    
+    # 创建第一个 Episode
+    episode1 = Episode(
+        title="Episode 1",
+        file_hash="same_hash_123",
+        duration=300.0,
+        language="en-US"
+    )
+    db_session.add(episode1)
+    db_session.commit()
+    
+    # 尝试创建相同 file_hash 的 Episode（应该失败）
+    episode2 = Episode(
+        title="Episode 2 (Duplicate)",
+        file_hash="same_hash_123",  # 相同的 hash
+        duration=300.0,
+        language="en-US"
+    )
+    db_session.add(episode2)
+    
+    # 验证：提交时会抛出 IntegrityError
+    with pytest.raises(IntegrityError) as exc_info:
+        db_session.commit()
+    
+    assert "file_hash" in str(exc_info.value).lower() or "unique" in str(exc_info.value).lower()
+
+
+def test_episode_needs_segmentation_auto_set(db_session):
+    """测试 needs_segmentation 属性的逻辑（基于全局配置动态计算）"""
+    from app.models import Episode
+    
+    # 短音频（< 180s）
+    short_episode = Episode(
+        title="Short Episode",
+        file_hash="short001",
+        duration=120.0  # 2 分钟
+    )
+    db_session.add(short_episode)
+    
+    # 长音频（> 180s）
+    long_episode = Episode(
+        title="Long Episode",
+        file_hash="long001",
+        duration=600.0  # 10 分钟
+    )
+    db_session.add(long_episode)
+    
+    db_session.commit()
+    
+    # 验证 @property 动态计算（基于全局配置 180s）
+    assert short_episode.segment_duration == 180
+    assert short_episode.needs_segmentation is False  # 120 <= 180
+    assert short_episode.total_segments == 1
+    
+    assert long_episode.segment_duration == 180
+    assert long_episode.needs_segmentation is True  # 600 > 180
+    assert long_episode.total_segments == 4  # ceil(600 / 180) = 4
+
+
+def test_episode_segmentation_properties_with_different_durations(db_session):
+    """测试不同时长音频的分段属性计算"""
+    from app.models import Episode
+    import math
+    
+    test_cases = [
+        # (duration, expected_needs_seg, expected_total_segments)
+        (60.0, False, 1),      # 1 分钟
+        (180.0, False, 1),     # 恰好 180 秒（边界值）
+        (181.0, True, 2),      # 刚超过 180 秒
+        (360.0, True, 2),      # 6 分钟
+        (540.0, True, 3),      # 9 分钟
+        (541.0, True, 4),      # 刚超过 9 分钟
+        (1800.0, True, 10),    # 30 分钟
+    ]
+    
+    for i, (duration, expected_needs_seg, expected_total_segments) in enumerate(test_cases):
+        episode = Episode(
+            title=f"Episode {i}",
+            file_hash=f"hash{i:03d}",
+            duration=duration
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 验证
+        assert episode.needs_segmentation == expected_needs_seg, \
+            f"duration={duration}, expected needs_segmentation={expected_needs_seg}, got {episode.needs_segmentation}"
+        assert episode.total_segments == expected_total_segments, \
+            f"duration={duration}, expected total_segments={expected_total_segments}, got {episode.total_segments}"
+        
+        # 验证计算逻辑
+        if episode.needs_segmentation:
+            expected = math.ceil(duration / 180)
+            assert episode.total_segments == expected
+
+
+def test_episode_transcription_timestamps(db_session):
+    """测试转录时间戳字段"""
+    from app.models import Episode
+    from datetime import datetime
+    
+    episode = Episode(
+        title="Timestamp Test",
+        file_hash="timestamp001",
+        duration=300.0,
+        transcription_started_at=datetime.utcnow()
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    # 验证：started_at 已设置
+    assert episode.transcription_started_at is not None
+    
+    # 模拟转录完成
+    episode.transcription_completed_at = datetime.utcnow()
+    db_session.commit()
+    
+    # 验证：completed_at 已设置
+    assert episode.transcription_completed_at is not None
+    assert episode.transcription_completed_at >= episode.transcription_started_at
+
+
+def test_episode_crud_operations(db_session):
+    """测试 Episode 的 CRUD 操作"""
+    from app.models import Episode
+    
+    # Create
+    episode = Episode(
+        title="CRUD Test Episode",
+        file_hash="crud001",
+        audio_path="backend/data/audios/crud001.mp3",
+        duration=240.0,
+        language="en-US"
+    )
+    db_session.add(episode)
+    db_session.commit()
+    episode_id = episode.id
+    
+    # Read
+    retrieved = db_session.query(Episode).filter(Episode.id == episode_id).first()
+    assert retrieved is not None
+    assert retrieved.title == "CRUD Test Episode"
+    assert retrieved.file_hash == "crud001"
+    
+    # Update
+    retrieved.title = "Updated Episode Title"
+    retrieved.language = "zh-CN"
+    db_session.commit()
+    
+    updated = db_session.query(Episode).filter(Episode.id == episode_id).first()
+    assert updated.title == "Updated Episode Title"
+    assert updated.language == "zh-CN"
+    
+    # Delete
+    db_session.delete(updated)
+    db_session.commit()
+    
+    deleted = db_session.query(Episode).filter(Episode.id == episode_id).first()
+    assert deleted is None
+
+
+def test_episode_updated_at_auto_update(db_session):
+    """测试 updated_at 自动更新"""
+    from app.models import Episode
+    from datetime import datetime
+    import time
+    
+    episode = Episode(
+        title="Update Time Test",
+        file_hash="update001",
+        duration=300.0
+    )
+    db_session.add(episode)
+    db_session.commit()
+    
+    original_updated_at = episode.updated_at
+    
+    # 等待一小段时间
+    time.sleep(0.1)
+    
+    # 更新 Episode
+    episode.title = "Updated Title"
+    db_session.commit()
+    
+    # 验证：updated_at 已更新
+    assert episode.updated_at > original_updated_at
+
+
