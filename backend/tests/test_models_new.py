@@ -247,7 +247,8 @@ def test_episode_model_creation(db_session):
         file_hash="abc123def456",
         file_size=10485760,  # 10MB
         duration=600.0,  # 10 分钟
-        language="en-US"
+        language="en-US",
+        transcription_status="pending"
     )
     db_session.add(episode)
     db_session.commit()
@@ -282,7 +283,8 @@ def test_episode_with_podcast_relationship(db_session):
         podcast_id=podcast.id,
         file_hash="hash001",
         duration=300.0,
-        language="en-US"
+        language="en-US",
+        transcription_status="pending"
     )
     db_session.add(episode)
     db_session.commit()
@@ -305,7 +307,8 @@ def test_episode_local_audio_without_podcast(db_session):
         podcast_id=None,  # 本地音频
         file_hash="local001",
         duration=180.0,
-        language="zh-CN"  # 中文音频
+        language="zh-CN",  # 中文音频
+        transcription_status="pending"
     )
     db_session.add(episode)
     db_session.commit()
@@ -328,7 +331,8 @@ def test_episode_file_hash_unique_constraint(db_session):
         title="Episode 1",
         file_hash="same_hash_123",
         duration=300.0,
-        language="en-US"
+        language="en-US",
+        transcription_status="pending"
     )
     db_session.add(episode1)
     db_session.commit()
@@ -338,7 +342,8 @@ def test_episode_file_hash_unique_constraint(db_session):
         title="Episode 2 (Duplicate)",
         file_hash="same_hash_123",  # 相同的 hash
         duration=300.0,
-        language="en-US"
+        language="en-US",
+        transcription_status="pending"
     )
     db_session.add(episode2)
     
@@ -357,7 +362,8 @@ def test_episode_needs_segmentation_auto_set(db_session):
     short_episode = Episode(
         title="Short Episode",
         file_hash="short001",
-        duration=120.0  # 2 分钟
+        duration=120.0,  # 2 分钟
+        transcription_status="pending"
     )
     db_session.add(short_episode)
     
@@ -365,7 +371,8 @@ def test_episode_needs_segmentation_auto_set(db_session):
     long_episode = Episode(
         title="Long Episode",
         file_hash="long001",
-        duration=600.0  # 10 分钟
+        duration=600.0,  # 10 分钟
+        transcription_status="pending"
     )
     db_session.add(long_episode)
     
@@ -401,7 +408,8 @@ def test_episode_segmentation_properties_with_different_durations(db_session):
         episode = Episode(
             title=f"Episode {i}",
             file_hash=f"hash{i:03d}",
-            duration=duration
+            duration=duration,
+            transcription_status="pending"
         )
         db_session.add(episode)
         db_session.commit()
@@ -427,7 +435,8 @@ def test_episode_transcription_timestamps(db_session):
     episode = Episode(
         title="Timestamp Test",
         file_hash="timestamp001",
-        duration=300.0
+        duration=300.0,
+        transcription_status="pending"
     )
     db_session.add(episode)
     db_session.commit()
@@ -482,7 +491,8 @@ def test_episode_crud_operations(db_session):
         file_hash="crud001",
         audio_path="backend/data/audios/crud001.mp3",
         duration=240.0,
-        language="en-US"
+        language="en-US",
+        transcription_status="pending"
     )
     db_session.add(episode)
     db_session.commit()
@@ -1139,7 +1149,8 @@ def test_transcript_cue_model_creation(db_session):
     episode = Episode(
         title="Test Episode",
         file_hash="test_hash_001",
-        duration=600.0
+        duration=600.0,
+        transcription_status="pending"
     )
     db_session.add(episode)
     db_session.commit()
@@ -1161,7 +1172,6 @@ def test_transcript_cue_model_creation(db_session):
     cue = TranscriptCue(
         episode_id=episode.id,
         segment_id=segment.id,
-        cue_index=1,
         start_time=0.28,
         end_time=2.22,
         speaker="Lenny",
@@ -1174,7 +1184,6 @@ def test_transcript_cue_model_creation(db_session):
     assert cue.id is not None
     assert cue.episode_id == episode.id
     assert cue.segment_id == segment.id
-    assert cue.cue_index == 1
     assert cue.start_time == 0.28
     assert cue.end_time == 2.22
     assert cue.speaker == "Lenny"
@@ -1199,7 +1208,6 @@ def test_transcript_cue_relationship_with_episode(db_session):
     cue1 = TranscriptCue(
         episode_id=episode.id,
         segment_id=None,  # 手动导入的字幕
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         speaker="Speaker 1",
@@ -1208,7 +1216,6 @@ def test_transcript_cue_relationship_with_episode(db_session):
     cue2 = TranscriptCue(
         episode_id=episode.id,
         segment_id=None,
-        cue_index=2,
         start_time=2.5,
         end_time=4.0,
         speaker="Speaker 2",
@@ -1253,7 +1260,6 @@ def test_transcript_cue_relationship_with_segment(db_session):
     cue1 = TranscriptCue(
         episode_id=episode.id,
         segment_id=segment.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="Cue from segment 001"
@@ -1261,7 +1267,6 @@ def test_transcript_cue_relationship_with_segment(db_session):
     cue2 = TranscriptCue(
         episode_id=episode.id,
         segment_id=segment.id,
-        cue_index=2,
         start_time=2.5,
         end_time=4.0,
         text="Another cue from segment 001"
@@ -1272,8 +1277,10 @@ def test_transcript_cue_relationship_with_segment(db_session):
     # 验证：Segment 可以访问其 cues
     db_session.refresh(segment)
     assert len(segment.transcript_cues) == 2
-    assert segment.transcript_cues[0].cue_index == 1
-    assert segment.transcript_cues[1].cue_index == 2
+    # 验证：按 start_time 排序
+    sorted_cues = sorted(segment.transcript_cues, key=lambda c: c.start_time)
+    assert sorted_cues[0].start_time == 0.5
+    assert sorted_cues[1].start_time == 2.5
 
 
 def test_transcript_cue_cascade_delete_with_episode(db_session):
@@ -1284,7 +1291,8 @@ def test_transcript_cue_cascade_delete_with_episode(db_session):
     episode = Episode(
         title="Test Episode",
         file_hash="test_hash_004",
-        duration=300.0
+        duration=300.0,
+        transcription_status="pending"
     )
     db_session.add(episode)
     db_session.commit()
@@ -1292,7 +1300,6 @@ def test_transcript_cue_cascade_delete_with_episode(db_session):
     cue = TranscriptCue(
         episode_id=episode.id,
         segment_id=None,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="Test cue"
@@ -1311,15 +1318,16 @@ def test_transcript_cue_cascade_delete_with_episode(db_session):
     assert deleted_cue is None
 
 
-def test_transcript_cue_set_null_when_segment_deleted(db_session):
-    """测试删除 AudioSegment 时，TranscriptCue 的 segment_id 设为 NULL"""
+def test_transcript_cue_cascade_delete_with_segment(db_session):
+    """测试删除 AudioSegment 时，TranscriptCue 被级联删除（CASCADE）"""
     from app.models import Episode, AudioSegment, TranscriptCue
     
     # 创建 Episode、Segment 和 Cue
     episode = Episode(
         title="Test Episode",
         file_hash="test_hash_005",
-        duration=600.0
+        duration=600.0,
+        transcription_status="processing"
     )
     db_session.add(episode)
     db_session.commit()  # 先提交 Episode 以获取 ID
@@ -1339,7 +1347,6 @@ def test_transcript_cue_set_null_when_segment_deleted(db_session):
     cue = TranscriptCue(
         episode_id=episode.id,
         segment_id=segment.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="Test cue"
@@ -1349,48 +1356,45 @@ def test_transcript_cue_set_null_when_segment_deleted(db_session):
     
     cue_id = cue.id
     
-    # 删除 Segment
+    # 删除 Segment（应该级联删除关联的 Cue）
     db_session.delete(segment)
     db_session.commit()
+    db_session.expire_all()  # 刷新所有对象状态，确保看到数据库的变更
     
-    # 验证：Cue 仍然存在，但 segment_id 变为 NULL
-    db_session.refresh(cue)
-    assert cue.id == cue_id
-    assert cue.segment_id is None
-    assert cue.episode_id == episode.id
+    # 验证：Cue 被级联删除（CASCADE）
+    deleted_cue = db_session.query(TranscriptCue).filter(TranscriptCue.id == cue_id).first()
+    assert deleted_cue is None, f"Cue should be deleted when Segment is deleted (CASCADE), but cue_id={cue_id} still exists"
 
 
-def test_transcript_cue_query_by_cue_index(db_session):
-    """测试按 cue_index 查询和排序"""
+def test_transcript_cue_query_by_start_time(db_session):
+    """测试按 start_time 查询和排序（替代 cue_index）"""
     from app.models import Episode, TranscriptCue
     
     # 创建 Episode
     episode = Episode(
         title="Test Episode",
         file_hash="test_hash_006",
-        duration=300.0
+        duration=300.0,
+        transcription_status="completed"
     )
     db_session.add(episode)
     db_session.commit()
     
-    # 创建多个 Cue（插入顺序不按 cue_index）
+    # 创建多个 Cue（插入顺序不按 start_time）
     cue3 = TranscriptCue(
         episode_id=episode.id,
-        cue_index=3,
         start_time=5.0,
         end_time=7.0,
         text="Third cue"
     )
     cue1 = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="First cue"
     )
     cue2 = TranscriptCue(
         episode_id=episode.id,
-        cue_index=2,
         start_time=2.5,
         end_time=4.0,
         text="Second cue"
@@ -1398,16 +1402,16 @@ def test_transcript_cue_query_by_cue_index(db_session):
     db_session.add_all([cue3, cue1, cue2])
     db_session.commit()
     
-    # 查询：按 cue_index 排序
+    # 查询：按 start_time 排序
     cues = db_session.query(TranscriptCue).filter(
         TranscriptCue.episode_id == episode.id
-    ).order_by(TranscriptCue.cue_index).all()
+    ).order_by(TranscriptCue.start_time).all()
     
-    # 验证：顺序正确
+    # 验证：顺序正确（按时间排序）
     assert len(cues) == 3
-    assert cues[0].cue_index == 1
-    assert cues[1].cue_index == 2
-    assert cues[2].cue_index == 3
+    assert cues[0].start_time == 0.5
+    assert cues[1].start_time == 2.5
+    assert cues[2].start_time == 5.0
     assert cues[0].text == "First cue"
     assert cues[1].text == "Second cue"
     assert cues[2].text == "Third cue"
@@ -1421,7 +1425,8 @@ def test_transcript_cue_default_speaker(db_session):
     episode = Episode(
         title="Test Episode",
         file_hash="test_hash_007",
-        duration=300.0
+        duration=300.0,
+        transcription_status="pending"
     )
     db_session.add(episode)
     db_session.commit()
@@ -1429,7 +1434,6 @@ def test_transcript_cue_default_speaker(db_session):
     # 创建 Cue（不指定 speaker）
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="Test cue without speaker"
@@ -1449,14 +1453,14 @@ def test_transcript_cue_string_representation(db_session):
     episode = Episode(
         title="Test Episode",
         file_hash="test_hash_008",
-        duration=300.0
+        duration=300.0,
+        transcription_status="pending"
     )
     db_session.add(episode)
     db_session.commit()
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         speaker="Lenny",
@@ -1470,10 +1474,73 @@ def test_transcript_cue_string_representation(db_session):
     assert "TranscriptCue" in cue_repr
     assert f"id={cue.id}" in cue_repr
     assert f"episode_id={episode.id}" in cue_repr
-    assert "cue_index=1" in cue_repr
+    assert f"start_time={cue.start_time:.2f}s" in cue_repr
     assert "speaker='Lenny'" in cue_repr
     # 验证：text 被截断到 30 字符
     assert "..." in cue_repr
+
+
+def test_episode_transcription_status_physical_field(db_session):
+    """测试 Episode.transcription_status 物理字段（用于高效查询）"""
+    from app.models import Episode, AudioSegment
+    
+    # 创建不同状态的 Episode
+    episode1 = Episode(
+        title="Pending Episode",
+        file_hash="status_001",
+        duration=300.0,
+        transcription_status="pending"
+    )
+    episode2 = Episode(
+        title="Processing Episode",
+        file_hash="status_002",
+        duration=300.0,
+        transcription_status="processing"
+    )
+    episode3 = Episode(
+        title="Completed Episode",
+        file_hash="status_003",
+        duration=300.0,
+        transcription_status="completed"
+    )
+    db_session.add_all([episode1, episode2, episode3])
+    db_session.commit()
+    
+    # 验证：默认值
+    assert episode1.transcription_status == "pending"
+    
+    # 验证：高效查询（使用索引）
+    completed_episodes = db_session.query(Episode).filter(
+        Episode.transcription_status == "completed"
+    ).all()
+    assert len(completed_episodes) == 1
+    assert completed_episodes[0].title == "Completed Episode"
+    
+    # 验证：物理字段与动态属性配合
+    segment1 = AudioSegment(
+        episode_id=episode2.id,
+        segment_index=0,
+        segment_id="segment_001",
+        start_time=0.0,
+        end_time=180.0,
+        status="completed"
+    )
+    segment2 = AudioSegment(
+        episode_id=episode2.id,
+        segment_index=1,
+        segment_id="segment_002",
+        start_time=180.0,
+        end_time=300.0,
+        status="processing"
+    )
+    db_session.add_all([segment1, segment2])
+    db_session.commit()
+    
+    # 物理字段用于查询
+    assert episode2.transcription_status == "processing"
+    # 动态属性用于展示
+    assert episode2.transcription_progress == 50.0
+    assert episode2.transcription_status_display == "正在转录中..."
 
 
 # ==================== Highlight 模型测试 ====================
@@ -1493,7 +1560,6 @@ def test_highlight_model_creation(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         speaker="Lenny",
@@ -1539,11 +1605,10 @@ def test_highlight_color_default_value(db_session):
         duration=300.0
     )
     db_session.add(episode)
-    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    db_session.commit()  # 先提交以获取 ID
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="Test cue"
@@ -1578,11 +1643,10 @@ def test_highlight_updated_at_auto_update(db_session):
         duration=300.0
     )
     db_session.add(episode)
-    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    db_session.commit()  # 先提交以获取 ID
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="Test cue"
@@ -1623,11 +1687,10 @@ def test_highlight_single_cue_highlight(db_session):
         duration=300.0
     )
     db_session.add(episode)
-    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    db_session.commit()  # 先提交以获取 ID
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="This is a test sentence."
@@ -1665,18 +1728,16 @@ def test_highlight_cross_cue_with_group(db_session):
     )
     db_session.add(episode)
 
-    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    db_session.commit()  # 先提交以获取 ID
     
     cue1 = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="First sentence."
     )
     cue2 = TranscriptCue(
         episode_id=episode.id,
-        cue_index=2,
         start_time=2.5,
         end_time=4.0,
         text="Second sentence."
@@ -1726,19 +1787,17 @@ def test_highlight_delete_by_group(db_session):
     )
     db_session.add(episode)
 
-    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    db_session.commit()  # 先提交以获取 ID
 
     
     cue1 = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="First sentence."
     )
     cue2 = TranscriptCue(
         episode_id=episode.id,
-        cue_index=2,
         start_time=2.5,
         end_time=4.0,
         text="Second sentence."
@@ -1795,11 +1854,10 @@ def test_highlight_relationship_with_episode(db_session):
         duration=300.0
     )
     db_session.add(episode)
-    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    db_session.commit()  # 先提交以获取 ID
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="Test cue"
@@ -1841,11 +1899,10 @@ def test_highlight_relationship_with_cue(db_session):
         duration=300.0
     )
     db_session.add(episode)
-    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    db_session.commit()  # 先提交以获取 ID
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="This is a test sentence for highlighting."
@@ -1888,11 +1945,10 @@ def test_highlight_cascade_delete_with_episode(db_session):
         duration=300.0
     )
     db_session.add(episode)
-    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    db_session.commit()  # 先提交以获取 ID
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="Test cue"
@@ -1932,11 +1988,10 @@ def test_highlight_cascade_delete_with_cue(db_session):
         duration=300.0
     )
     db_session.add(episode)
-    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    db_session.commit()  # 先提交以获取 ID
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="Test cue"
@@ -1977,11 +2032,10 @@ def test_highlight_string_representation(db_session):
         duration=300.0
     )
     db_session.add(episode)
-    db_session.commit()  # 鍏堟彁浜よ幏鍙?ID
+    db_session.commit()  # 先提交以获取 ID
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.5,
         end_time=2.0,
         text="Test cue"
@@ -2042,7 +2096,6 @@ def test_note_model_creation(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test cue text"
@@ -2096,7 +2149,6 @@ def test_note_three_types(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test cue text"
@@ -2184,7 +2236,6 @@ def test_note_relationship_with_episode(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test cue"
@@ -2240,7 +2291,6 @@ def test_note_relationship_with_highlight(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test cue"
@@ -2288,7 +2338,6 @@ def test_note_cascade_delete_with_episode(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test cue"
@@ -2339,7 +2388,6 @@ def test_note_cascade_delete_with_highlight(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test cue"
@@ -2390,7 +2438,6 @@ def test_note_updated_at_auto_update(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test cue"
@@ -2445,7 +2492,6 @@ def test_note_content_nullable_for_underline(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test cue"
@@ -2497,7 +2543,6 @@ def test_note_query_by_type(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test cue"
@@ -2548,7 +2593,6 @@ def test_note_string_representation(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test cue"
@@ -2614,7 +2658,6 @@ def test_ai_query_record_model_creation(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="This is a taxonomy example"
@@ -2672,7 +2715,6 @@ def test_ai_query_record_default_status(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test text"
@@ -2719,7 +2761,6 @@ def test_ai_query_record_with_error(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test text"
@@ -2769,7 +2810,6 @@ def test_ai_query_record_relationship_with_highlight(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test text"
@@ -2825,7 +2865,6 @@ def test_ai_query_record_cascade_delete_with_highlight(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test text"
@@ -2876,7 +2915,6 @@ def test_ai_query_record_cache_logic(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test text"
@@ -2932,7 +2970,6 @@ def test_ai_query_record_different_providers(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test text"
@@ -3005,7 +3042,6 @@ def test_ai_query_record_to_note_conversion(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="This is a taxonomy example"
@@ -3081,7 +3117,6 @@ def test_ai_query_record_query_types(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test text"
@@ -3151,7 +3186,6 @@ def test_ai_query_record_string_representation(db_session):
     
     cue = TranscriptCue(
         episode_id=episode.id,
-        cue_index=1,
         start_time=0.0,
         end_time=5.0,
         text="Test text"
