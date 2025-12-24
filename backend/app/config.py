@@ -29,8 +29,8 @@ WHISPER_MODEL = "base"  # tiny, base, small, medium, large
 
 # ==================== 文件存储配置 ====================
 
-# 音频文件存储路径
-AUDIO_STORAGE_PATH = "backend/data/audios/"
+# 音频文件存储路径（相对于 backend 目录）
+AUDIO_STORAGE_PATH = "./data/audios/"
 
 # 最大文件大小（字节）
 MAX_FILE_SIZE = 1024 * 1024 * 1024  # 1GB

@@ -8,7 +8,7 @@
 - 开发前端时需要真实数据
 
 使用方法：
-    python -m scripts.import_test_data --audio "path/to/audio.mp3" --transcript "path/to/transcript.json"
+    python -m app.services.import_test_data --audio "path/to/audio.mp3" --transcript "path/to/transcript.json"
 """
 
 import sys
