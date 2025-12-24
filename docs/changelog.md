@@ -1179,7 +1179,7 @@ function handleTextSelection(selection) {
    - 添加复合索引：`idx_note_episode_type`、`idx_note_episode_highlight`
 
 4. **级联删除规则明确化**（Critical）：
-   - 详细定义级联删除链：Episode → AudioSegment/TranscriptCue/Highlight/Note/AIQueryRecord/Vocabulary
+   - 详细定义级联删除链：Episode → AudioSegment/TranscriptCue/Highlight/Note/AIQueryRecord
    - 添加 SQLAlchemy 实现代码示例
    - 添加测试用例要求（符合 PRD 326行："删除包括：笔记卡片、下划线效果、本地json数据"）
 
