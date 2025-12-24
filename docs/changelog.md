@@ -4,6 +4,336 @@
 
 ---
 
+## [2025-12-24] [refactor] - 字幕排序最终方案确定：保留 cue_index + 重新索引机制（Critical ⭐⭐⭐）
+**变更文件**: `docs/开发计划.md`
+
+**背景和用户需求**：
+- **PRD 核心要求**：用户上传音频 → 字幕依次展示 → 划线生成笔记 → 下次打开笔记按顺序展示
+- **用户不关心**：音频被切成几段、哪段先转录完成、转录失败重试
+- **用户只关心**：字幕和笔记是否按正确顺序展示（用户完全无感知后端实现）
+
+**方案演进**：
+1. **初版**：维护全局连续的 `cue_index`（1, 2, 3...） → 异步转录时重新分配复杂
+2. **简化版**（之前）：删除 `cue_index`，使用 `start_time` 排序 → 前端动态计算序号
+3. **最终版**（现在）：保留 `cue_index` + 实现重新索引机制 → 平衡性能和实现复杂度
+
+**最终方案核心设计**：
+
+### 1. **TranscriptCue 表设计**
+- **保留 `cue_index` 字段**：Integer，全局连续（1, 2, 3, 4...）
+- **保留 `start_time` 字段**：Float，用于重新索引排序
+- **关键原则**：`cue_index` 基于 `start_time` 排序分配
+
+```python
+class TranscriptCue(Base):
+    cue_index = Column(Integer, nullable=False, index=True)  # ⭐ 全局连续
+    start_time = Column(Float, nullable=False, index=True)   # 用于排序
+```
+
+### 2. **重新索引机制**（Critical ⭐⭐⭐）
+```python
+def save_cues_to_db(cues: List[Dict], segment: AudioSegment, db: Session):
+    """保存字幕并重新索引（保证 cue_index 全局连续）"""
+    # Step 1: 创建新 cue（临时 cue_index=0）
+    new_cues = [
+        TranscriptCue(
+            episode_id=segment.episode_id,
+            segment_id=segment.id,
+            start_time=cue["start"] + segment.start_time,  # 绝对时间
+            end_time=cue["end"] + segment.start_time,
+            speaker=cue.get("speaker", "Unknown"),
+            text=cue["text"],
+            cue_index=0  # 临时值
+        )
+        for cue in cues
+    ]
+    
+    # Step 2: 保存新 cue（获取 ID）
+    db.add_all(new_cues)
+    db.flush()  # 获取自增 ID
+    
+    # Step 3: 重新索引 - 查询该 Episode 的所有 cue，按 start_time 排序
+    all_cues = db.query(TranscriptCue).filter(
+        TranscriptCue.episode_id == segment.episode_id
+    ).order_by(TranscriptCue.start_time).all()
+    
+    # Step 4: 统一分配连续的 cue_index
+    for index, cue in enumerate(all_cues, start=1):
+        cue.cue_index = index  # 1, 2, 3, 4...
+    
+    db.commit()
+```
+
+### 3. **Highlight 关联稳定性**（Critical ⭐⭐⭐）
+- **使用 `cue.id`（主键）关联**：永不改变，即使 cue_index 重新分配
+- **完全解决异步转录问题**：
+  - segment_002 先完成 → 用户在 cue (id=10) 上创建 Highlight (cue_id=10)
+  - segment_001 后完成 → 重新索引后 cue (id=10) 的 cue_index 从 1 变为 4
+  - Highlight 仍然关联 cue_id=10（关联不受影响）
+
+```python
+class Highlight(Base):
+    cue_id = Column(Integer, ForeignKey("transcript_cues.id"))  # ⭐ 使用主键
+    # 不使用 cue_index，避免重新分配问题
+```
+
+### 4. **异步转录场景详解**
+**场景 1：顺序转录**
+- segment_001 完成 → 生成 cue (id=1,2,3)，cue_index = 1, 2, 3
+- segment_002 完成 → 生成 cue (id=4,5)，重新索引后 cue_index = 1, 2, 3, 4, 5
+
+**场景 2：乱序转录**
+- segment_002 先完成 → 生成 cue (id=10,11)，cue_index = 1, 2
+- segment_001 后完成 → 生成 cue (id=20,21,22)，重新索引后：
+  - cue id=20,21,22 的 cue_index = 1, 2, 3（segment_001）
+  - cue id=10,11 的 cue_index = 4, 5（segment_002）
+
+**场景 3：失败与重试**
+- segment_001 失败，segment_002 完成 → cue_index = 1, 2（segment_002）
+- segment_001 重试成功 → 重新索引后 cue_index = 1, 2, 3（segment_001），4, 5（segment_002）
+
+### 5. **查询和显示**
+```python
+# 后端查询（两种方式）
+# 方式 1：按 cue_index 排序（推荐，性能更好）
+cues = db.query(TranscriptCue).filter(
+    TranscriptCue.episode_id == episode_id
+).order_by(TranscriptCue.cue_index).all()
+
+# 方式 2：按 start_time 排序（语义更清晰）
+cues = db.query(TranscriptCue).filter(
+    TranscriptCue.episode_id == episode_id
+).order_by(TranscriptCue.start_time).all()
+```
+
+```javascript
+// 前端显示（直接使用 cue_index）
+cues.map((cue) => ({
+    ...cue,
+    displayIndex: cue.cue_index  // 1, 2, 3, 4...
+}))
+```
+
+### 6. **用户体验设计原则："无感知"异步转录**（新增 5.4.4）
+- **用户完全无感知**：音频被切分、异步转录、失败重试
+- **字幕顺序保证**：使用 `cue_index` 全局连续索引，基于 `start_time` 排序
+- **笔记顺序保证**：Highlight 使用 `cue.id` 关联，不受 `cue_index` 变化影响
+- **转录进度展示**（用户层）：隐藏分段信息，展示百分比和剩余时间
+- **转录失败处理**（用户层）：隐藏技术错误，展示友好提示和重试按钮
+
+### 7. **测试要求更新**（Task 1.2）
+- ✅ **cue_index 全局连续性测试**（顺序/乱序/失败重试）
+- ✅ **Highlight 关联稳定性测试**（cue_index 变化不影响关联）
+- ✅ **字幕排序测试**（两种排序方式结果一致）
+- ✅ **并发安全测试**（数据库事务保证原子性）
+
+**优点总结**：
+- ✅ `cue_index` 全局连续，前端无需动态计算（性能更好）
+- ✅ 查询性能优化（整数索引 vs 浮点数索引）
+- ✅ Highlight 关联稳定（使用主键，永不变化）
+- ✅ 用户体验完美（无感知异步转录，字幕和笔记按顺序展示）
+- ✅ 完全符合 PRD（用户不关心实现细节，只关心正确的顺序）
+
+**缺点与解决**：
+- ⚠️ 重新索引有性能开销 → 解决：每个 Episode 的 cue < 1000，重新索引 < 100ms
+- ⚠️ 并发安全问题 → 解决：使用数据库事务 + 行锁
+- ⚠️ 实现复杂度增加 → 解决：封装到 `save_cues_to_db` 函数，调用简单
+
+**产出价值**：
+- ✅ 平衡了性能和实现复杂度（相比删除 cue_index 更好的查询性能）
+- ✅ 完全满足用户需求（字幕和笔记按顺序展示）
+- ✅ 关联稳定性保证（Highlight 使用主键）
+- ✅ 用户完全无感知后端实现（符合 PRD 设计原则）
+
+---
+
+## [2025-12-24] [refactor] - 数据库设计重大简化：字幕排序 + Highlight 分组管理（Critical ⭐⭐⭐）
+**说明**：此版本已被最新方案取代，保留作为历史记录
+**变更文件**: `docs/开发计划.md`
+
+**背景和问题**：
+- 之前的设计试图维护全局连续的 `cue_index`（1, 2, 3, 4...）
+- 异步转录时，segment_002 可能比 segment_001 先完成，需要重新分配所有 cue_index
+- 如果 Highlight 使用 cue_index 定位，重新分配后会出错
+- 实现极其复杂：需要事务、锁机制、并发处理
+
+**核心优化方案**：
+
+### 1. **字幕排序简化**（⭐⭐⭐ Critical）
+- **删除 cue_index 字段**（或允许不连续）
+- **使用 start_time 排序**：`ORDER BY start_time`
+- **前端动态计算显示序号**：`index + 1`
+- **Highlight 使用 cue.id 关联**：主键永不变化
+
+**实现**：
+```python
+# 查询逻辑（极其简单！）
+cues = db.query(TranscriptCue).filter(
+    TranscriptCue.episode_id == episode_id
+).order_by(TranscriptCue.start_time).all()
+
+# 前端显示
+cues.map((cue, index) => ({
+    ...cue,
+    displayIndex: index + 1
+}))
+```
+
+**优点**：
+- ✅ 无需维护 cue_index，避免复杂的重新分配逻辑
+- ✅ 异步转录完全无影响：直接按 start_time 排序即可
+- ✅ Highlight 使用 cue.id（主键），永不受影响
+- ✅ 用户体验无变化：字幕仍然按顺序展示
+
+### 2. **Highlight 简化设计**（⭐⭐⭐ Critical）
+- **不允许单个 Highlight 跨 cue**（数据库层面）
+- **前端自动拆分 + 分组管理**（用户无感知）
+- **使用 highlight_group_id（UUID）关联同一次划线**
+- **删除时按组删除**
+
+**Highlight 表变更**：
+```python
+class Highlight(Base):
+    cue_id = Column(Integer, ForeignKey("transcript_cues.id"))  # ⭐ 单 cue 关联
+    start_offset = Column(Integer)
+    end_offset = Column(Integer)
+    highlighted_text = Column(Text)
+    highlight_group_id = Column(String, nullable=True, index=True)  # ⭐ 分组 ID
+    color = Column(String, default="#9C27B0")
+```
+
+**前端划线逻辑**：
+```javascript
+function handleTextSelection(selection) {
+    const affectedCues = getAffectedCues(selection);
+    
+    if (affectedCues.length === 1) {
+        // 单 cue 划线（90% 场景）
+        createHighlight({ cue_id: ..., highlight_group_id: null });
+    } else {
+        // 跨 cue 划线（10% 场景）
+        const groupId = generateUUID();
+        affectedCues.forEach(cue => {
+            createHighlight({ cue_id: cue.id, highlight_group_id: groupId });
+        });
+    }
+}
+```
+
+**优点**：
+- ✅ 极大简化设计：每个 Highlight 只关联一个 cue
+- ✅ 完全解决 cue_index 变化问题：使用 cue.id（主键）
+- ✅ 前端渲染简单：每个 cue 独立渲染高亮
+- ✅ 符合 90% 实际使用场景（单词/句子划线）
+- ✅ 通过分组管理仍然支持跨 cue 划线（用户无感知）
+
+### 3. **用户体验保证**
+**PRD 要求**：
+- 用户上传音频 → 看到字幕依次展示
+- 用户可以划线（可能跨多个 cue）
+- 用户创建笔记，下次打开按顺序展示
+- 用户不关心后端实现细节
+
+**我们的方案满足**：
+- ✅ 字幕按 start_time 排序，顺序正确
+- ✅ 用户可以跨 cue 划线（自动拆分，用户看不到）
+- ✅ 笔记按顺序展示（Highlight → cue.id → start_time）
+- ✅ 后端异步转录，用户完全无感知
+
+### 4. **数据库变更总结**
+**TranscriptCue 表**：
+- ❌ 删除 `cue_index` 字段（或改为可选，允许不连续）
+- ✅ 保留 `start_time`（核心：用于排序）
+- ✅ 索引：`idx_episode_time (episode_id, start_time)`
+
+**Highlight 表**：
+- ❌ 删除 `start_cue_id` 和 `end_cue_id` 字段
+- ✅ 改为 `cue_id`（单 cue 关联）
+- ✅ 新增 `highlight_group_id`（UUID，用于跨 cue 划线分组）
+- ✅ 索引：`idx_highlight_group (highlight_group_id)`
+
+### 5. **测试要求更新**
+- ✅ 测试字幕按 start_time 排序
+- ✅ 测试异步转录（segment_002 先完成）
+- ✅ 测试单 cue 划线（90% 场景）
+- ✅ 测试跨 cue 划线（自动拆分 + 分组）
+- ✅ 测试按组删除
+
+### 6. **API 设计更新**
+**POST /api/highlights**：
+- 请求：`{ highlights: [...], highlight_group_id: "uuid" }`（数组，前端已拆分）
+- 响应：`{ highlight_ids: [1, 2, 3], highlight_group_id: "uuid" }`
+
+**GET /api/episodes/{id}/highlights**：
+- 响应：每个 Highlight 只有一个 `cue_id`，包含 `highlight_group_id`
+
+**DELETE /api/highlights/{id}**：
+- 如果有 `highlight_group_id`，删除整组
+- 响应：`{ deleted_highlights_count: 3, ... }`
+
+**产出价值**：
+- ✅ **极大简化实现**：无需维护 cue_index，无需复杂的重新分配逻辑
+- ✅ **完全解决异步转录问题**：Highlight 使用 cue.id，永不受影响
+- ✅ **用户体验无变化**：字幕和笔记按顺序展示，完全符合 PRD
+- ✅ **数据库设计简洁**：单 cue 关联 + 分组管理，易于维护
+- ✅ **查询性能优化**：按 start_time 排序，无需复杂的 JOIN
+
+---
+
+## [2025-12-24] [refactor] - AudioSegment 表优化：顺序保证和 cue_index 分配策略（Critical ⭐⭐⭐）
+**变更文件**: `docs/开发计划.md`
+
+**问题分析**：
+1. **AudioSegment 表缺少关键字段**：
+   - 缺少 `retry_count`（重试次数）
+   - 缺少 `transcription_started_at`（开始转录时间，用于排序和监控）
+   - `cue_count` 是冗余的（可从 TranscriptCue 关联查询）
+
+2. **cue_index 全局连续性的保证机制不明确**：
+   - 异步转录时，segment_002 可能比 segment_001 先完成
+   - 如果 segment_001 失败，segment_002 的 cue_index 如何分配？
+   - 需要明确：失败的 segment 是否占用 cue_index？
+
+3. **顺序保证机制缺失**：
+   - `segment_index` 能保证分段顺序，但异步转录时 cue_index 的全局顺序需要保证
+
+**优化方案**：
+1. **AudioSegment 表优化**：
+   - ✅ 新增 `retry_count` 字段（默认 0，记录重试次数）
+   - ✅ 新增 `transcription_started_at` 字段（用于排序和监控）
+   - ❌ 删除 `cue_count` 字段（冗余，从 TranscriptCue 关联查询）
+
+2. **cue_index 分配策略**（Critical ⭐⭐⭐）：
+   - **原则**：按 `start_time`（绝对时间）排序后分配，保证全局连续性
+   - **异步转录处理**：
+     - 即使 segment_002 先完成，也要等待所有已完成的 segment 合并后重新分配 cue_index
+     - 使用数据库事务保证原子性
+   - **失败处理**：
+     - 如果 segment 失败（status="failed"），不创建 TranscriptCue
+     - 该 segment 不占用 cue_index，后续 segment 的 cue_index 连续
+     - 例如：segment_001 失败，segment_002 成功 → segment_002 的 cue 从 cue_index=1 开始
+   - **重试处理**：
+     - 如果 segment 重试成功，删除之前失败的 cue（如果有），重新分配 cue_index
+
+3. **实现细节**：
+   - 实现 `save_cues_to_db()` 函数：合并所有 cue，按 `start_time` 排序后重新分配 cue_index
+   - 使用数据库事务保证原子性
+   - 添加复合索引：`idx_episode_status_segment`（用于查询待处理 segment）
+
+**测试要求**（新增）：
+- ✅ cue_index 全局连续性测试（异步转录场景）
+- ✅ 转录失败处理测试（segment 失败不影响后续 cue_index）
+- ✅ 顺序保证测试（segment_index 和 cue_index 都连续）
+- ✅ 重试机制测试（retry_count 正确递增）
+
+**产出价值**：
+- ✅ 保证字幕顺序正确（前端按 cue_index 加载）
+- ✅ 处理转录失败场景（不占用 cue_index）
+- ✅ 支持异步转录（重新分配 cue_index 保证连续性）
+- ✅ 完善重试机制（retry_count 监控）
+
+---
+
 ## [2025-12-24] [feat] - 实现 Episode 表及分段信息全局配置优化
 **变更文件**: `backend/app/models.py`, `backend/app/config.py`, `backend/tests/test_models_new.py`, `docs/开发计划.md`
 
