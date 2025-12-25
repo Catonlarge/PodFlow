@@ -4,6 +4,115 @@
 
 ---
 
+## [2025-12-25] [feat] - 实现 WhisperService（单例模式 + 模型常驻显存）
+
+**变更文件**: `backend/app/services/whisper_service.py`, `backend/app/services/__init__.py`, `backend/tests/test_whisper_service.py`, `docs/开发计划.md`
+
+**功能说明**：
+实现 WhisperX 转录服务（单例模式），封装完整的转录流程，支持模型常驻显存，避免重复加载。
+
+**核心功能**：
+
+1. **单例模式设计**：
+   - 使用类方法 `get_instance()` 获取单例实例
+   - 模型只加载一次，常驻显存，避免重复加载导致的显存浪费
+   - 应用启动时调用 `load_models()` 加载模型
+
+2. **完整转录流程**：
+   - `transcribe_full_pipeline()` 方法实现完整流程：
+     - 转录（Transcribe）：使用 Whisper 模型转录音频
+     - 对齐（Align）：使用 Wav2Vec2 模型校准时间戳
+     - 说话人区分（Diarization）：使用 Pyannote 模型区分说话人（可选）
+   - 返回标准格式字幕列表：`[{"start": float, "end": float, "speaker": str, "text": str}]`
+
+3. **音频片段提取**：
+   - `extract_segment_to_temp()` 方法使用 FFmpeg 提取音频片段
+   - **使用 PCM 编码（pcm_s16le）**，确保秒级精准切割（不使用 `-c copy`）
+   - 输出 16kHz 单声道 WAV 文件（Whisper 所需格式）
+   - 支持自定义输出目录
+
+4. **设备自动检测**：
+   - 自动检测 CUDA 可用性
+   - CUDA 模式：使用 `float16` 计算类型
+   - CPU 模式：使用 `int8` 计算类型
+
+5. **硬件兼容性**：
+   - 在导入 `whisperx` 前自动应用硬件兼容性补丁
+   - 支持 RTX 5070 + PyTorch Nightly 环境
+
+**设计要点**：
+
+- **单例模式**：确保模型只加载一次，常驻显存
+- **配置管理**：使用 `config.WHISPER_MODEL` 和 `config.HF_TOKEN`，避免硬编码
+- **错误处理**：完整的异常处理和日志记录
+- **日志记录**：使用 Python `logging`，记录关键步骤
+- **代码质量**：完整的文档字符串（Docstrings）和类型提示
+
+**测试覆盖**（15 个测试用例）：
+
+- ✅ 单例模式测试（2 个）
+  - 测试在模型加载前获取实例应该抛出错误
+  - 测试加载模型后获取实例返回同一个实例
+
+- ✅ 模型加载测试（4 个）
+  - 测试 CPU 模式下加载模型
+  - 测试 CUDA 模式下加载模型
+  - 测试模型目录自动创建
+  - 测试模型加载失败时的错误处理
+
+- ✅ 转录功能测试（4 个）
+  - 测试完整转录流程（不启用说话人区分）
+  - 测试完整转录流程（启用说话人区分）
+  - 测试文件不存在时的错误处理
+  - 测试模型未加载时的错误处理
+
+- ✅ 音频片段提取测试（3 个）
+  - 测试成功提取音频片段（验证 FFmpeg 参数）
+  - 测试音频文件不存在时的错误处理
+  - 测试 FFmpeg 执行失败时的错误处理
+  - 测试 FFmpeg 未安装时的错误处理
+
+- ✅ 设备信息测试（2 个）
+  - 测试 CPU 模式下的设备信息
+  - 测试 CUDA 模式下的设备信息
+
+- ✅ 结果格式化测试（1 个）
+  - 测试将 WhisperX 结果转换为标准字幕格式（空文本过滤、默认 speaker）
+
+**测试结果**：
+- 所有 15 个测试用例通过（100% 通过率）
+- 使用 Mock 避免实际加载模型，测试执行快速
+
+**使用方式**：
+
+```python
+# 1. 应用启动时加载模型
+WhisperService.load_models()
+
+# 2. 获取单例实例
+service = WhisperService.get_instance()
+
+# 3. 执行完整转录
+cues = service.transcribe_full_pipeline("audio.mp3")
+
+# 4. 提取音频片段
+temp_path = service.extract_segment_to_temp("audio.mp3", start_time=180.0, duration=180.0)
+```
+
+**产出价值**：
+- ✅ 完成 Task 1.2 的核心服务层实现
+- ✅ 单例模式确保模型只加载一次，节省显存
+- ✅ 完整的转录流程封装，便于后续 TranscriptionService 调用
+- ✅ FFmpeg 片段提取使用 PCM 编码，确保时间戳精度
+- ✅ 完整的测试覆盖（TDD 原则）
+- ✅ 为后续 TranscriptionService 实现奠定基础
+
+**下一步**：
+- 创建 `TranscriptionService` 类，实现虚拟分段转录逻辑
+- 集成到 FastAPI，使用 `lifespan` 管理模型加载
+
+---
+
 ## [2025-01-XX] [fix] - 修复 TranscriptCue 级联删除问题
 
 **变更文件**: `backend/app/models.py`
