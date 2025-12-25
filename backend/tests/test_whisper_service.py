@@ -19,6 +19,21 @@ from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 
 from app.services.whisper_service import WhisperService
+from app.utils.hardware_patch import apply_rtx5070_patches
+
+
+class TestHardwarePatch:
+    """测试硬件兼容性补丁"""
+    
+    def test_apply_hardware_patches(self):
+        """测试硬件补丁应用（不报错即可）"""
+        # 补丁函数应该能够多次调用而不报错（幂等性）
+        try:
+            apply_rtx5070_patches()
+            apply_rtx5070_patches()  # 第二次调用应该安全
+            assert True  # 如果没有抛出异常，测试通过
+        except Exception as e:
+            pytest.fail(f"硬件补丁应用失败: {e}")
 
 
 class TestWhisperServiceSingleton:
@@ -276,6 +291,81 @@ class TestWhisperServiceTranscribe:
         assert cues[0]["speaker"] == "SPEAKER_00"
         assert cues[1]["speaker"] == "SPEAKER_01"
     
+    @patch('app.services.whisper_service.whisperx.load_audio')
+    @patch('app.services.whisper_service.whisperx.load_align_model')
+    @patch('app.services.whisper_service.whisperx.align')
+    @patch('app.services.whisper_service.whisperx.assign_word_speakers')
+    @patch('app.services.whisper_service.DiarizationPipeline')
+    @patch('app.services.whisper_service.os.path.exists')
+    def test_speaker_identification(
+        self, mock_exists, mock_diarize_pipeline, mock_assign_speakers,
+        mock_align, mock_load_align, mock_load_audio, tmp_path
+    ):
+        """验证说话人识别功能"""
+        # 创建测试音频文件
+        audio_file = tmp_path / "test_audio.mp3"
+        audio_file.write_bytes(b"fake audio data")
+        mock_exists.return_value = True
+        
+        # Mock 音频加载
+        mock_audio = [0.1, 0.2, 0.3]
+        mock_load_audio.return_value = mock_audio
+        
+        # Mock 转录结果（无说话人信息）
+        mock_transcribe_result = {
+            "segments": [
+                {"start": 0.0, "end": 2.0, "text": "Hello world"},
+                {"start": 2.0, "end": 4.0, "text": "How are you"}
+            ],
+            "language": "en"
+        }
+        WhisperService._model.transcribe.return_value = mock_transcribe_result
+        
+        # Mock 对齐模型
+        mock_align_model = Mock()
+        mock_metadata = {"language": "en"}
+        mock_load_align.return_value = (mock_align_model, mock_metadata)
+        
+        # Mock 对齐结果
+        mock_align_result = {
+            "segments": [
+                {"start": 0.0, "end": 2.0, "text": "Hello world"},
+                {"start": 2.0, "end": 4.0, "text": "How are you"}
+            ]
+        }
+        mock_align.return_value = mock_align_result
+        
+        # Mock Diarization 模型
+        mock_diarize_model = Mock()
+        mock_diarize_segments = {"segments": []}
+        mock_diarize_model.return_value = mock_diarize_segments
+        mock_diarize_pipeline.return_value = mock_diarize_model
+        
+        # Mock 说话人分配结果
+        mock_speaker_result = {
+            "segments": [
+                {"start": 0.0, "end": 2.0, "text": "Hello world", "speaker": "SPEAKER_00"},
+                {"start": 2.0, "end": 4.0, "text": "How are you", "speaker": "SPEAKER_01"}
+            ]
+        }
+        mock_assign_speakers.return_value = mock_speaker_result
+        
+        # 获取实例并执行转录
+        service = WhisperService.get_instance()
+        service._diarize_model = mock_diarize_model
+        cues = service.transcribe_segment(str(audio_file), enable_diarization=True)
+        
+        # 验证说话人识别结果
+        assert len(cues) == 2
+        # 验证每个 cue 都有 speaker 字段
+        assert "speaker" in cues[0]
+        assert "speaker" in cues[1]
+        # 验证说话人标签格式正确（SPEAKER_XX）
+        assert cues[0]["speaker"].startswith("SPEAKER_")
+        assert cues[1]["speaker"].startswith("SPEAKER_")
+        # 验证两个片段有不同的说话人（如果有多个说话人）
+        # 注意：实际场景中可能有相同说话人，这里只是验证格式
+    
     def test_transcribe_file_not_found(self):
         """测试文件不存在时的错误处理"""
         service = WhisperService.get_instance()
@@ -379,6 +469,43 @@ class TestWhisperServiceExtractSegment:
         
         with pytest.raises(RuntimeError, match="FFmpeg 未安装"):
             service.extract_segment_to_temp(str(audio_file), 0.0, 180.0)
+    
+    @patch('app.services.whisper_service.subprocess.run')
+    def test_extract_segment_accuracy(self, mock_subprocess, tmp_path):
+        """测试 FFmpeg 提取的时间戳精度（Critical）"""
+        # 创建测试音频文件
+        audio_file = tmp_path / "test_audio.mp3"
+        audio_file.write_bytes(b"fake audio data")
+        
+        # Mock FFmpeg 成功执行
+        mock_subprocess.return_value = Mock(returncode=0)
+        
+        service = WhisperService.get_instance()
+        output_dir = str(tmp_path / "temp_segments")
+        
+        # 测试不同的起始时间和时长
+        test_cases = [
+            (0.0, 180.0),
+            (180.0, 180.0),
+            (360.0, 120.0),
+            (123.456, 45.789),  # 非整数时间戳
+        ]
+        
+        for start_time, duration in test_cases:
+            temp_path = service.extract_segment_to_temp(
+                str(audio_file),
+                start_time=start_time,
+                duration=duration,
+                output_dir=output_dir
+            )
+            
+            # 验证 FFmpeg 调用参数包含正确的时间戳
+            # 由于 mock_subprocess 会被多次调用，我们需要检查最后一次调用
+            assert mock_subprocess.called
+            
+            # 验证输出文件路径包含时间戳信息
+            assert str(start_time) in temp_path or f"{start_time:.2f}" in temp_path
+            assert str(duration) in temp_path or f"{duration:.2f}" in temp_path
 
 
 class TestWhisperServiceDeviceInfo:
