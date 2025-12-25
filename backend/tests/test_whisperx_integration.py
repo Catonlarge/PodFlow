@@ -8,7 +8,7 @@ WhisperX 集成测试（使用真实音频文件）
 4. 格式转换是否正确（相对时间 -> 绝对时间）
 
 注意：这是一个集成测试，需要：
-- 真实的音频文件（backend/data/audio/003.mp3）
+- 真实的音频文件（backend/data/sample_audio/003.mp3）
 - 已加载的 Whisper 模型
 - 可能需要较长的执行时间（实际转录）
 """
@@ -36,7 +36,7 @@ class TestWhisperXOutputFormat:
         # 获取项目根目录
         current_file = Path(__file__).resolve()
         backend_dir = current_file.parent.parent
-        audio_path = backend_dir / "data" / "audio" / "003.mp3"
+        audio_path = backend_dir / "data" / "sample_audio" / "003.mp3"
         
         if not audio_path.exists():
             pytest.skip(f"测试音频文件不存在: {audio_path}")
