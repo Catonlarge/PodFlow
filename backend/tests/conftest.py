@@ -3,6 +3,7 @@ pytest 测试配置文件
 包含测试夹具 (Fixtures)
 """
 import pytest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -48,22 +49,29 @@ def db_session():
 
 @pytest.fixture(scope="function")
 def client(db_session):
-    """创建 FastAPI 测试客户端"""
+    """
+    创建 FastAPI 测试客户端
+    
+    注意：
+    - Mock lifespan 以避免在测试时实际加载模型（耗时且需要 GPU）
+    - 覆盖 get_db 依赖以使用测试数据库
+    """
     def override_get_db():
         try:
             yield db_session
         finally:
             pass
     
-    # 覆盖 get_db 依赖（如果 main.py 中使用了它）
-    # 注意：当前 main.py 还没有使用 get_db，所以这里先保留结构
-    if hasattr(app, 'dependency_overrides'):
+    # Mock lifespan 以避免实际加载模型
+    # 注意：TestClient 会自动处理 lifespan，但我们可以通过 patch 跳过实际加载
+    with patch('app.main.apply_rtx5070_patches'), \
+         patch('app.main.WhisperService.load_models'):
+        # 覆盖 get_db 依赖
         app.dependency_overrides[get_db] = override_get_db
-    
-    with TestClient(app) as test_client:
-        yield test_client
-    
-    # 清理覆盖
-    if hasattr(app, 'dependency_overrides'):
+        
+        with TestClient(app) as test_client:
+            yield test_client
+        
+        # 清理覆盖
         app.dependency_overrides.clear()
 

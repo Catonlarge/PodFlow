@@ -4,6 +4,172 @@
 
 ---
 
+## [2025-01-XX] [test] - 添加 FastAPI 集成测试：覆盖 API 接口和后台任务 Session 管理（✅ 11/11 通过）
+
+**变更文件**: `backend/tests/test_main.py`, `backend/tests/conftest.py`
+
+**测试结果**: ✅ **11 个测试全部通过**
+
+**变更文件**: `backend/tests/test_main.py`, `backend/tests/conftest.py`
+
+**测试覆盖**：
+
+### 1. 基础接口测试（TestRootAndHealth）
+- **根路径测试** (`test_root`)：验证根路径返回正确的状态信息
+- **健康检查测试** (`test_health_check`)：验证健康检查接口返回完整的服务状态和模型信息
+
+### 2. 转录 API 接口测试（TestTranscriptionAPI）
+- **启动转录接口测试**：
+  - `test_start_transcription_episode_not_found`：Episode 不存在时返回 404
+  - `test_start_transcription_no_audio_path`：Episode 没有音频路径时返回 400
+  - `test_start_transcription_already_processing`：Episode 正在转录中时返回相应状态
+  - `test_start_transcription_success`：成功启动后台任务（Mock 后台任务执行）
+- **转录状态查询接口测试**：
+  - `test_get_transcription_status_episode_not_found`：Episode 不存在时返回 404
+  - `test_get_transcription_status_success`：成功返回转录状态、进度、统计信息
+
+### 3. 后台任务 Session 管理测试（TestBackgroundTaskSessionManagement）
+- **Session 创建测试** (`test_run_transcription_task_creates_new_session`)：
+  - 验证后台任务创建新的数据库 Session（不复用请求的 Session）
+  - 验证 TranscriptionService 使用新的 Session 初始化
+- **异常处理测试** (`test_run_transcription_task_handles_exception`)：
+  - 验证后台任务异常时正确更新 Episode 状态为 `failed`
+  - 验证异常不会导致 Session 泄漏
+- **Session 关闭测试** (`test_run_transcription_task_closes_session_on_success`)：
+  - 验证后台任务成功时正确关闭 Session（通过 finally 块）
+
+### 4. 测试配置优化（conftest.py）
+- **Mock lifespan**：在测试中 Mock `apply_rtx5070_patches()` 和 `WhisperService.load_models()`，避免实际加载模型（耗时且需要 GPU）
+- **依赖覆盖**：正确配置 `get_db` 依赖覆盖，使用测试数据库
+
+**设计要点**：
+- 遵循 TDD 原则：先写测试，再实现功能
+- 使用 Mock 避免实际加载模型，提高测试速度
+- 验证后台任务的 Session 管理是测试的重点（避免 DetachedInstanceError）
+- 测试覆盖所有错误场景和边界情况
+
+## [2025-01-XX] [feat] - 集成 FastAPI：使用 lifespan 管理模型生命周期，支持后台任务异步转录
+
+**变更文件**: `backend/app/main.py`
+
+**实现内容**：
+
+### 1. 应用生命周期管理（lifespan）
+- 使用 FastAPI `lifespan` 上下文管理器在应用启动时：
+  - 应用硬件兼容性补丁（`apply_rtx5070_patches()`）
+  - 加载 Whisper ASR 模型到显存（`WhisperService.load_models()`）
+- 确保补丁在导入 whisperx 之前应用
+- 模型常驻显存，避免重复加载
+
+### 2. 后台任务异步转录
+- 实现 `run_transcription_task()` 函数，处理后台转录任务
+- **关键设计**：在后台任务中创建新的数据库 Session（`SessionLocal()`），而不是复用请求的 Session
+  - 原因：Request-Scoped 的 Session 在请求结束后会被自动关闭，后台任务仍在运行会导致 `DetachedInstanceError`
+  - 解决方案：后台任务函数内部手动创建和关闭 Session
+- 使用 `BackgroundTasks` 处理异步转录，避免阻塞 API 响应
+
+### 3. API 接口
+- **健康检查接口** (`GET /health`)：
+  - 返回服务状态和模型加载信息
+  - 显示设备信息、显存使用情况等
+- **启动转录接口** (`POST /api/episodes/{episode_id}/transcribe`)：
+  - 异步启动转录任务
+  - 验证 Episode 存在性和状态
+  - 立即返回，转录在后台执行
+- **转录状态查询接口** (`GET /api/episodes/{episode_id}/transcription-status`)：
+  - 返回转录状态、进度、统计信息等
+
+### 4. 错误处理
+- 后台任务失败时自动更新 Episode 状态为 `failed`
+- 详细的日志记录，便于调试和监控
+- 异常处理确保数据库 Session 正确关闭
+
+**设计要点**：
+- 遵循依赖注入原则：`TranscriptionService` 不负责 Session 生命周期管理
+- 后台任务与请求生命周期解耦：使用独立的 Session
+- 幂等性：多次调用 `apply_rtx5070_patches()` 不会出错
+- 资源管理：确保数据库 Session 在 finally 块中关闭
+
+## [2025-01-XX] [test] - 新增 WhisperX 集成测试：验证输出格式与数据库兼容性
+
+**变更文件**: `backend/tests/test_whisperx_integration.py`
+
+**测试说明**：
+新增集成测试文件，使用真实音频文件验证 WhisperX 转录服务的输出格式是否与数据库要求一致，并测试 TranscriptionService 的完整虚拟分段转录流程。
+
+**测试覆盖**：
+
+### 1. WhisperX 输出格式验证（TestWhisperXOutputFormat）
+
+- **输出格式结构验证**：
+  - 验证返回数据类型（List[Dict]）
+  - 验证必需字段存在（start, end, speaker, text）
+  - 验证数据类型正确（float, str）
+  - 验证时间戳合理性（非负，start < end）
+
+- **说话人区分测试**：
+  - 测试启用/不启用说话人区分时的输出格式
+  - 验证说话人标识格式正确（SPEAKER_XX 或 Unknown）
+  - 验证说话人一致性
+
+- **数据库集成测试**：
+  - 验证 WhisperX 输出可以成功保存到数据库
+  - 验证绝对时间计算正确（segment.start_time + cue.start）
+  - 验证所有字段（时间戳、说话人、文本）正确映射到 TranscriptCue
+
+- **数据质量验证**：
+  - 时间戳精度和连续性（无重叠，无过大间隙）
+  - 文本质量（非空，长度合理，格式正确）
+
+### 2. TranscriptionService 虚拟分段流程测试（TestTranscriptionServiceVirtualSegments）
+
+- **创建虚拟分段测试**：
+  - 验证 `create_virtual_segments()` 正确创建分段
+  - 验证分段数量和属性（segment_index, segment_id, start_time, end_time）
+  - 验证初始状态（status="pending", segment_path=None）
+
+- **单个分段转录流程测试**：
+  - 验证 `transcribe_virtual_segment()` 完整流程：
+    - 音频片段提取（FFmpeg）
+    - WhisperX 转录
+    - 保存到数据库（绝对时间计算）
+    - Segment 状态更新（pending -> completed）
+    - 临时文件清理
+
+- **完整转录流程测试**：
+  - 验证 `segment_and_transcribe()` 端到端流程：
+    - 自动创建虚拟分段
+    - 按顺序转录所有分段
+    - Episode 状态更新（允许 partial_failed）
+    - 跨分段时间戳连续性验证
+
+- **重试场景测试**：
+  - 验证转录失败后的重试逻辑
+  - 验证 segment_path 保留机制
+
+**技术要点**：
+
+- 使用 `@pytest.fixture(scope="class")` 实现模型加载的共享（避免重复加载）
+- 标记为 `pytest.mark.integration`，可在 CI/CD 中单独运行
+- 使用真实音频文件（`backend/data/audio/003.mp3`）进行测试
+- 测试执行时间较长（约 1-2 分钟），适合作为集成测试而非单元测试
+- 测试覆盖了完整的转录流程：从虚拟分段创建到字幕保存到数据库
+
+**运行方式**：
+```bash
+# 运行所有集成测试
+pytest -m integration
+
+# 运行特定集成测试文件
+pytest tests/test_whisperx_integration.py -v
+
+# 运行特定测试类
+pytest tests/test_whisperx_integration.py::TestWhisperXOutputFormat -v
+pytest tests/test_whisperx_integration.py::TestTranscriptionServiceVirtualSegments -v
+```
+
+---
+
 ## [2025-01-XX] [perf] - WhisperService 性能优化：对齐模型缓存与并发安全
 
 **变更文件**: `backend/app/services/whisper_service.py`
