@@ -4,6 +4,61 @@
 
 ---
 
+## [2025-01-XX] [refactor] - 优化 WhisperService：Diarization 模型显存常驻管理
+
+**变更文件**: `backend/app/services/whisper_service.py`, `backend/tests/test_whisper_service.py`
+
+**功能说明**：
+优化 Diarization 模型的生命周期管理，支持在 Episode 处理期间显存常驻，避免分段间重复加载模型，提升处理效率。
+
+**核心变更**：
+
+1. **Diarization 模型显存常驻**：
+   - 新增 `_diarize_model` 类属性，支持模型常驻显存
+   - 新增 `load_diarization_model()` 方法：显式加载 Diarization 模型（Episode 处理开始前调用）
+   - 新增 `release_diarization_model()` 方法：显式释放 Diarization 模型（Episode 处理结束后调用）
+   - 支持强制垃圾回收和显存清理（`gc.collect()` + `torch.cuda.empty_cache()`）
+
+2. **分段转录方法**：
+   - 新增 `transcribe_segment()` 方法：专门用于转录单个音频片段
+   - 移除 `transcribe_full_pipeline()` 方法（统一使用 `transcribe_segment()`）
+   - 支持 Lazy Load：如果 Diarization 模型未预加载，会自动加载（但不会自动释放）
+   - 允许在上层循环中复用同一个 Diarization 模型，避免重复加载
+
+3. **设备信息增强**：
+   - `get_device_info()` 方法新增 `diarization_model_loaded` 和 `vram_allocated` 字段
+   - 移除 `cuda_device_name` 和 `models_loaded` 字段（改为 `asr_model_loaded`）
+   - 便于监控显存使用状态
+
+4. **测试更新**：
+   - 更新测试方法名：`test_transcribe_full_pipeline_*` → `test_transcribe_segment_*`
+   - 更新设备信息测试：适配新的 `get_device_info()` 返回值
+   - 新增 `_diarize_model` 状态重置，确保测试隔离
+   - **测试结果**：17 个测试用例全部通过 ✅
+
+**使用方式**：
+```python
+# Episode 处理流程
+service = WhisperService.get_instance()
+
+# 1. Episode 开始处理前：加载 Diarization 模型
+service.load_diarization_model()
+
+# 2. 循环处理 Segment：复用模型
+for segment in segments:
+    cues = service.transcribe_segment(segment_path, enable_diarization=True)
+
+# 3. Episode 处理结束：释放模型
+service.release_diarization_model()
+```
+
+**设计权衡**：
+- ✅ **优势**：避免分段间重复加载模型，显著提升处理速度
+- ⚠️ **接受**：说话人漂移问题（不同分段间 Speaker ID 可能不一致）
+- 💡 **适用场景**：一个 Episode 有多个 Segment 的场景，需要快速用户反馈
+
+---
+
 ## [2025-12-25] [feat] - 实现 WhisperService（单例模式 + 模型常驻显存）
 
 **变更文件**: `backend/app/services/whisper_service.py`, `backend/app/services/__init__.py`, `backend/tests/test_whisper_service.py`, `docs/开发计划.md`

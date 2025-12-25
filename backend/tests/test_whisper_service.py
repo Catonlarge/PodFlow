@@ -139,15 +139,16 @@ class TestWhisperServiceTranscribe:
         WhisperService._device = "cpu"
         WhisperService._compute_type = "int8"
         WhisperService._model = Mock()
+        WhisperService._diarize_model = None
     
     @patch('app.services.whisper_service.whisperx.load_audio')
     @patch('app.services.whisper_service.whisperx.load_align_model')
     @patch('app.services.whisper_service.whisperx.align')
     @patch('app.services.whisper_service.os.path.exists')
-    def test_transcribe_full_pipeline_without_diarization(
+    def test_transcribe_segment_without_diarization(
         self, mock_exists, mock_align, mock_load_align, mock_load_audio, tmp_path
     ):
-        """测试完整转录流程（不启用说话人区分）"""
+        """测试片段转录流程（不启用说话人区分）"""
         # 创建测试音频文件
         audio_file = tmp_path / "test_audio.mp3"
         audio_file.write_bytes(b"fake audio data")
@@ -185,7 +186,7 @@ class TestWhisperServiceTranscribe:
         
         # 获取实例并执行转录
         service = WhisperService.get_instance()
-        cues = service.transcribe_full_pipeline(str(audio_file), enable_diarization=False)
+        cues = service.transcribe_segment(str(audio_file), enable_diarization=False)
         
         # 验证结果
         assert len(cues) == 2
@@ -200,11 +201,11 @@ class TestWhisperServiceTranscribe:
     @patch('app.services.whisper_service.DiarizationPipeline')
     @patch('app.services.whisper_service.whisperx.assign_word_speakers')
     @patch('app.services.whisper_service.os.path.exists')
-    def test_transcribe_full_pipeline_with_diarization(
+    def test_transcribe_segment_with_diarization(
         self, mock_exists, mock_assign_speakers, mock_diarize_pipeline,
         mock_align, mock_load_align, mock_load_audio, tmp_path
     ):
-        """测试完整转录流程（启用说话人区分）"""
+        """测试片段转录流程（启用说话人区分）"""
         # 创建测试音频文件
         audio_file = tmp_path / "test_audio.mp3"
         audio_file.write_bytes(b"fake audio data")
@@ -257,7 +258,9 @@ class TestWhisperServiceTranscribe:
         
         # 获取实例并执行转录
         service = WhisperService.get_instance()
-        cues = service.transcribe_full_pipeline(str(audio_file), enable_diarization=True)
+        # 先加载 Diarization 模型（模拟 Episode 处理流程）
+        service._diarize_model = mock_diarize_model
+        cues = service.transcribe_segment(str(audio_file), enable_diarization=True)
         
         # 验证结果
         assert len(cues) == 2
@@ -269,7 +272,7 @@ class TestWhisperServiceTranscribe:
         service = WhisperService.get_instance()
         
         with pytest.raises(FileNotFoundError, match="音频文件不存在"):
-            service.transcribe_full_pipeline("nonexistent.mp3")
+            service.transcribe_segment("nonexistent.mp3")
     
     def test_transcribe_models_not_loaded(self):
         """测试模型未加载时的错误处理"""
@@ -278,7 +281,7 @@ class TestWhisperServiceTranscribe:
         
         with pytest.raises(RuntimeError, match="模型未加载"):
             service = WhisperService.get_instance()
-            service.transcribe_full_pipeline("test_audio.mp3")
+            service.transcribe_segment("test_audio.mp3")
 
 
 class TestWhisperServiceExtractSegment:
@@ -372,36 +375,56 @@ class TestWhisperServiceExtractSegment:
 class TestWhisperServiceDeviceInfo:
     """测试设备信息获取"""
     
+    def setup_method(self):
+        """每个测试前重置状态"""
+        WhisperService._device = None
+        WhisperService._compute_type = None
+        WhisperService._models_loaded = False
+        WhisperService._diarize_model = None
+    
     @patch('app.services.whisper_service.torch.cuda.is_available')
-    @patch('app.services.whisper_service.torch.cuda.get_device_name')
-    def test_get_device_info_cpu(self, mock_get_device, mock_cuda):
+    @patch('app.services.whisper_service.torch.cuda.memory_allocated')
+    def test_get_device_info_cpu(self, mock_memory, mock_cuda):
         """测试 CPU 模式下的设备信息"""
         mock_cuda.return_value = False
         
+        # 设置状态
+        WhisperService._device = "cpu"
+        WhisperService._compute_type = "int8"
+        WhisperService._models_loaded = True
+        
         info = WhisperService.get_device_info()
         
+        assert info["device"] == "cpu"
+        assert info["compute_type"] == "int8"
+        assert info["asr_model_loaded"] is True
+        assert info["diarization_model_loaded"] is False
         assert info["cuda_available"] is False
-        assert info["cuda_device_name"] is None
+        assert info["vram_allocated"] == "N/A"
     
     @patch('app.services.whisper_service.torch.cuda.is_available')
-    @patch('app.services.whisper_service.torch.cuda.get_device_name')
-    def test_get_device_info_cuda(self, mock_get_device, mock_cuda):
+    @patch('app.services.whisper_service.torch.cuda.memory_allocated')
+    def test_get_device_info_cuda(self, mock_memory, mock_cuda):
         """测试 CUDA 模式下的设备信息"""
         mock_cuda.return_value = True
-        mock_get_device.return_value = "RTX 5070"
+        mock_memory.return_value = 2 * 1024**3  # 2GB
         
         # 设置模型已加载状态
         WhisperService._device = "cuda"
         WhisperService._compute_type = "float16"
         WhisperService._models_loaded = True
         
+        # 模拟 Diarization 模型已加载
+        WhisperService._diarize_model = Mock()
+        
         info = WhisperService.get_device_info()
         
         assert info["device"] == "cuda"
         assert info["compute_type"] == "float16"
+        assert info["asr_model_loaded"] is True
+        assert info["diarization_model_loaded"] is True
         assert info["cuda_available"] is True
-        assert info["cuda_device_name"] == "RTX 5070"
-        assert info["models_loaded"] is True
+        assert info["vram_allocated"] == "2.00GB"
 
 
 class TestWhisperServiceFormatResult:
