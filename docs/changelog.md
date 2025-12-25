@@ -6,7 +6,7 @@
 
 ## [2025-01-27] [fix] - 修复文件上传安全漏洞：增加文件内容真伪校验
 
-**变更文件**: `backend/app/api.py`, `backend/app/utils/file_utils.py`, `backend/scripts/cleanup_bad_episodes.py`
+**变更文件**: `backend/app/api.py`, `backend/app/utils/file_utils.py`, `backend/app/utils/cleanup_bad_episodes.py`, `backend/tests/test_file_validation.py`
 
 **问题描述**：
 - 原代码只验证文件扩展名和大小，未验证文件内容真伪
@@ -33,7 +33,7 @@
   3. 如果校验失败，立即删除临时文件并返回错误
 
 ### 3. 创建清理脚本
-- **文件位置**：`backend/scripts/cleanup_bad_episodes.py`
+- **文件位置**：`backend/app/utils/cleanup_bad_episodes.py`
 - **功能**：
   - 根据 file_hash 查找并删除坏 Episode 记录（级联删除关联数据）
   - 删除对应的坏文件
@@ -43,16 +43,17 @@
 **使用方法**：
 ```bash
 # 清理指定哈希的坏文件（默认：1d19be0e36c5d1247bfb4fe41277aa75）
-python backend/scripts/cleanup_bad_episodes.py
+cd backend
+python -m app.utils.cleanup_bad_episodes
 
 # 干运行模式（只检查不删除）
-python backend/scripts/cleanup_bad_episodes.py --dry-run
+python -m app.utils.cleanup_bad_episodes --dry-run
 
 # 扫描并清理所有坏文件
-python backend/scripts/cleanup_bad_episodes.py --all-bad
+python -m app.utils.cleanup_bad_episodes --all-bad
 
 # 清理指定哈希的文件
-python backend/scripts/cleanup_bad_episodes.py --hash <file_hash>
+python -m app.utils.cleanup_bad_episodes --hash <file_hash>
 ```
 
 **安全影响**：
@@ -65,6 +66,18 @@ python backend/scripts/cleanup_bad_episodes.py --hash <file_hash>
 - 文件头校验使用 Magic Bytes 检测，优先识别已知音频格式
 - 对于无法识别的二进制文件，采用宽松策略（避免误杀），最终由 `get_audio_duration` 的 ffprobe 验证把关
 - 清理脚本支持级联删除，自动清理 Episode 关联的 TranscriptCue、AudioSegment 等数据
+
+### 4. 新增安全测试套件
+- **文件位置**：`backend/tests/test_file_validation.py`
+- **测试覆盖**：
+  - `is_valid_audio_header()` 函数单元测试（26 个测试用例）
+  - 测试拒绝 HTML、JSON、文本文件伪装成音频
+  - 测试接受各种音频格式（MP3、WAV、FLAC、OGG、M4A）
+  - 测试上传 API 拒绝伪装文件的安全验证
+  - 测试边界情况和异常场景
+- **测试分类**：
+  - `@pytest.mark.unit` - 单元测试，快速运行
+  - 所有测试均通过验证（26 passed）
 
 ---
 

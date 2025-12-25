@@ -258,10 +258,10 @@ def is_valid_audio_header(file_path: str) -> bool:
             return True
         if header[:4] == b'OggS':  # OGG
             return True
-        if header[:4] == b'\x00\x00\x00':  # 可能是 M4A/MP4
-            # 检查是否包含 "ftyp" (通常在偏移 4 字节处)
-            if b'ftyp' in header[:20]:
-                return True
+        # 检查 M4A/MP4 文件：前 4 字节是 box size，接下来 4 字节是 box type "ftyp"
+        # 或者前 3 字节是 \x00\x00\x00 且包含 ftyp
+        if len(header) >= 8 and header[:3] == b'\x00\x00\x00' and b'ftyp' in header[:20]:
+            return True
         
         # MP3 无 ID3 标签：检查帧同步 (FF 后跟 F 开头的字节)
         if len(header) >= 2:
