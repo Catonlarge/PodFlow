@@ -177,6 +177,119 @@ def get_audio_duration(file_path: str) -> float:
         raise RuntimeError(f"无法获取音频时长: {str(e)}") from e
 
 
+# ==================== 文件内容真伪验证 ====================
+
+def is_valid_audio_header(file_path: str) -> bool:
+    """
+    读取文件头前几个字节，粗略判断是否为音频/视频文件
+    
+    通过检查文件头的 Magic Bytes 来识别真实的音频文件格式，防止
+    HTML、JSON、文本文件伪装成音频文件混入系统。
+    
+    参数:
+        file_path: 文件路径
+        
+    返回:
+        bool: True 表示文件头看起来像音频/视频，False 表示可能是文本文件
+        
+    验证规则:
+        1. 检查文件开头是否包含 HTML/JSON/文本标识符（如 "<!DO", "<htm", "{", "Traceback"）
+        2. 如果是纯文本开头，直接返回 False
+        3. 对于二进制文件（包含音频 Magic Bytes），返回 True
+        
+    注意:
+        - 此函数主要用于拦截明显的文本文件伪装
+        - 更严格的音频格式验证由 get_audio_duration 完成（需要 ffprobe）
+        - MP3 文件可能没有 ID3 标签，所以不强制要求特定的 Magic Bytes
+        
+    示例:
+        ```python
+        if not is_valid_audio_header("/path/to/file.mp3"):
+            raise ValueError("文件内容异常：这看起来像是一个文本文件而不是音频")
+        ```
+    """
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(50)  # 读取前 50 字节用于检查
+            
+        if len(header) == 0:
+            logger.warning(f"文件为空: {file_path}")
+            return False
+        
+        # 检查是否为纯文本/HTML/JSON（这是核心拦截逻辑）
+        try:
+            # 尝试解码为文本，检查是否包含明显的文本标识符
+            text_start = header.decode('utf-8', errors='ignore').strip()
+            
+            # 检查常见的文本文件开头标识
+            text_indicators = ['<!DO', '<htm', '<html', '<HTML', '{', '[', 
+                             'Traceback', 'Error', 'Exception', 'fake audio']
+            
+            for indicator in text_indicators:
+                if text_start.startswith(indicator):
+                    logger.warning(
+                        f"检测到非音频文件头 (看起来像文本): "
+                        f"{text_start[:50]}"
+                    )
+                    return False
+        except Exception:
+            # 如果解码失败，可能是二进制文件，继续检查 Magic Bytes
+            pass
+        
+        # 检查常见的音频/视频文件头特征 (Magic Numbers)
+        header_hex = header[:10].hex().upper()
+        
+        # MP3 文件特征:
+        # 1. ID3 标签: 49 44 33 (ASCII "ID3")
+        # 2. MP3 frame sync: FF F3, FF F2, FF FB, FF FA (MPEG-1 Layer III)
+        # 3. 无 ID3 标签的 MP3 直接以 FF 开头（帧同步）
+        
+        # WAV 文件: 52 49 46 46 (ASCII "RIFF")
+        # FLAC 文件: 66 4C 61 43 (ASCII "fLaC")
+        # OGG 文件: 4F 67 67 53 (ASCII "OggS")
+        # M4A/MP4: 通常以 00 00 00 ... 66 74 79 70 开头 (ftyp)
+        
+        # 检查是否有已知的音频文件头
+        if header[:3] == b'ID3':  # ID3 tag (MP3)
+            return True
+        if header[:4] == b'RIFF':  # WAV
+            return True
+        if header[:4] == b'fLaC':  # FLAC
+            return True
+        if header[:4] == b'OggS':  # OGG
+            return True
+        if header[:4] == b'\x00\x00\x00':  # 可能是 M4A/MP4
+            # 检查是否包含 "ftyp" (通常在偏移 4 字节处)
+            if b'ftyp' in header[:20]:
+                return True
+        
+        # MP3 无 ID3 标签：检查帧同步 (FF 后跟 F 开头的字节)
+        if len(header) >= 2:
+            if header[0] == 0xFF and (header[1] & 0xE0) == 0xE0:
+                # 这是一个 MP3 帧同步标记
+                return True
+        
+        # 如果文件是二进制（包含大量非打印字符），且没有明显的文本标识，
+        # 可能是有效的音频文件（即使我们没有识别出特定的 Magic Bytes）
+        # 这里采用宽松策略：只要不是明显的文本，就允许通过
+        # 最终的验证由 get_audio_duration 完成（需要 ffprobe）
+        
+        # 统计非打印字符比例
+        non_printable = sum(1 for b in header if b < 0x20 and b not in [0x09, 0x0A, 0x0D])
+        if non_printable > len(header) * 0.3:  # 超过 30% 是非打印字符
+            # 可能是二进制文件（音频）
+            return True
+        
+        # 如果到这里还没有返回，文件可能是文本但通过了前面的检查
+        # 为了安全，返回 False
+        logger.warning(f"无法确定文件类型，文件头: {header_hex[:20]}")
+        return False
+        
+    except Exception as e:
+        logger.error(f"文件头校验失败: {file_path}, 错误: {e}", exc_info=True)
+        return False
+
+
 # ==================== 文件格式验证 ====================
 
 def validate_audio_file(filename: str, file_size: int) -> Tuple[bool, str]:

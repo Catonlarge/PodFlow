@@ -4,6 +4,70 @@
 
 ---
 
+## [2025-01-27] [fix] - 修复文件上传安全漏洞：增加文件内容真伪校验
+
+**变更文件**: `backend/app/api.py`, `backend/app/utils/file_utils.py`, `backend/scripts/cleanup_bad_episodes.py`
+
+**问题描述**：
+- 原代码只验证文件扩展名和大小，未验证文件内容真伪
+- 导致 HTML、JSON、文本文件可以伪装成 MP3 文件混入系统
+- 发现一个 16.6KB 的坏文件（内容为 "fake audio data 1" 重复）已进入数据库
+
+**修复内容**：
+
+### 1. 新增文件头校验函数
+- **文件位置**：`backend/app/utils/file_utils.py`
+- **函数**：`is_valid_audio_header(file_path: str) -> bool`
+- **功能**：
+  - 读取文件头前 50 字节，检查是否为文本/HTML/JSON 标识符
+  - 检查常见音频文件 Magic Bytes（ID3、RIFF、fLaC、OggS、MP4 等）
+  - 拦截明显的文本文件伪装（如 "<!DO", "<htm", "{", "Traceback", "fake audio" 等）
+  - 对于二进制文件（包含非打印字符）采用宽松策略，最终由 `get_audio_duration` 完成严格验证
+
+### 2. 集成文件头校验到上传流程
+- **文件位置**：`backend/app/api.py`
+- **修改位置**：`upload_episode` 函数的 Step 1
+- **流程变更**：
+  1. 基础验证：检查文件扩展名和大小（原有逻辑）
+  2. **新增**：内容头部校验（防止文本文件伪装）
+  3. 如果校验失败，立即删除临时文件并返回错误
+
+### 3. 创建清理脚本
+- **文件位置**：`backend/scripts/cleanup_bad_episodes.py`
+- **功能**：
+  - 根据 file_hash 查找并删除坏 Episode 记录（级联删除关联数据）
+  - 删除对应的坏文件
+  - 支持干运行模式（`--dry-run`）进行预检查
+  - 支持扫描所有坏文件（`--all-bad`）模式
+
+**使用方法**：
+```bash
+# 清理指定哈希的坏文件（默认：1d19be0e36c5d1247bfb4fe41277aa75）
+python backend/scripts/cleanup_bad_episodes.py
+
+# 干运行模式（只检查不删除）
+python backend/scripts/cleanup_bad_episodes.py --dry-run
+
+# 扫描并清理所有坏文件
+python backend/scripts/cleanup_bad_episodes.py --all-bad
+
+# 清理指定哈希的文件
+python backend/scripts/cleanup_bad_episodes.py --hash <file_hash>
+```
+
+**安全影响**：
+- ✅ 防止 HTML/JSON/文本文件伪装成音频文件
+- ✅ 在文件保存到最终路径前就进行拦截
+- ✅ 多层验证：文件头校验 + ffprobe 验证（通过 `get_audio_duration`）
+- ✅ 提供清理工具，可以修复历史遗留的坏数据
+
+**技术细节**：
+- 文件头校验使用 Magic Bytes 检测，优先识别已知音频格式
+- 对于无法识别的二进制文件，采用宽松策略（避免误杀），最终由 `get_audio_duration` 的 ffprobe 验证把关
+- 清理脚本支持级联删除，自动清理 Episode 关联的 TranscriptCue、AudioSegment 等数据
+
+---
+
 ## [2025-01-27] [feat] - 添加单元测试和集成测试运行脚本
 
 **变更文件**: `run-unit-tests.ps1`, `run-integration-tests.ps1`, `backend/requirements.txt`, `.gitignore`

@@ -21,6 +21,7 @@ from app.utils.file_utils import (
     get_audio_duration,
     validate_audio_file,
     get_file_extension,
+    is_valid_audio_header,
 )
 from app.tasks import run_transcription_task
 
@@ -64,7 +65,7 @@ async def upload_episode(
         }
     """
     try:
-        # Step 1: 验证文件格式和大小
+        # Step 1: 验证文件格式、大小 + 内容真伪校验
         file_size = 0
         # 读取文件大小（需要先保存到临时文件才能获取准确大小）
         temp_file = None
@@ -72,17 +73,28 @@ async def upload_episode(
             # 创建临时文件
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=get_file_extension(file.filename))
             shutil.copyfileobj(file.file, temp_file)
-            temp_file.close()
+            temp_file.close()  # 必须先关闭才能读取或移动
             
             # 获取文件大小
             file_size = os.path.getsize(temp_file.name)
             
-            # 验证文件格式和大小
+            # A. 基础验证（文件名扩展名和大小）
             is_valid, error_msg = validate_audio_file(file.filename, file_size)
             if not is_valid:
                 os.unlink(temp_file.name)
                 raise HTTPException(status_code=400, detail=error_msg)
+            
+            # B. 内容头部校验（防止 HTML/JSON/文本伪装成 MP3）
+            if not is_valid_audio_header(temp_file.name):
+                os.unlink(temp_file.name)
+                raise HTTPException(
+                    status_code=400, 
+                    detail="文件内容异常：这看起来像是一个文本文件而不是音频文件。请确保上传的是真实的音频文件。"
+                )
         except HTTPException:
+            # 如果是校验抛出的异常，先删临时文件再抛出
+            if temp_file and os.path.exists(temp_file.name):
+                os.unlink(temp_file.name)
             raise
         except Exception as e:
             if temp_file and os.path.exists(temp_file.name):
