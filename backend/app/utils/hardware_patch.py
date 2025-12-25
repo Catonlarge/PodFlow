@@ -90,24 +90,24 @@ def apply_rtx5070_patches():
         - 所有补丁都有异常处理，即使失败也不会影响其他功能
         - 这些补丁仅针对 RTX 5070 + PyTorch Nightly 环境，其他环境可以安全跳过
     """
-    logger.info("🔧 [Hardware Patch] 正在应用 RTX 5070 + PyTorch Nightly 兼容性补丁...")
+    logger.info("[Hardware Patch] 正在应用 RTX 5070 + PyTorch Nightly 兼容性补丁...")
     
     try:
         import torch
         import torchaudio
     except ImportError as e:
-        logger.warning(f"⚠️ [Hardware Patch] PyTorch 未安装，跳过补丁应用: {e}")
+        logger.warning(f"[Hardware Patch] PyTorch 未安装，跳过补丁应用: {e}")
         return
     
     # 1. 针对 VAD/Diarization：添加 Omegaconf 白名单
     try:
         from omegaconf import ListConfig, DictConfig
         torch.serialization.add_safe_globals([ListConfig, DictConfig])
-        logger.debug("✅ [Hardware Patch] Omegaconf 白名单已添加")
+        logger.debug("[Hardware Patch] Omegaconf 白名单已添加")
     except ImportError:
-        logger.debug("ℹ️ [Hardware Patch] omegaconf 未安装，跳过 Omegaconf 补丁")
+        logger.debug("[Hardware Patch] omegaconf 未安装，跳过 Omegaconf 补丁")
     except Exception as e:
-        logger.warning(f"⚠️ [Hardware Patch] Omegaconf 补丁应用失败: {e}")
+        logger.warning(f"[Hardware Patch] Omegaconf 补丁应用失败: {e}")
     
     # 2. 强制关闭 weights_only 检查 (解决 pyannote 模型加载报错)
     try:
@@ -123,9 +123,9 @@ def apply_rtx5070_patches():
             # 标记已补丁，避免重复应用
             safe_load_wrapper._patched = True
             torch.load = safe_load_wrapper
-            logger.debug("✅ [Hardware Patch] torch.load weights_only 补丁已应用")
+            logger.debug("[Hardware Patch] torch.load weights_only 补丁已应用")
     except Exception as e:
-        logger.warning(f"⚠️ [Hardware Patch] torch.load 补丁应用失败: {e}")
+        logger.warning(f"[Hardware Patch] torch.load 补丁应用失败: {e}")
     
     # 3. 修复 torchaudio Nightly 缺少的 AudioMetaData API
     if not hasattr(torchaudio, "AudioMetaData"):
@@ -133,7 +133,7 @@ def apply_rtx5070_patches():
             # 尝试从新版路径导入
             from torchaudio.backend.common import AudioMetaData
             setattr(torchaudio, "AudioMetaData", AudioMetaData)
-            logger.debug("✅ [Hardware Patch] torchaudio.AudioMetaData 已从 backend.common 导入")
+            logger.debug("[Hardware Patch] torchaudio.AudioMetaData 已从 backend.common 导入")
         except ImportError:
             # 如果连新路径都变了，创建一个伪造的类来骗过类型检查
             from dataclasses import dataclass
@@ -148,9 +148,9 @@ def apply_rtx5070_patches():
                 encoding: str
             
             setattr(torchaudio, "AudioMetaData", AudioMetaData)
-            logger.debug("✅ [Hardware Patch] torchaudio.AudioMetaData 已创建（伪造类）")
+            logger.debug("[Hardware Patch] torchaudio.AudioMetaData 已创建（伪造类）")
         except Exception as e:
-            logger.warning(f"⚠️ [Hardware Patch] AudioMetaData 补丁应用失败: {e}")
+            logger.warning(f"[Hardware Patch] AudioMetaData 补丁应用失败: {e}")
     
     # 4. 修复 torchaudio 缺失的 list_audio_backends API
     if not hasattr(torchaudio, "list_audio_backends"):
@@ -159,7 +159,7 @@ def apply_rtx5070_patches():
             return ["soundfile"]
         
         setattr(torchaudio, "list_audio_backends", _mock_list_audio_backends)
-        logger.debug("✅ [Hardware Patch] torchaudio.list_audio_backends 已创建（伪造函数）")
+        logger.debug("[Hardware Patch] torchaudio.list_audio_backends 已创建（伪造函数）")
     
     # 5. 修复 torchaudio 缺失的 get_audio_backend API
     if not hasattr(torchaudio, "get_audio_backend"):
@@ -168,9 +168,9 @@ def apply_rtx5070_patches():
             return "soundfile"
         
         setattr(torchaudio, "get_audio_backend", _mock_get_audio_backend)
-        logger.debug("✅ [Hardware Patch] torchaudio.get_audio_backend 已创建（伪造函数）")
+        logger.debug("[Hardware Patch] torchaudio.get_audio_backend 已创建（伪造函数）")
     
-    logger.info("✅ [Hardware Patch] 所有兼容性补丁应用完成")
+    logger.info("[Hardware Patch] 所有兼容性补丁应用完成")
 
 
 def check_patches_applied():
