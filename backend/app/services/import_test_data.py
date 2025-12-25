@@ -276,7 +276,6 @@ def import_audio_and_transcript(
             cue = TranscriptCue(
                 episode_id=episode.id,
                 segment_id=segment_id,
-                cue_index=idx,  # 全局连续索引
                 start_time=cue_data["start"],
                 end_time=cue_data["end"],
                 speaker=cue_data.get("speaker", "Unknown"),
@@ -298,16 +297,16 @@ def import_audio_and_transcript(
         ).count()
         print(f"   - TranscriptCue 数量: {cue_count}")
         
-        # 验证 cue_index 连续性
+        # 验证时间排序（替代 cue_index 连续性验证）
         cues = db.query(TranscriptCue).filter(
             TranscriptCue.episode_id == episode.id
-        ).order_by(TranscriptCue.cue_index).all()
+        ).order_by(TranscriptCue.start_time).all()
         
-        is_continuous = all(
-            cues[i].cue_index == i + 1 
-            for i in range(len(cues))
+        is_sorted = all(
+            cues[i].start_time <= cues[i+1].start_time 
+            for i in range(len(cues) - 1)
         )
-        print(f"   - cue_index 连续性: {'[OK] 通过' if is_continuous else '[ERROR] 失败'}")
+        print(f"   - 时间排序: {'[OK] 通过' if is_sorted else '[ERROR] 失败'}")
         
         # 验证时间排序
         is_sorted = all(

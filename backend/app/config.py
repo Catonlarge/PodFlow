@@ -3,6 +3,27 @@ PodFlow 全局配置参数
 
 包含系统级配置，如音频分段阈值、转录参数等。
 """
+import os
+from dotenv import load_dotenv
+
+# 加载环境变量（从 .env 文件或系统环境变量）
+load_dotenv()
+
+# ==================== API Keys 配置 ====================
+
+# HuggingFace Token（必需）
+HF_TOKEN = os.getenv("HF_TOKEN")
+if not HF_TOKEN:
+    raise ValueError(
+        "HF_TOKEN environment variable is required. "
+        "Please set it in .env file or system environment variables."
+    )
+
+# OpenAI API Key（可选）
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# Gemini API Key（可选）
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ==================== 音频分段配置 ====================
 
@@ -51,7 +72,3 @@ AVAILABLE_PROVIDERS = [
     "claude-3-sonnet",
     "claude-3-opus"
 ]
-
-# OpenAI API 配置（待实现）
-# OPENAI_API_KEY = ""
-

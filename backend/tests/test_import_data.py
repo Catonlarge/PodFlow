@@ -3,7 +3,7 @@
 
 验证：
 - 导入脚本是否正确创建数据库记录
-- 数据完整性（cue_index 连续性、时间排序等）
+- 数据完整性（时间排序等）
 - 与数据库模型的集成
 """
 
@@ -163,23 +163,6 @@ class TestImportData:
         assert result2["success"] is False
         assert result2["message"] == "音频已存在"
         assert result2["episode_id"] == result1["episode_id"]
-    
-    def test_cue_index_continuity(self, sample_audio_file, sample_transcript_file, db_session):
-        """测试 cue_index 全局连续性"""
-        result = import_audio_and_transcript(
-            audio_path=sample_audio_file,
-            transcript_json_path=sample_transcript_file
-        )
-        
-        # 查询所有 cue，按 cue_index 排序
-        cues = db_session.query(TranscriptCue).filter(
-            TranscriptCue.episode_id == result["episode_id"]
-        ).order_by(TranscriptCue.cue_index).all()
-        
-        # 验证 cue_index 从 1 开始，连续递增
-        assert len(cues) == 4
-        for idx, cue in enumerate(cues, start=1):
-            assert cue.cue_index == idx
     
     def test_cue_time_sorting(self, sample_audio_file, sample_transcript_file, db_session):
         """测试 cue 按时间排序"""

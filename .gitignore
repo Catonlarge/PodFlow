@@ -12,3 +12,9 @@ dist/
 #cursor
 .cursor/
 
+# IDE
+.vscode/
+
+# Development/Example files
+backend/app/services/whisperx-service.py
+
