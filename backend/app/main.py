@@ -126,6 +126,12 @@ audio_storage_path.mkdir(parents=True, exist_ok=True)
 logger.info(f"[System] 静态文件服务路径: {audio_storage_path}")
 app.mount("/static/audio", StaticFiles(directory=str(audio_storage_path)), name="audio")
 
+# 添加示例音频目录的静态文件服务
+sample_audio_path = (backend_dir / "data" / "sample_audio").resolve()
+sample_audio_path.mkdir(parents=True, exist_ok=True)
+logger.info(f"[System] 示例音频静态文件服务路径: {sample_audio_path}")
+app.mount("/static/sample_audio", StaticFiles(directory=str(sample_audio_path)), name="sample_audio")
+
 # 允许前端跨域访问
 # 注意：对于本地工具（Local-First）来说，允许所有来源是安全的
 # 如果部署到公网，建议收紧此权限，指定具体的允许来源

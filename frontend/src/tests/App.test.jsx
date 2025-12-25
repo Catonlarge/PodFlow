@@ -5,7 +5,9 @@ import App from '../App';
 describe('App', () => {
   it('renders without crashing', () => {
     render(<App />);
-    expect(screen.getByText(/vite \+ react/i)).toBeInTheDocument();
+    // 检查应用的主要元素是否存在
+    expect(screen.getByText(/PodFlow 开发环境检测/i)).toBeInTheDocument();
+    expect(screen.getByText(/AudioPlayer 组件测试/i)).toBeInTheDocument();
   });
 });
 
