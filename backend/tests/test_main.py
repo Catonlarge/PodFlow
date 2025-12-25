@@ -11,7 +11,8 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from fastapi.testclient import TestClient
 
-from app.main import app, run_transcription_task
+from app.main import app
+from app.tasks import run_transcription_task
 from app.models import Episode, AudioSegment, SessionLocal
 
 
@@ -89,7 +90,7 @@ class TestTranscriptionAPI:
         assert data["status"] == "already_processing"
         assert "正在转录中" in data["message"]
     
-    @patch('app.main.run_transcription_task')
+    @patch('app.tasks.run_transcription_task')
     def test_start_transcription_success(self, mock_task, client, db_session, tmp_path):
         """测试启动转录：成功启动后台任务"""
         # 创建测试音频文件
@@ -163,8 +164,8 @@ class TestTranscriptionAPI:
 class TestBackgroundTaskSessionManagement:
     """测试后台任务的 Session 管理"""
     
-    @patch('app.main.WhisperService')
-    @patch('app.main.TranscriptionService')
+    @patch('app.tasks.WhisperService')
+    @patch('app.tasks.TranscriptionService')
     def test_run_transcription_task_creates_new_session(
         self,
         mock_transcription_service_class,
@@ -210,9 +211,9 @@ class TestBackgroundTaskSessionManagement:
         # 验证 segment_and_transcribe 被调用
         mock_transcription_instance.segment_and_transcribe.assert_called_once_with(episode_id)
     
-    @patch('app.main.WhisperService')
-    @patch('app.main.TranscriptionService')
-    @patch('app.main.SessionLocal')
+    @patch('app.tasks.WhisperService')
+    @patch('app.tasks.TranscriptionService')
+    @patch('app.tasks.SessionLocal')
     def test_run_transcription_task_handles_exception(
         self,
         mock_session_local,
@@ -270,8 +271,8 @@ class TestBackgroundTaskSessionManagement:
         assert updated_episode.transcription_status == "failed", \
             f"Episode 状态应该更新为 'failed'，实际: {updated_episode.transcription_status}"
     
-    @patch('app.main.WhisperService')
-    @patch('app.main.TranscriptionService')
+    @patch('app.tasks.WhisperService')
+    @patch('app.tasks.TranscriptionService')
     def test_run_transcription_task_closes_session_on_success(
         self,
         mock_transcription_service_class,

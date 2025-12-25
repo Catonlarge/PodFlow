@@ -4,6 +4,39 @@
 
 ---
 
+## [2025-01-26] [refactor] - 架构优化：解决循环导入问题，统一路由定义
+
+**变更文件**: `backend/app/tasks.py` (新建), `backend/app/main.py`, `backend/app/api.py`, `backend/tests/test_main.py`, `backend/tests/test_episode_api.py`
+
+**重构内容**：
+
+### 1. 解决循环导入问题
+- **创建 `app/tasks.py`**：将 `run_transcription_task` 从 `main.py` 移到独立的任务模块
+- **修改 `api.py`**：将延迟导入改为顶部导入 `from app.tasks import run_transcription_task`
+- **修改 `main.py`**：移除 `run_transcription_task` 函数，移除不必要的导入
+
+### 2. 统一路由定义
+- **将路由从 `main.py` 移到 `api.py`**：
+  - `POST /api/episodes/{episode_id}/transcribe` - 启动转录任务
+  - `GET /api/episodes/{episode_id}/transcription-status` - 获取转录状态
+- **保持 `main.py` 职责单一**：只负责应用初始化、Lifespan、中间件配置和挂载 Router
+
+### 3. 更新测试文件
+- **修复测试导入**：将 `from app.main import run_transcription_task` 改为 `from app.tasks import run_transcription_task`
+- **修复 Mock 路径**：将所有 `@patch('app.main.run_transcription_task')` 改为 `@patch('app.tasks.run_transcription_task')`
+
+**架构优势**：
+- ✅ 消除循环导入风险，代码结构更清晰
+- ✅ 路由统一管理，维护更方便
+- ✅ `main.py` 职责单一，符合单一职责原则
+- ✅ 所有测试通过（11/11 main 测试 + 14/14 API 测试）
+
+**技术细节**：
+- MD5 计算逻辑已验证正确（`temp_file.close()` 已调用，`calculate_md5_async` 正确处理文件路径）
+- CORS 配置添加注释说明（本地工具允许所有来源，部署公网时需收紧权限）
+
+---
+
 ## [2025-01-XX] [test] - 补充 WhisperService 和 TranscriptionService 测试用例
 
 **变更文件**: `backend/tests/test_whisper_service.py`, `backend/tests/test_transcription_service.py`

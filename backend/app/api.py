@@ -22,8 +22,7 @@ from app.utils.file_utils import (
     validate_audio_file,
     get_file_extension,
 )
-# 延迟导入，避免循环导入
-# from app.main import run_transcription_task
+from app.tasks import run_transcription_task
 
 logger = logging.getLogger(__name__)
 
@@ -168,9 +167,8 @@ async def upload_episode(
             logger.error(f"创建 Episode 失败: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"创建 Episode 失败: {str(e)}")
         
-        # Step 7: 触发异步转录（延迟导入，避免循环导入）
+        # Step 7: 触发异步转录
         try:
-            from app.main import run_transcription_task
             background_tasks.add_task(run_transcription_task, episode.id)
             episode.transcription_status = "processing"
             db.commit()
@@ -410,3 +408,85 @@ def get_episode_segments(
         })
     
     return segments_data
+
+
+# ==================== 转录任务管理 ====================
+
+@router.post("/episodes/{episode_id}/transcribe")
+async def start_transcription(
+    episode_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    启动转录任务（异步）
+    
+    参数:
+        episode_id: Episode ID
+        
+    返回:
+        dict: 任务状态信息
+        
+    注意：
+        - 此接口立即返回，转录在后台执行
+        - 使用 BackgroundTasks 处理异步转录
+        - 后台任务会创建新的数据库 Session
+    """
+    # 验证 Episode 是否存在
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
+    
+    # 检查是否已有转录任务在进行
+    if episode.transcription_status == "processing":
+        return {
+            "status": "already_processing",
+            "message": f"Episode {episode_id} 正在转录中",
+            "episode_id": episode_id
+        }
+    
+    # 检查音频文件是否存在
+    if not episode.audio_path:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Episode {episode_id} 没有音频文件路径"
+        )
+    
+    # 添加后台任务（传递 ID 而不是对象，让后台任务自己去查库）
+    background_tasks.add_task(run_transcription_task, episode_id)
+    
+    logger.info(f"[API] 已启动 Episode {episode_id} 的转录任务")
+    
+    return {
+        "status": "processing",
+        "message": f"Episode {episode_id} 转录任务已启动",
+        "episode_id": episode_id
+    }
+
+
+@router.get("/episodes/{episode_id}/transcription-status")
+def get_transcription_status(
+    episode_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    获取转录状态
+    
+    参数:
+        episode_id: Episode ID
+        
+    返回:
+        dict: 转录状态和进度信息
+    """
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
+    
+    return {
+        "episode_id": episode_id,
+        "transcription_status": episode.transcription_status,
+        "transcription_status_display": episode.transcription_status_display,
+        "transcription_progress": episode.transcription_progress,
+        "transcription_stats": episode.transcription_stats,
+        "estimated_time_remaining": episode.estimated_time_remaining
+    }

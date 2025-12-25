@@ -336,7 +336,7 @@ class TestEpisodeCRUD:
         db_session.commit()
         
         # Mock 转录任务（不实际执行）
-        with patch('app.main.run_transcription_task') as mock_task:
+        with patch('app.tasks.run_transcription_task') as mock_task:
             # 触发转录
             response = client.post(f"/api/episodes/{episode.id}/transcribe")
             

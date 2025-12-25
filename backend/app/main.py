@@ -5,15 +5,12 @@ PodFlow FastAPI 应用入口
 """
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 import uvicorn
 
 from app.utils.hardware_patch import apply_rtx5070_patches
 from app.services.whisper_service import WhisperService
-from app.services.transcription_service import TranscriptionService
-from app.models import SessionLocal, get_db, Episode
 from app.api import router as api_router
 from app.config import AUDIO_STORAGE_PATH
 
@@ -74,6 +71,8 @@ app = FastAPI(
 app.include_router(api_router, prefix="/api")
 
 # 允许前端跨域访问
+# 注意：对于本地工具（Local-First）来说，允许所有来源是安全的
+# 如果部署到公网，建议收紧此权限，指定具体的允许来源
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 开发模式允许所有
@@ -81,50 +80,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def run_transcription_task(episode_id: int):
-    """
-    后台转录任务函数
-    
-    注意：此函数在后台任务中运行，必须创建新的数据库 Session。
-    不能使用请求的 Session（Request-Scoped），因为请求结束后 Session 会被关闭。
-    
-    参数:
-        episode_id: Episode ID
-    """
-    # 手动创建新的数据库会话（后台任务专用）
-    db = SessionLocal()
-    try:
-        # 获取 WhisperService 单例
-        whisper_service = WhisperService.get_instance()
-        
-        # 创建 TranscriptionService
-        transcription_service = TranscriptionService(db, whisper_service)
-        
-        # 执行转录
-        transcription_service.segment_and_transcribe(episode_id)
-        
-        logger.info(f"[BackgroundTask] Episode {episode_id} 转录任务完成")
-    except Exception as e:
-        logger.error(
-            f"[BackgroundTask] Episode {episode_id} 转录任务失败: {e}",
-            exc_info=True
-        )
-        # 更新 Episode 状态为 failed
-        try:
-            episode = db.query(Episode).filter(Episode.id == episode_id).first()
-            if episode:
-                episode.transcription_status = "failed"
-                db.commit()
-        except Exception as commit_error:
-            logger.error(
-                f"[BackgroundTask] 更新 Episode {episode_id} 状态失败: {commit_error}",
-                exc_info=True
-            )
-    finally:
-        # 确保关闭数据库会话
-        db.close()
 
 
 @app.get("/")
@@ -165,86 +120,6 @@ def health_check():
             "status": "unhealthy",
             "error": str(e)
         }
-
-
-@app.post("/api/episodes/{episode_id}/transcribe")
-async def start_transcription(
-    episode_id: int,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
-):
-    """
-    启动转录任务（异步）
-    
-    参数:
-        episode_id: Episode ID
-        
-    返回:
-        dict: 任务状态信息
-        
-    注意：
-        - 此接口立即返回，转录在后台执行
-        - 使用 BackgroundTasks 处理异步转录
-        - 后台任务会创建新的数据库 Session
-    """
-    # 验证 Episode 是否存在
-    episode = db.query(Episode).filter(Episode.id == episode_id).first()
-    if not episode:
-        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
-    
-    # 检查是否已有转录任务在进行
-    if episode.transcription_status == "processing":
-        return {
-            "status": "already_processing",
-            "message": f"Episode {episode_id} 正在转录中",
-            "episode_id": episode_id
-        }
-    
-    # 检查音频文件是否存在
-    if not episode.audio_path:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Episode {episode_id} 没有音频文件路径"
-        )
-    
-    # 添加后台任务（传递 ID 而不是对象，让后台任务自己去查库）
-    background_tasks.add_task(run_transcription_task, episode_id)
-    
-    logger.info(f"[API] 已启动 Episode {episode_id} 的转录任务")
-    
-    return {
-        "status": "processing",
-        "message": f"Episode {episode_id} 转录任务已启动",
-        "episode_id": episode_id
-    }
-
-
-@app.get("/api/episodes/{episode_id}/transcription-status")
-def get_transcription_status(
-    episode_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    获取转录状态
-    
-    参数:
-        episode_id: Episode ID
-        
-    返回:
-        dict: 转录状态和进度信息
-    """
-    episode = db.query(Episode).filter(Episode.id == episode_id).first()
-    if not episode:
-        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
-    
-    return {
-        "episode_id": episode_id,
-        "transcription_status": episode.transcription_status,
-        "transcription_status_display": episode.transcription_status_display,
-        "transcription_progress": episode.transcription_progress,
-        "transcription_stats": episode.transcription_stats,
-        "estimated_time_remaining": episode.estimated_time_remaining
-    }
 
 
 if __name__ == "__main__":
