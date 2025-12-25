@@ -1,6 +1,14 @@
 """
 pytest 测试配置文件
 包含测试夹具 (Fixtures)
+
+测试数据库隔离策略：
+- 使用独立的内存数据库（:memory:），完全隔离于生产数据库
+- 每个测试函数都会重新创建和清理数据库（scope="function"）
+- 通过依赖覆盖（dependency_overrides）确保 FastAPI 路由使用测试数据库
+- 通过 Mock 避免启动时状态清洗在生产数据库上执行
+
+重要：所有测试必须使用 db_session fixture，不要直接使用生产数据库的 SessionLocal
 """
 import pytest
 from unittest.mock import patch
@@ -13,7 +21,7 @@ from app.main import app
 from app.models import Base, get_db
 
 
-# 创建测试数据库（内存数据库）
+# 创建测试数据库（内存数据库，完全独立于生产数据库）
 SQLALCHEMY_TEST_DATABASE_URL = "sqlite:///:memory:"
 
 test_engine = create_engine(

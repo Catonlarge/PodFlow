@@ -4,6 +4,124 @@
 
 ---
 
+## [2025-01-26] [fix] - 修复集成测试音频文件路径问题
+
+**变更文件**: `backend/tests/test_whisperx_integration.py`
+
+**修复内容**：
+
+### 问题描述
+- `TestTranscriptionServiceVirtualSegments` 类中的 `audio_file_path` fixture 使用了错误的路径
+- 原路径：`backend/data/audio/003.mp3`
+- 实际路径：`backend/data/sample_audio/003.mp3`
+- 导致 4 个集成测试被跳过
+
+### 修复方案
+- 将 `audio_file_path` fixture 中的路径从 `data/audio` 修正为 `data/sample_audio`
+- 与 `TestWhisperXOutputFormat` 类中的路径保持一致
+
+### 测试结果
+- ✅ 修复前：4 个测试被跳过（147 passed, 4 skipped）
+- ✅ 修复后：所有 151 个测试全部通过（151 passed, 0 skipped）
+- ✅ 集成测试覆盖：
+  - 虚拟分段创建
+  - 虚拟分段转录完整流程
+  - 完整转录工作流
+  - 重试场景测试
+
+**技术细节**：
+- 使用真实的音频文件进行端到端测试
+- 验证 TranscriptionService 的虚拟分段和转录功能
+- 测试覆盖了 FFmpeg 片段提取、WhisperX 转录、数据库保存等完整流程
+
+---
+
+## [2025-12-25] [feat] - 添加一键启动脚本
+
+**变更文件**: `start-dev.ps1`, `docs/前后端调试说明.md`
+
+**新增内容**：
+
+### 1. 创建一键启动脚本
+- **文件位置**：`start-dev.ps1`（项目根目录）
+- **功能**：
+  - 自动检查后端虚拟环境是否存在
+  - 自动检查前端依赖是否安装（未安装时自动安装）
+  - 自动检查端口占用情况
+  - 在新窗口中启动后端服务（端口 8000）
+  - 在新窗口中启动前端服务（端口 5173）
+- **使用方式**：在项目根目录执行 `.\start-dev.ps1`
+- **优点**：一键启动，无需手动打开多个终端窗口
+
+### 2. 更新调试说明文档
+- 在 `docs/前后端调试说明.md` 中添加了"方法一：使用一键启动脚本"章节
+- 保留手动启动步骤作为"方法二"
+- 增加了脚本使用提示和故障排除说明
+
+**技术细节**：
+- 使用 PowerShell `Start-Process` 在新窗口中启动服务
+- 使用 `Test-NetConnection` 检查端口占用
+- 使用字符串脚本块传递命令到新窗口
+
+---
+
+## [2025-12-25] [docs] - 添加前后端调试说明文档
+
+**变更文件**: `docs/前后端调试说明.md`
+
+**新增内容**：
+
+### 1. 创建前后端调试说明文档
+- **文档位置**：`docs/前后端调试说明.md`
+- **内容包含**：
+  - 前置条件和环境要求
+  - 详细的启动步骤（后端和前端）
+  - 浏览器中查看效果的说明
+  - 调试技巧和工具使用
+  - 常见问题及解决方案
+  - 快速验证清单
+- **目的**：帮助开发人员快速启动前后端服务，并在浏览器中调试 AudioPlayer 组件的实际效果
+
+**使用场景**：
+- 新开发人员快速上手
+- 调试 AudioPlayer 组件功能
+- 排查前后端连接问题
+- 验证静态文件服务配置
+
+---
+
+## [2025-01-26] [refactor] - 数据库初始化简化与测试隔离优化
+
+**变更文件**: `backend/app/models.py`, `backend/tests/conftest.py`, `backend/app/main.py`
+
+**优化内容**：
+
+### 1. 简化数据库初始化逻辑
+- **移除复杂的迁移逻辑**：由于当前数据库仅包含测试数据，简化 `init_db()` 函数
+- **重新创建策略**：如果数据库结构需要更新，直接删除数据库文件后重新创建
+- **优点**：
+  - 代码更简洁，易于维护
+  - 避免 SQLite ALTER TABLE 的限制
+  - 开发阶段数据不重要，可以随时重建
+
+### 2. 确保测试数据库完全隔离
+- **测试配置优化**：
+  - 测试使用独立的内存数据库（`:memory:`），完全隔离于生产数据库
+  - 每个测试函数都会重新创建和清理数据库（`scope="function"`）
+  - 通过依赖覆盖和 Mock 确保测试不会影响生产数据库
+- **添加详细注释**：在 `conftest.py` 中添加测试隔离策略说明，防止未来开发人员误用生产数据库
+
+**技术细节**：
+- 删除旧的数据库迁移函数（`migrate_db()`, `_column_exists()`）
+- 简化 `init_db()` 函数，只保留 `Base.metadata.create_all()`
+- 测试配置使用 `SQLALCHEMY_TEST_DATABASE_URL = "sqlite:///:memory:"` 确保隔离
+
+**注意事项**：
+- 生产环境建议使用 Alembic 等专业的数据库迁移工具
+- 当前简化方案适合开发阶段，数据可以随时重建
+
+---
+
 ## [2025-01-26] [refactor] - 启动时状态清洗和接口合并优化
 
 **变更文件**: `backend/app/main.py`, `backend/app/api.py`, `backend/tests/test_main.py`, `backend/tests/test_episode_api.py`, `backend/tests/conftest.py`

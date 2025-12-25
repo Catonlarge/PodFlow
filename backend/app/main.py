@@ -15,7 +15,7 @@ from app.utils.hardware_patch import apply_rtx5070_patches
 from app.services.whisper_service import WhisperService
 from app.api import router as api_router
 from app.config import AUDIO_STORAGE_PATH
-from app.models import SessionLocal, Episode
+from app.models import SessionLocal, Episode, init_db
 
 logger = logging.getLogger(__name__)
 
@@ -36,20 +36,25 @@ async def lifespan(app: FastAPI):
     logger.info("[System] 应用启动，正在初始化...")
     
     try:
-        # 1. 创建必要的目录
+        # 1. 初始化数据库（确保表结构是最新的）
+        logger.info("[System] 初始化数据库...")
+        init_db()
+        logger.info("[System] 数据库初始化完成")
+        
+        # 2. 创建必要的目录
         audio_storage = Path(AUDIO_STORAGE_PATH)
         audio_storage.mkdir(parents=True, exist_ok=True)
         logger.info(f"[System] 音频存储目录已创建: {audio_storage.absolute()}")
         
-        # 2. 应用硬件兼容性补丁（必须在导入 whisperx 之前）
+        # 3. 应用硬件兼容性补丁（必须在导入 whisperx 之前）
         logger.info("[System] 应用硬件兼容性补丁...")
         apply_rtx5070_patches()
         
-        # 3. 加载 Whisper ASR 模型（单例模式，常驻显存）
+        # 4. 加载 Whisper ASR 模型（单例模式，常驻显存）
         logger.info("[System] 加载 Whisper ASR 模型...")
         WhisperService.load_models()
         
-        # 4. 启动时状态清洗：重置僵尸状态
+        # 5. 启动时状态清洗：重置僵尸状态
         # 如果服务在转录过程中崩溃，数据库中的 processing 状态会变成"僵尸状态"
         # 重启后没有后台任务在跑，但前端依然显示"转录中"，用户会觉得卡死了
         logger.info("[System] 执行启动时状态清洗...")
@@ -74,7 +79,15 @@ async def lifespan(app: FastAPI):
             else:
                 logger.info("[System] 未发现僵尸状态的 Episode")
         except Exception as e:
-            logger.error(f"[System] 启动时状态清洗失败: {e}", exc_info=True)
+            error_msg = str(e)
+            if "no such column" in error_msg.lower() or "transcription_status" in error_msg:
+                logger.error(
+                    "[System] 数据库结构不匹配！请删除 backend/data/podflow.db 文件后重新启动服务，"
+                    "系统会自动创建新的数据库结构。"
+                )
+                logger.error(f"[System] 错误详情: {error_msg}")
+            else:
+                logger.error(f"[System] 启动时状态清洗失败: {e}", exc_info=True)
             db.rollback()
             # 注意：状态清洗失败不应该阻止服务启动，只记录错误
         finally:
@@ -105,9 +118,13 @@ app.include_router(api_router, prefix="/api")
 
 # 添加静态文件服务（用于前端访问音频文件）
 # 将音频文件目录挂载到 /static/audio 路径
-audio_storage_path = Path(AUDIO_STORAGE_PATH)
+# 注意：路径需要相对于 backend 目录解析（因为 AUDIO_STORAGE_PATH 是相对路径）
+backend_dir = Path(__file__).parent.parent  # backend/app/main.py -> backend/
+audio_storage_relative = AUDIO_STORAGE_PATH.lstrip('./')  # "./data/audios/" -> "data/audios"
+audio_storage_path = (backend_dir / audio_storage_relative).resolve()
 audio_storage_path.mkdir(parents=True, exist_ok=True)
-app.mount("/static/audio", StaticFiles(directory=str(audio_storage_path.resolve())), name="audio")
+logger.info(f"[System] 静态文件服务路径: {audio_storage_path}")
+app.mount("/static/audio", StaticFiles(directory=str(audio_storage_path)), name="audio")
 
 # 允许前端跨域访问
 # 注意：对于本地工具（Local-First）来说，允许所有来源是安全的

@@ -389,7 +389,7 @@ class TestTranscriptionServiceVirtualSegments:
         """获取测试音频文件路径"""
         current_file = Path(__file__).resolve()
         backend_dir = current_file.parent.parent
-        audio_path = backend_dir / "data" / "audio" / "003.mp3"
+        audio_path = backend_dir / "data" / "sample_audio" / "003.mp3"
         
         if not audio_path.exists():
             pytest.skip(f"测试音频文件不存在: {audio_path}")
