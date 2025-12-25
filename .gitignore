@@ -17,4 +17,5 @@ dist/
 
 # Development/Example files
 backend/app/services/whisperx-service.py
+backend/app/services/whisperx-service-example.py
 
