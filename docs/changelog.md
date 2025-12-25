@@ -4,6 +4,28 @@
 
 ---
 
+## [2025-01-XX] [test] - 补充 WhisperService 和 TranscriptionService 测试用例
+
+**变更文件**: `backend/tests/test_whisper_service.py`, `backend/tests/test_transcription_service.py`
+
+**测试结果**: ✅ **40 个测试全部通过**（30 + 10）
+
+**新增测试用例**：
+
+### 1. WhisperService 测试补充（test_whisper_service.py）
+- **硬件兼容性补丁测试** (`test_apply_hardware_patches`)：验证 `apply_rtx5070_patches()` 函数可以安全调用（幂等性）
+- **FFmpeg 时间戳精度测试** (`test_extract_segment_accuracy`)：验证 FFmpeg 提取片段的时间戳精度（Critical）
+- **说话人识别测试** (`test_speaker_identification`)：验证说话人区分功能的正确性
+
+### 2. TranscriptionService 测试补充（test_transcription_service.py）
+- **重试机制测试** (`test_retry_mechanism`)：验证转录失败后可以重试，临时文件保留用于重试，重试成功后可正常完成转录
+
+**测试覆盖统计**：
+- `test_whisper_service.py`: 30 个测试用例（包含新增的 3 个）
+- `test_transcription_service.py`: 10 个测试用例（包含新增的 1 个）
+
+---
+
 ## [2025-01-XX] [test] - 添加 FastAPI 集成测试：覆盖 API 接口和后台任务 Session 管理（✅ 11/11 通过）
 
 **变更文件**: `backend/tests/test_main.py`, `backend/tests/conftest.py`

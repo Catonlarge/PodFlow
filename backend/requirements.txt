@@ -20,3 +20,8 @@ python-dotenv>=1.0.0
 # 系统监控
 psutil>=5.9.0
 
+# 音频处理
+# 注意：需要系统安装 FFmpeg（ffprobe 用于获取音频时长）
+# Windows: 下载 FFmpeg 并添加到 PATH
+# macOS: brew install ffmpeg
+# Linux: apt-get install ffmpeg

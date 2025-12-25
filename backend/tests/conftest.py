@@ -75,3 +75,18 @@ def client(db_session):
         # 清理覆盖
         app.dependency_overrides.clear()
 
+
+@pytest.fixture(scope="session")
+def real_audio_file():
+    """
+    提供真实音频文件路径（用于集成测试）
+    
+    文件路径：D:\programming_enviroment\learning-EnglishPod3\backend\data\audio\Figma-CEO-Why-AI-makes-design.mp3
+    """
+    from pathlib import Path
+    audio_path = Path(r"D:\programming_enviroment\learning-EnglishPod3\backend\data\audio\Figma-CEO-Why-AI-makes-design.mp3")
+    
+    if not audio_path.exists():
+        pytest.skip(f"真实音频文件不存在: {audio_path}")
+    
+    return str(audio_path)

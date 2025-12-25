@@ -14,6 +14,8 @@ from app.utils.hardware_patch import apply_rtx5070_patches
 from app.services.whisper_service import WhisperService
 from app.services.transcription_service import TranscriptionService
 from app.models import SessionLocal, get_db, Episode
+from app.api import router as api_router
+from app.config import AUDIO_STORAGE_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +36,17 @@ async def lifespan(app: FastAPI):
     logger.info("[System] 应用启动，正在初始化...")
     
     try:
-        # 1. 应用硬件兼容性补丁（必须在导入 whisperx 之前）
+        # 1. 创建必要的目录
+        from pathlib import Path
+        audio_storage = Path(AUDIO_STORAGE_PATH)
+        audio_storage.mkdir(parents=True, exist_ok=True)
+        logger.info(f"[System] 音频存储目录已创建: {audio_storage.absolute()}")
+        
+        # 2. 应用硬件兼容性补丁（必须在导入 whisperx 之前）
         logger.info("[System] 应用硬件兼容性补丁...")
         apply_rtx5070_patches()
         
-        # 2. 加载 Whisper ASR 模型（单例模式，常驻显存）
+        # 3. 加载 Whisper ASR 模型（单例模式，常驻显存）
         logger.info("[System] 加载 Whisper ASR 模型...")
         WhisperService.load_models()
         
@@ -61,6 +69,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# 注册 API 路由
+app.include_router(api_router, prefix="/api")
 
 # 允许前端跨域访问
 app.add_middleware(
