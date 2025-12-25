@@ -436,11 +436,14 @@ class TestEpisodeCRUD:
         assert response.status_code == 200
         data = response.json()
         
-        assert "status" in data
-        assert "progress" in data
-        assert "completed_segments" in data
-        assert "total_segments" in data
-        assert data["status"] == "processing"
+        # 验证返回数据结构（已合并接口，返回完整信息）
+        assert "episode_id" in data
+        assert "transcription_status" in data
+        assert "transcription_status_display" in data
+        assert "transcription_progress" in data
+        assert "transcription_stats" in data
+        assert "estimated_time_remaining" in data
+        assert data["transcription_status"] == "processing"
     
     def test_get_episode_segments(self, client, db_session):
         """测试获取虚拟分段信息：用于调试"""

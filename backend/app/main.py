@@ -5,14 +5,17 @@ PodFlow FastAPI 应用入口
 """
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from app.utils.hardware_patch import apply_rtx5070_patches
 from app.services.whisper_service import WhisperService
 from app.api import router as api_router
 from app.config import AUDIO_STORAGE_PATH
+from app.models import SessionLocal, Episode
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +37,6 @@ async def lifespan(app: FastAPI):
     
     try:
         # 1. 创建必要的目录
-        from pathlib import Path
         audio_storage = Path(AUDIO_STORAGE_PATH)
         audio_storage.mkdir(parents=True, exist_ok=True)
         logger.info(f"[System] 音频存储目录已创建: {audio_storage.absolute()}")
@@ -46,6 +48,37 @@ async def lifespan(app: FastAPI):
         # 3. 加载 Whisper ASR 模型（单例模式，常驻显存）
         logger.info("[System] 加载 Whisper ASR 模型...")
         WhisperService.load_models()
+        
+        # 4. 启动时状态清洗：重置僵尸状态
+        # 如果服务在转录过程中崩溃，数据库中的 processing 状态会变成"僵尸状态"
+        # 重启后没有后台任务在跑，但前端依然显示"转录中"，用户会觉得卡死了
+        logger.info("[System] 执行启动时状态清洗...")
+        db = SessionLocal()
+        try:
+            # 查找所有 processing 状态的 Episode
+            stuck_episodes = db.query(Episode).filter(
+                Episode.transcription_status == "processing"
+            ).all()
+            
+            if stuck_episodes:
+                logger.warning(
+                    f"[System] 发现 {len(stuck_episodes)} 个僵尸状态的 Episode，正在重置为 failed"
+                )
+                for episode in stuck_episodes:
+                    episode.transcription_status = "failed"
+                    logger.info(
+                        f"[System] Episode {episode.id} ({episode.title}) 状态已重置为 failed"
+                    )
+                db.commit()
+                logger.info(f"[System] 已重置 {len(stuck_episodes)} 个 Episode 的状态")
+            else:
+                logger.info("[System] 未发现僵尸状态的 Episode")
+        except Exception as e:
+            logger.error(f"[System] 启动时状态清洗失败: {e}", exc_info=True)
+            db.rollback()
+            # 注意：状态清洗失败不应该阻止服务启动，只记录错误
+        finally:
+            db.close()
         
         logger.info("[System] 初始化完成，服务就绪")
     except Exception as e:
@@ -69,6 +102,12 @@ app = FastAPI(
 
 # 注册 API 路由
 app.include_router(api_router, prefix="/api")
+
+# 添加静态文件服务（用于前端访问音频文件）
+# 将音频文件目录挂载到 /static/audio 路径
+audio_storage_path = Path(AUDIO_STORAGE_PATH)
+audio_storage_path.mkdir(parents=True, exist_ok=True)
+app.mount("/static/audio", StaticFiles(directory=str(audio_storage_path.resolve())), name="audio")
 
 # 允许前端跨域访问
 # 注意：对于本地工具（Local-First）来说，允许所有来源是安全的

@@ -331,10 +331,17 @@ def get_episode_status(
         
     返回:
         {
-            "status": "processing",
-            "progress": 45.5,
-            "completed_segments": 5,
-            "total_segments": 11,
+            "episode_id": 1,
+            "transcription_status": "processing",
+            "transcription_status_display": "正在转录中...",
+            "transcription_progress": 45.5,
+            "transcription_stats": {
+                "total_segments": 11,
+                "completed_segments": 5,
+                "failed_segments": 0,
+                "processing_segments": 2,
+                "pending_segments": 4
+            },
             "estimated_time_remaining": 90
         }
     """
@@ -347,12 +354,11 @@ def get_episode_status(
     
     return {
         "episode_id": episode.id,
-        "status": episode.transcription_status,
-        "progress": episode.transcription_progress,
-        "completed_segments": stats.get("completed_segments", 0),
-        "total_segments": stats.get("total_segments", 0),
-        "estimated_time_remaining": episode.estimated_time_remaining,
-        "transcription_status_display": episode.transcription_status_display
+        "transcription_status": episode.transcription_status,
+        "transcription_status_display": episode.transcription_status_display,
+        "transcription_progress": episode.transcription_progress,
+        "transcription_stats": stats,
+        "estimated_time_remaining": episode.estimated_time_remaining
     }
 
 
@@ -464,29 +470,3 @@ async def start_transcription(
     }
 
 
-@router.get("/episodes/{episode_id}/transcription-status")
-def get_transcription_status(
-    episode_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    获取转录状态
-    
-    参数:
-        episode_id: Episode ID
-        
-    返回:
-        dict: 转录状态和进度信息
-    """
-    episode = db.query(Episode).filter(Episode.id == episode_id).first()
-    if not episode:
-        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
-    
-    return {
-        "episode_id": episode_id,
-        "transcription_status": episode.transcription_status,
-        "transcription_status_display": episode.transcription_status_display,
-        "transcription_progress": episode.transcription_progress,
-        "transcription_stats": episode.transcription_stats,
-        "estimated_time_remaining": episode.estimated_time_remaining
-    }

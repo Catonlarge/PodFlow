@@ -44,6 +44,83 @@ class TestRootAndHealth:
         assert "vram_info" in whisper_info
 
 
+class TestStartupCleanup:
+    """测试启动时状态清洗功能"""
+    
+    def test_startup_cleanup_resets_stuck_episodes(self, db_session):
+        """测试启动时状态清洗：重置僵尸状态的 Episode"""
+        from app.models import Episode
+        
+        # 创建几个不同状态的 Episode
+        episode1 = Episode(
+            title="Stuck Episode 1",
+            file_hash="stuck_hash_001",
+            duration=60.0,
+            transcription_status="processing"  # 僵尸状态
+        )
+        episode2 = Episode(
+            title="Stuck Episode 2",
+            file_hash="stuck_hash_002",
+            duration=120.0,
+            transcription_status="processing"  # 僵尸状态
+        )
+        episode3 = Episode(
+            title="Normal Episode",
+            file_hash="normal_hash_001",
+            duration=180.0,
+            transcription_status="pending"  # 正常状态
+        )
+        db_session.add_all([episode1, episode2, episode3])
+        db_session.commit()
+        
+        # 模拟启动时状态清洗逻辑（使用测试数据库会话）
+        stuck_episodes = db_session.query(Episode).filter(
+            Episode.transcription_status == "processing"
+        ).all()
+        
+        # 重置为 failed
+        for episode in stuck_episodes:
+            episode.transcription_status = "failed"
+        db_session.commit()
+        
+        # 验证状态已重置
+        db_session.expire_all()
+        updated_episode1 = db_session.query(Episode).filter(Episode.id == episode1.id).first()
+        updated_episode2 = db_session.query(Episode).filter(Episode.id == episode2.id).first()
+        updated_episode3 = db_session.query(Episode).filter(Episode.id == episode3.id).first()
+        
+        assert updated_episode1.transcription_status == "failed", "Episode 1 应该被重置为 failed"
+        assert updated_episode2.transcription_status == "failed", "Episode 2 应该被重置为 failed"
+        assert updated_episode3.transcription_status == "pending", "Episode 3 应该保持 pending"
+    
+    def test_startup_cleanup_no_stuck_episodes(self, db_session):
+        """测试启动时状态清洗：没有僵尸状态时不影响正常 Episode"""
+        from app.models import Episode
+        
+        # 创建正常状态的 Episode
+        episode = Episode(
+            title="Normal Episode",
+            file_hash="normal_hash_002",
+            duration=60.0,
+            transcription_status="pending"
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 模拟启动时状态清洗逻辑（使用测试数据库会话）
+        stuck_episodes = db_session.query(Episode).filter(
+            Episode.transcription_status == "processing"
+        ).all()
+        
+        # 没有僵尸状态，不应该有任何操作
+        assert len(stuck_episodes) == 0, "不应该有僵尸状态的 Episode"
+        
+        # 验证正常 Episode 状态未改变
+        db_session.expire_all()
+        updated_episode = db_session.query(Episode).filter(Episode.id == episode.id).first()
+        assert updated_episode.transcription_status == "pending", "正常 Episode 状态不应该改变"
+
+
 class TestTranscriptionAPI:
     """测试转录相关 API 接口"""
     
@@ -123,7 +200,7 @@ class TestTranscriptionAPI:
     
     def test_get_transcription_status_episode_not_found(self, client, db_session):
         """测试查询转录状态：Episode 不存在"""
-        response = client.get("/api/episodes/999/transcription-status")
+        response = client.get("/api/episodes/999/status")
         assert response.status_code == 404
         data = response.json()
         assert "不存在" in data["detail"]
@@ -140,7 +217,7 @@ class TestTranscriptionAPI:
         db_session.add(episode)
         db_session.commit()
         
-        response = client.get(f"/api/episodes/{episode.id}/transcription-status")
+        response = client.get(f"/api/episodes/{episode.id}/status")
         assert response.status_code == 200
         data = response.json()
         

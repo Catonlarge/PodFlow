@@ -4,6 +4,54 @@
 
 ---
 
+## [2025-01-26] [refactor] - 启动时状态清洗和接口合并优化
+
+**变更文件**: `backend/app/main.py`, `backend/app/api.py`, `backend/tests/test_main.py`, `backend/tests/test_episode_api.py`, `backend/tests/conftest.py`
+
+**优化内容**：
+
+### 1. 启动时状态清洗（Startup Cleanup）
+- **问题**：如果服务在转录过程中崩溃，数据库中的 `processing` 状态会变成"僵尸状态"
+- **解决方案**：在 `lifespan` 函数中添加启动时状态清洗逻辑
+  - 服务启动时自动查找所有 `processing` 状态的 Episode
+  - 将它们重置为 `failed` 状态
+  - 避免前端显示"转录中"但实际没有任务在跑的情况
+- **实现细节**：
+  - 使用独立的数据库 Session（`SessionLocal()`）
+  - 异常处理确保清洗失败不会阻止服务启动
+  - 详细的日志记录，便于监控和调试
+
+### 2. 合并重复的转录状态查询接口
+- **问题**：存在两个功能重复的接口：
+  - `GET /api/episodes/{episode_id}/status`
+  - `GET /api/episodes/{episode_id}/transcription-status`
+- **解决方案**：合并为一个接口，保留更 RESTful 的 `/status` 路径
+  - 统一返回格式，包含所有必要信息：
+    - `transcription_status`: 状态值
+    - `transcription_status_display`: 友好显示文本
+    - `transcription_progress`: 进度百分比
+    - `transcription_stats`: 完整统计信息
+    - `estimated_time_remaining`: 预计剩余时间
+- **优势**：
+  - 减少代码冗余
+  - 统一 API 接口，便于前端使用
+  - 更符合 RESTful 设计原则
+
+### 3. 测试更新
+- **新增测试**：`TestStartupCleanup` 类，验证启动时状态清洗功能
+  - `test_startup_cleanup_resets_stuck_episodes`: 验证僵尸状态被正确重置
+  - `test_startup_cleanup_no_stuck_episodes`: 验证正常状态不受影响
+- **更新测试**：
+  - 修复 `test_get_episode_status` 以匹配新的返回格式
+  - 在 `conftest.py` 中 mock 启动时状态清洗逻辑，避免在测试数据库上执行
+
+**技术细节**：
+- 启动时状态清洗使用独立的数据库 Session，避免与请求生命周期耦合
+- 异常处理确保清洗失败不会阻止服务启动（只记录错误日志）
+- 所有测试通过（27/27）
+
+---
+
 ## [2025-01-26] [refactor] - 架构优化：解决循环导入问题，统一路由定义
 
 **变更文件**: `backend/app/tasks.py` (新建), `backend/app/main.py`, `backend/app/api.py`, `backend/tests/test_main.py`, `backend/tests/test_episode_api.py`

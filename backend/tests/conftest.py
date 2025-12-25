@@ -62,10 +62,16 @@ def client(db_session):
         finally:
             pass
     
-    # Mock lifespan 以避免实际加载模型
+    # Mock lifespan 以避免实际加载模型和启动时状态清洗
     # 注意：TestClient 会自动处理 lifespan，但我们可以通过 patch 跳过实际加载
+    # 同时 mock 启动时状态清洗逻辑，避免在测试数据库上执行（测试数据库可能没有正确的表结构）
     with patch('app.main.apply_rtx5070_patches'), \
-         patch('app.main.WhisperService.load_models'):
+         patch('app.main.WhisperService.load_models'), \
+         patch('app.main.SessionLocal') as mock_session_local:
+        # Mock SessionLocal 以避免启动时状态清洗在测试数据库上执行
+        # 测试数据库的表结构可能不完整，会导致错误
+        mock_session_local.return_value = db_session
+        
         # 覆盖 get_db 依赖
         app.dependency_overrides[get_db] = override_get_db
         
