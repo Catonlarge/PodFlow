@@ -4,6 +4,57 @@
 
 ---
 
+## [2025-01-27] [feat] - 添加单元测试和集成测试运行脚本
+
+**变更文件**: `run-unit-tests.ps1`, `run-integration-tests.ps1`, `backend/requirements.txt`, `.gitignore`
+
+**新增内容**：
+
+### 1. 创建单元测试运行脚本
+- **文件位置**：`run-unit-tests.ps1`（项目根目录）
+- **功能**：
+  - 自动检查后端虚拟环境和前端依赖
+  - 运行后端单元测试（使用 `pytest -m unit`）
+  - 运行前端单元测试（`src/components/__tests__/` 目录）
+  - 生成 HTML 格式的后端测试报告
+  - 生成文本格式的前端测试报告
+  - 测试报告保存在 `reports/` 目录，按时间戳命名
+
+### 2. 创建集成测试运行脚本
+- **文件位置**：`run-integration-tests.ps1`（项目根目录）
+- **功能**：
+  - 自动检查后端虚拟环境和前端依赖
+  - 运行后端集成测试（使用 `pytest -m integration`）
+  - 运行前端集成测试（`src/tests/` 目录）
+  - 生成 HTML 格式的后端测试报告
+  - 生成文本格式的前端测试报告
+  - 测试报告保存在 `reports/` 目录，按时间戳命名
+
+### 3. 更新依赖和配置
+- **backend/requirements.txt**: 添加 `pytest-html>=4.0.0` 用于生成 HTML 测试报告
+- **.gitignore**: 添加 `reports/` 目录，忽略测试报告文件
+
+**使用方法**：
+```powershell
+# 运行单元测试
+.\run-unit-tests.ps1
+
+# 运行集成测试
+.\run-integration-tests.ps1
+```
+
+**测试报告位置**：
+- 后端报告：`reports/backend_unit_test_YYYYMMDD_HHMMSS.html` 或 `reports/backend_integration_test_YYYYMMDD_HHMMSS.html`
+- 前端报告：`reports/frontend_unit_test_YYYYMMDD_HHMMSS.txt` 或 `reports/frontend_integration_test_YYYYMMDD_HHMMSS.txt`
+
+**技术细节**：
+- 后端使用 pytest 的 marker 系统区分单元测试和集成测试（`@pytest.mark.unit` 和 `@pytest.mark.integration`）
+- 前端通过目录结构区分：`components/__tests__/` 为单元测试，`tests/` 为集成测试
+- 脚本会自动安装缺失的 pytest-html 依赖
+- 如果测试失败，脚本会以非零退出码退出，便于 CI/CD 集成
+
+---
+
 ## [2025-01-26] [fix] - 修复集成测试音频文件路径问题
 
 **变更文件**: `backend/tests/test_whisperx_integration.py`

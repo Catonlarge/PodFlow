@@ -19,3 +19,6 @@ dist/
 backend/app/services/whisperx-service.py
 backend/app/services/whisperx-service-example.py
 
+# Test reports
+reports/
+
