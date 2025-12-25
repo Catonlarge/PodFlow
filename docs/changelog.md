@@ -4,6 +4,65 @@
 
 ---
 
+## [2025-01-XX] [perf] - WhisperService 性能优化：对齐模型缓存与并发安全
+
+**变更文件**: `backend/app/services/whisper_service.py`
+
+**优化说明**：
+针对性能瓶颈和并发安全问题，对 WhisperService 进行了关键优化，提升分段转录的效率和稳定性。
+
+**核心优化**：
+
+1. **对齐模型缓存机制**：
+   - 新增类变量：`_align_model`、`_align_metadata`、`_align_language` 用于缓存对齐模型
+   - 实现 `_get_or_load_align_model()` 方法：智能管理对齐模型的加载和缓存
+   - **性能提升**：相同语言的音频片段会复用已加载的对齐模型，避免重复加载 Wav2Vec2 模型
+   - 减少 GPU 显存分配开销和模型初始化时间
+
+2. **并发安全保护**：
+   - 新增 `_gpu_lock` 线程锁（使用 `threading.RLock` 可重入锁）
+   - 在 `transcribe_segment()` 方法中使用锁保护整个 GPU 推理流程
+   - 在 `load_diarization_model()` 和 `release_diarization_model()` 中使用锁保护模型加载/释放操作
+   - **解决并发问题**：防止多线程/多请求环境下同时进行 GPU 推理导致的 CUDA 错误和显存竞争
+   - 使用可重入锁（RLock）避免嵌套调用时的死锁（如 lazy load 场景）
+
+3. **音频加载优化验证**：
+   - 确认 Diarization 步骤复用内存中的 `audio` 数组，避免重复读取文件
+   - 代码中已正确实现：`diarize_segments = self._diarize_model(audio)`
+
+4. **设备信息增强**：
+   - `get_device_info()` 方法新增 `align_model_loaded` 和 `align_model_language` 字段
+   - 便于监控对齐模型的缓存状态
+
+**技术细节**：
+
+- **对齐模型缓存逻辑**：
+  ```python
+  # 检查是否已缓存且语言相同
+  if (self._align_model is not None and 
+      self._align_language == language_code):
+      return self._align_model, self._align_metadata
+  # 否则加载新模型并更新缓存
+  ```
+
+- **并发保护范围**：
+  - `transcribe_segment()`: 保护整个转录流程（Transcribe + Align + Diarize）
+  - `load_diarization_model()`: 保护模型加载和显存分配
+  - `release_diarization_model()`: 保护模型释放和显存清理
+
+**性能影响**：
+
+- ✅ **分段转录速度提升**：相同语言的多个片段处理时，避免重复加载对齐模型
+- ✅ **并发稳定性**：多请求环境下不会出现 GPU 资源竞争导致的错误
+- ✅ **显存利用优化**：减少不必要的模型重复加载，降低显存碎片化
+
+**设计权衡**：
+
+- 使用可重入锁（RLock）而非普通锁（Lock），以支持 `load_diarization_model()` 在 `transcribe_segment()` 锁内的嵌套调用（lazy load 场景）
+- 对齐模型缓存为类变量，单例模式下所有实例共享，节省显存
+
+---
+
 ## [2025-01-XX] [feat] - 创建 TranscriptionService：虚拟分段转录服务
 
 **变更文件**: `backend/app/services/transcription_service.py`, `backend/tests/test_transcription_service.py`
