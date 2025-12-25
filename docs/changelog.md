@@ -4,6 +4,174 @@
 
 ---
 
+## [2025-01-XX] [feat] - 创建 TranscriptionService：虚拟分段转录服务
+
+**变更文件**: `backend/app/services/transcription_service.py`, `backend/tests/test_transcription_service.py`
+
+**功能说明**：
+实现虚拟分段转录服务，支持为 Episode 创建虚拟分段、转录单个分段、保存字幕到数据库，以及完整的转录流程管理。支持中断恢复和重试机制。
+
+**核心功能**：
+
+1. **虚拟分段创建**：
+   - `create_virtual_segments()` 方法：为 Episode 创建虚拟分段
+   - 统一处理：短音频和长音频都创建 AudioSegment
+   - 使用 `config.SEGMENT_DURATION` 作为分段时长
+   - 自动计算每个分段的时间范围（start_time, end_time）
+   - 避免重复创建（检查已有分段）
+
+2. **单个分段转录**：
+   - `transcribe_virtual_segment()` 方法：转录单个虚拟分段
+   - 支持中断恢复：检查 `segment_path` 是否存在，如果存在则复用临时文件
+   - 使用 FFmpeg 提取音频片段（PCM 编码，精确切割）
+   - 调用 `WhisperService.transcribe_segment()` 进行转录
+   - 自动更新 segment 状态（pending → processing → completed/failed）
+   - 转录成功后删除临时文件，失败时保留用于重试
+   - 每个分段使用独立事务，失败不影响其他分段
+
+3. **字幕保存**：
+   - `save_cues_to_db()` 方法：保存字幕到数据库（无 cue_index 方案）
+   - 计算绝对时间：`cue.start_time = segment.start_time + cue['start']`
+   - 不存储 cue_index，使用 start_time 排序
+   - 支持重试场景：删除旧字幕后重新插入
+   - 批量插入提高性能
+
+4. **完整转录流程**：
+   - `segment_and_transcribe()` 方法：完整转录流程管理
+   - 自动创建虚拟分段（如果不存在）
+   - 更新 Episode 转录状态（processing → completed/partial_failed/failed）
+   - Diarization 模型生命周期管理（Episode 处理前加载，处理后释放）
+   - 按顺序转录所有分段
+   - 统计成功/失败分段数量
+
+**设计要点**：
+
+1. **资源管理**：
+   - Diarization 模型在 Episode 处理期间常驻，处理完成后释放
+   - 临时文件在转录成功后立即删除，失败时保留用于重试
+
+2. **错误处理**：
+   - 每个分段独立事务，失败不影响其他分段
+   - 支持重试机制（retry_count 记录重试次数）
+
+3. **中断恢复**：
+   - 支持服务器重启后继续转录（检查临时文件是否存在）
+   - 已完成的分段跳过转录
+
+4. **时间戳精度**：
+   - 使用绝对时间，确保字幕排序正确
+   - 即使异步完成，字幕也按 start_time 正确排序
+
+**测试覆盖**：
+- ✅ 新增 9 个测试用例，全部通过
+- ✅ 测试虚拟分段创建（短音频/长音频/跳过已有分段）
+- ✅ 测试字幕保存（绝对时间计算/重试场景）
+- ✅ 测试单个分段转录（成功/已完成跳过）
+- ✅ 测试字幕排序（Critical：验证异步转录后字幕按 start_time 正确排序）
+- ✅ 测试完整转录流程
+- ✅ **测试结果**：9 个测试用例全部通过 ✅
+
+**使用示例**：
+```python
+from app.services.transcription_service import TranscriptionService
+from app.services.whisper_service import WhisperService
+from app.models import get_db
+
+# 获取数据库会话和 WhisperService
+db = next(get_db())
+whisper_service = WhisperService.get_instance()
+
+# 创建 TranscriptionService
+transcription_service = TranscriptionService(db, whisper_service)
+
+# 完整转录流程
+transcription_service.segment_and_transcribe(episode_id=1)
+
+# 或者分步执行
+episode = db.query(Episode).filter(Episode.id == 1).first()
+segments = transcription_service.create_virtual_segments(episode)
+
+for segment in segments:
+    cues_count = transcription_service.transcribe_virtual_segment(segment)
+    print(f"Segment {segment.segment_id} 完成，生成 {cues_count} 条字幕")
+```
+
+---
+
+## [2025-01-XX] [feat] - 添加内存和显存监控功能
+
+**变更文件**: `backend/app/services/whisper_service.py`, `backend/tests/test_whisper_service.py`, `backend/requirements.txt`
+
+**功能说明**：
+添加系统内存和 GPU 显存监控功能，在加载模型前自动检查内存状态，防止显存溢出（OOM）问题。
+
+**核心功能**：
+
+1. **内存监控方法**：
+   - 新增 `get_memory_info()` 静态方法：获取系统内存和 GPU 显存详细信息
+   - 支持系统内存监控（使用 `psutil`）：总内存、可用内存、使用率
+   - 支持 GPU 显存监控（使用 `torch.cuda`）：总显存、已分配、已保留、可用显存、使用率
+
+2. **内存检查机制**：
+   - 新增 `check_memory_before_load()` 静态方法：在加载模型前检查内存状态
+   - 默认警告阈值：85%（可配置）
+   - 当内存/显存使用率超过阈值时，输出警告日志，提醒可能发生 OOM
+
+3. **自动内存检查**：
+   - 在 `load_models()` 加载 ASR 模型前自动检查内存
+   - 在 `load_diarization_model()` 加载 Diarization 模型前自动检查内存
+   - 加载前后记录内存状态，便于追踪内存变化
+
+4. **设备信息增强**：
+   - `get_device_info()` 方法新增详细内存信息：
+     - `vram_total`: GPU 总显存
+     - `vram_free`: GPU 可用显存
+     - `vram_percent`: GPU 显存使用率
+     - `memory_info`: 完整的系统内存和显存信息字典
+
+5. **依赖更新**：
+   - 新增 `psutil>=5.9.0` 依赖（用于系统内存监控）
+   - 如果 `psutil` 未安装，功能会降级但不影响其他功能
+
+**测试覆盖**：
+- ✅ 新增 4 个内存监控测试用例
+- ✅ 测试 `get_memory_info()` 方法（psutil 可用/不可用场景）
+- ✅ 测试 `check_memory_before_load()` 方法（内存充足/不足场景）
+- ✅ 更新设备信息测试，验证新增的内存字段
+- ✅ **测试结果**：21 个测试用例全部通过 ✅
+
+**使用示例**：
+```python
+# 获取内存信息
+memory_info = WhisperService.get_memory_info()
+print(memory_info)
+# {
+#   "system_memory": {
+#     "total_gb": "16.00",
+#     "available_gb": "8.00",
+#     "used_gb": "8.00",
+#     "percent": "50.0%"
+#   },
+#   "gpu_memory": {
+#     "total_gb": "12.00",
+#     "allocated_gb": "2.00",
+#     "reserved_gb": "3.00",
+#     "free_gb": "9.00",
+#     "percent": "25.0%"
+#   }
+# }
+
+# 检查内存（加载模型前）
+if not WhisperService.check_memory_before_load():
+    logger.warning("内存不足，建议释放资源后再加载模型")
+
+# 获取完整设备信息（包含内存）
+device_info = WhisperService.get_device_info()
+print(device_info["memory_info"])
+```
+
+---
+
 ## [2025-01-XX] [refactor] - 优化 WhisperService：Diarization 模型显存常驻管理
 
 **变更文件**: `backend/app/services/whisper_service.py`, `backend/tests/test_whisper_service.py`
