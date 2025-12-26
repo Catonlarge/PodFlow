@@ -418,9 +418,12 @@ describe('FileImportModal', () => {
         expect(screen.getByText(/已检测到历史字幕/i)).toBeInTheDocument();
       });
 
-      const useHistoricalButton = screen.getByText(/使用历史字幕/i);
-      await user.click(useHistoricalButton);
+      // 检测到历史字幕后，组件会自动使用历史字幕，按钮文本变为"已选择历史字幕"
+      await waitFor(() => {
+        expect(screen.getByText(/已选择历史字幕/i)).toBeInTheDocument();
+      });
 
+      // 验证字幕输入框已被禁用（因为自动使用了历史字幕）
       await waitFor(() => {
         const subtitleInput = document.querySelector('input[type="file"][accept*="json"]');
         expect(subtitleInput).toBeDisabled();
@@ -452,21 +455,26 @@ describe('FileImportModal', () => {
         expect(screen.getByText(/已检测到历史字幕/i)).toBeInTheDocument();
       });
 
-      // 先点击"使用历史字幕"，使"重新选择字幕"按钮可用
-      const useHistoricalButton = screen.getByText(/使用历史字幕/i);
-      await user.click(useHistoricalButton);
+      // 检测到历史字幕后，组件会自动使用历史字幕，按钮文本变为"已选择历史字幕"
+      await waitFor(() => {
+        expect(screen.getByText(/已选择历史字幕/i)).toBeInTheDocument();
+      });
 
+      // 验证字幕输入框已被禁用（因为自动使用了历史字幕）
       await waitFor(() => {
         const subtitleInput = document.querySelector('input[type="file"][accept*="json"]');
         expect(subtitleInput).toBeDisabled();
       });
 
-      // 然后点击"重新选择字幕"
+      // 点击"重新选择字幕"按钮，取消使用历史字幕
       const selectNewButton = screen.getByText(/重新选择字幕/i);
       await user.click(selectNewButton);
 
-      const subtitleInput = document.querySelector('input[type="file"][accept*="json"]');
-      expect(subtitleInput).not.toBeDisabled();
+      // 验证字幕输入框恢复可用
+      await waitFor(() => {
+        const subtitleInput = document.querySelector('input[type="file"][accept*="json"]');
+        expect(subtitleInput).not.toBeDisabled();
+      });
     });
 
     it('用户未选择任何字幕（包括历史字幕）→ 确认按钮禁用', () => {
