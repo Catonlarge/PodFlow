@@ -58,7 +58,30 @@ describe('EpisodeHeader', () => {
       const headerElement = container.firstChild;
       const computedStyle = window.getComputedStyle(headerElement);
       
-      expect(computedStyle.zIndex).toBe('100');
+      expect(computedStyle.zIndex).toBe('1100');
+    });
+
+    it('应该有固定的高度', () => {
+      const { container } = render(
+        <EpisodeHeader episodeTitle="测试" showName="测试节目" />
+      );
+
+      const headerElement = container.firstChild;
+      const computedStyle = window.getComputedStyle(headerElement);
+      
+      expect(computedStyle.height).toBe('80px');
+    });
+
+    it('标题应该不换行', () => {
+      render(
+        <EpisodeHeader episodeTitle="这是一个非常长的标题，用来测试文本溢出和省略号功能" showName="测试节目" />
+      );
+
+      const titleElement = screen.getByText(/这是一个非常长的标题/);
+      const computedStyle = window.getComputedStyle(titleElement);
+      
+      expect(computedStyle.whiteSpace).toBe('nowrap');
+      expect(computedStyle.overflow).toBe('hidden');
     });
   });
 });

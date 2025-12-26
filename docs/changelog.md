@@ -4,6 +4,46 @@
 
 ---
 
+## [2025-01-27] [refactor] - 优化布局组件：修复高度计算和内容溢出问题
+
+**变更内容**：
+- 优化 `components/layout/EpisodeHeader.jsx`：添加文本溢出处理，固定高度
+- 优化 `components/layout/MainLayout.jsx`：使用 calc() 精确计算高度，防止底部遮挡
+- 更新测试用例：适配新的实现，增加高度和文本溢出测试
+
+**问题修复**：
+1. **Magic Number 陷阱**：修复硬编码的 headerHeight，通过固定 Header 高度（80px）和 noWrap 确保高度稳定
+2. **90vh 布局问题**：改用 `calc(100vh - 80px)` 精确计算，避免双重滚动条
+3. **底部播放器遮挡**：为滚动区域添加 `paddingBottom`，预留播放器高度空间
+
+**技术实现**：
+- **EpisodeHeader**：
+  - 添加 `noWrap` 防止文本换行，保证高度固定为 80px
+  - 使用 `Tooltip` 在标题被截断时显示完整内容
+  - 使用 `component="header"` 语义化标签
+  - 调整 `zIndex` 为 1100（与 MUI Appbar 保持一致）
+  - 使用 `alignItems: 'center'` 垂直居中
+
+- **MainLayout**：
+  - 使用 `calc(100vh - 80px)` 替代 `90vh`，精确填满屏幕
+  - 添加 `overflow: 'hidden'` 防止整体页面滚动条
+  - 为左右滚动区域添加动态 `paddingBottom`（播放器高度 + 20px 余量）
+  - 使用常量 `HEADER_HEIGHT` 和 `PLAYER_HEIGHT` 便于维护
+  - 使用 `component="main"` 语义化标签
+
+**测试更新**：
+- EpisodeHeader：新增高度测试和文本溢出测试（8/8 通过）
+- MainLayout：所有测试通过（7/7 通过）
+- 总计：15/15 测试通过
+
+**影响**：
+- 解决了长标题导致布局破坏的问题
+- 消除了双重滚动条的用户体验问题
+- 防止了底部内容被播放器遮挡
+- 提高了布局的稳定性和可维护性
+
+---
+
 ## [2025-01-27] [feat] - 实现前端布局组件（MainLayout 和 EpisodeHeader）
 
 **变更内容**：
