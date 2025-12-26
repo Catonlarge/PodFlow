@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import AudioPlayer from '../AudioPlayer';
+import AudioBarContainer from '../player/AudioBarContainer';
 
 // Mock HTML5 Audio API
 const mockPlay = vi.fn();
@@ -39,7 +39,7 @@ global.HTMLAudioElement = vi.fn().mockImplementation(() => {
 // 注意：不再需要 mock fetch，因为已移除 HEAD 请求预检查
 // 音频加载现在直接使用 audio.src，由原生的 onError 事件处理错误
 
-describe('AudioPlayer', () => {
+describe('AudioBarContainer', () => {
   const mockAudioUrl = 'http://localhost:8000/static/audio/test.mp3';
 
   beforeEach(() => {
@@ -52,7 +52,7 @@ describe('AudioPlayer', () => {
 
   describe('组件渲染', () => {
     it('应该渲染所有必需的元素', () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       // 检查播放按钮（使用精确匹配，避免匹配到"播放速度"按钮）
       const playButtons = screen.getAllByRole('button');
@@ -77,7 +77,7 @@ describe('AudioPlayer', () => {
     });
 
     it('应该直接设置 audio.src 而不使用 HEAD 请求', () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -93,7 +93,7 @@ describe('AudioPlayer', () => {
     });
 
     it('应该正确设置 audio 元素的初始属性', () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} initialVolume={0.5} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} initialVolume={0.5} />);
 
       const audioElement = document.querySelector('audio');
       expect(audioElement).toHaveAttribute('src', mockAudioUrl);
@@ -101,7 +101,7 @@ describe('AudioPlayer', () => {
     });
 
     it('应该使用默认音量 0.8 当未提供 initialVolume 时', () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       expect(audioElement.volume).toBe(0.8);
@@ -110,7 +110,7 @@ describe('AudioPlayer', () => {
 
   describe('播放/暂停切换', () => {
     it('初始状态下按空格键应该可以播放', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       audioElement.play = mockPlay;
@@ -153,7 +153,7 @@ describe('AudioPlayer', () => {
 
     it('点击播放按钮应该调用 audio.play()', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const playButtons = screen.getAllByRole('button');
       const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放');
@@ -182,7 +182,7 @@ describe('AudioPlayer', () => {
     });
 
     it('播放状态下应该显示暂停按钮', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -202,7 +202,7 @@ describe('AudioPlayer', () => {
     });
 
     it('暂停状态下应该显示播放按钮', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -225,7 +225,7 @@ describe('AudioPlayer', () => {
 
     it('点击暂停按钮应该调用 audio.pause()', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -258,7 +258,7 @@ describe('AudioPlayer', () => {
     it('拖动进度条应该更新 currentTime', async () => {
       const { act } = await import('@testing-library/react');
       
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -309,7 +309,7 @@ describe('AudioPlayer', () => {
     });
 
     it('进度条应该显示正确的当前进度', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -339,7 +339,7 @@ describe('AudioPlayer', () => {
 
   describe('时间显示', () => {
     it('应该正确格式化当前时间和总时长', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -367,7 +367,7 @@ describe('AudioPlayer', () => {
     });
 
     it('应该显示 00:00 当音频未加载时', () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       // 初始状态应该显示 00:00
       const timeDisplays = screen.getAllByText(/00:00/i);
@@ -378,7 +378,7 @@ describe('AudioPlayer', () => {
   describe('音量控制', () => {
     it('点击音量按钮应该切换静音状态', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const volumeButton = screen.getByRole('button', { name: /音量/i });
       const audioElement = document.querySelector('audio');
@@ -396,7 +396,7 @@ describe('AudioPlayer', () => {
     });
 
     it('静音状态下应该显示静音图标', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -415,7 +415,7 @@ describe('AudioPlayer', () => {
 
     it('拖动音量滑块应该更新音量', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -436,7 +436,7 @@ describe('AudioPlayer', () => {
     });
 
     it('静音时音量滑块应该保持可见但降低透明度', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -483,7 +483,7 @@ describe('AudioPlayer', () => {
     });
 
     it('静音时音量控制面板宽度应该保持不变', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -516,7 +516,7 @@ describe('AudioPlayer', () => {
 
     it('音量为0时音量滑块应该保持可见但降低透明度', async () => {
       // 测试音量为0时，音量滑块仍然可见（使用 opacity 降低透明度）
-      render(<AudioPlayer audioUrl={mockAudioUrl} initialVolume={0} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} initialVolume={0} />);
 
       // 验证音量按钮存在
       const volumeButton = screen.getByRole('button', { name: /音量|静音/i });
@@ -533,7 +533,7 @@ describe('AudioPlayer', () => {
 
     it('拖动音量滑块到大于0的值时应该自动解除静音', async () => {
       const { act } = await import('@testing-library/react');
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -595,7 +595,7 @@ describe('AudioPlayer', () => {
 
   describe('交互状态（三状态原则）', () => {
     it('按钮应该有 Normal 状态（默认样式）', () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const playButtons = screen.getAllByRole('button');
       const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放');
@@ -607,7 +607,7 @@ describe('AudioPlayer', () => {
 
     it('按钮应该有 Hover 状态样式', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const playButtons = screen.getAllByRole('button');
       const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放');
@@ -622,7 +622,7 @@ describe('AudioPlayer', () => {
 
     it('按钮应该有 Active 状态（涟漪效果）', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const playButtons = screen.getAllByRole('button');
       const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放');
@@ -638,7 +638,7 @@ describe('AudioPlayer', () => {
   describe('回调函数', () => {
     it('应该调用 onTimeUpdate 回调当时间更新时', async () => {
       const onTimeUpdate = vi.fn();
-      render(<AudioPlayer audioUrl={mockAudioUrl} onTimeUpdate={onTimeUpdate} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} onTimeUpdate={onTimeUpdate} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -656,7 +656,7 @@ describe('AudioPlayer', () => {
     });
 
     it('不应该调用 onTimeUpdate 当未提供回调时', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -677,7 +677,7 @@ describe('AudioPlayer', () => {
 
   describe('音频事件处理', () => {
     it('应该处理 loadedmetadata 事件来设置 duration', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -695,7 +695,7 @@ describe('AudioPlayer', () => {
     });
 
     it('应该处理 ended 事件来重置播放状态', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -731,7 +731,7 @@ describe('AudioPlayer', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -766,7 +766,7 @@ describe('AudioPlayer', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -801,7 +801,7 @@ describe('AudioPlayer', () => {
       const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const playButtons = screen.getAllByRole('button');
       const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放');
@@ -856,7 +856,7 @@ describe('AudioPlayer', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -892,7 +892,7 @@ describe('AudioPlayer', () => {
 
   describe('图标显示', () => {
     it('前进和后退按钮应该使用对称的图标', () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       // 查找后退和前进按钮
       const rewindButton = screen.getByRole('button', { name: /后退15秒/i });
@@ -922,7 +922,7 @@ describe('AudioPlayer', () => {
     });
 
     it('前进按钮应该在后退按钮之前（位置正确）', () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       // 查找所有按钮
       const forwardButton = screen.getByRole('button', { name: /前进30秒/i });
@@ -951,7 +951,7 @@ describe('AudioPlayer', () => {
   describe('后退15s功能', () => {
     it('点击后退15s按钮应该将音频前进30秒（逻辑已交换）', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -988,7 +988,7 @@ describe('AudioPlayer', () => {
 
     it('后退15s按钮不应该超过总时长（逻辑已交换）', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -1020,7 +1020,7 @@ describe('AudioPlayer', () => {
   describe('前进30s功能', () => {
     it('点击前进30s按钮应该将音频后退15秒（逻辑已交换）', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -1054,7 +1054,7 @@ describe('AudioPlayer', () => {
 
     it('前进30s按钮不应该小于0（逻辑已交换）', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -1081,7 +1081,7 @@ describe('AudioPlayer', () => {
   describe('播放速度调节', () => {
     it('应该循环切换播放速度（1X → 1.25X → 1.5X → 0.75X → 1X）', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -1125,7 +1125,7 @@ describe('AudioPlayer', () => {
 
     it('切换倍速后空格键应该仍然正常工作（暂停状态）', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       audioElement.play = mockPlay;
@@ -1176,7 +1176,7 @@ describe('AudioPlayer', () => {
 
     it('切换倍速后空格键应该仍然正常工作（播放状态）', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       audioElement.play = mockPlay;
@@ -1235,7 +1235,7 @@ describe('AudioPlayer', () => {
 
     it('多次切换倍速后空格键应该仍然正常工作', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       audioElement.play = mockPlay;
@@ -1293,7 +1293,7 @@ describe('AudioPlayer', () => {
 
     it('切换倍速后播放/暂停按钮应该仍然正常工作', async () => {
       const user = userEvent.setup();
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       audioElement.play = mockPlay;
@@ -1336,7 +1336,7 @@ describe('AudioPlayer', () => {
     it.skip('按空格键应该切换播放/暂停状态', async () => {
       // 注意：此测试在测试环境中事件处理存在问题，暂时跳过
       // 空格键功能已在其他播放/暂停测试中验证
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       audioElement.play = mockPlay;
@@ -1388,7 +1388,7 @@ describe('AudioPlayer', () => {
     it.skip('播放状态下按空格键应该暂停', async () => {
       // 注意：此测试在测试环境中事件处理存在问题，暂时跳过
       // 播放/暂停功能已在其他测试中验证
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       audioElement.play = mockPlay;
@@ -1444,7 +1444,7 @@ describe('AudioPlayer', () => {
     });
 
     it('在输入框中按空格键不应该触发播放/暂停', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       audioElement.play = mockPlay;
@@ -1480,7 +1480,7 @@ describe('AudioPlayer', () => {
 
   describe('时间格式显示', () => {
     it('已播放时间应该显示负号格式', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -1508,7 +1508,7 @@ describe('AudioPlayer', () => {
     });
 
     it('超过1小时的时间应该显示小时格式', async () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
@@ -1539,7 +1539,7 @@ describe('AudioPlayer', () => {
 
   describe('悬浮固定和收缩功能', () => {
     it('组件应该固定在屏幕底部', () => {
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       // 查找固定定位的容器（audio 和 Box 是兄弟元素，都在 Fragment 中）
       // 查找所有固定定位的元素
@@ -1565,7 +1565,7 @@ describe('AudioPlayer', () => {
       vi.useFakeTimers();
       const { act } = await import('@testing-library/react');
       
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       // 初始状态应该有播放按钮
       const playButtons = screen.getAllByRole('button');
@@ -1595,7 +1595,7 @@ describe('AudioPlayer', () => {
       vi.useFakeTimers();
       const { act } = await import('@testing-library/react');
       
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       // 初始状态应该有播放按钮
       const playButtons = screen.getAllByRole('button');
@@ -1641,7 +1641,7 @@ describe('AudioPlayer', () => {
       vi.useFakeTimers();
       const { act } = await import('@testing-library/react');
       
-      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+      render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const playButtons = screen.getAllByRole('button');
       const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放');
@@ -1676,7 +1676,7 @@ describe('AudioPlayer', () => {
     describe('优化后的收缩逻辑', () => {
       it('暂停时应该立即展开面板', async () => {
         const { act } = await import('@testing-library/react');
-        render(<AudioPlayer audioUrl={mockAudioUrl} />);
+        render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
         const audioElement = document.querySelector('audio');
         
@@ -1723,7 +1723,7 @@ describe('AudioPlayer', () => {
 
       it('播放结束时应该立即展开面板', async () => {
         const { act } = await import('@testing-library/react');
-        render(<AudioPlayer audioUrl={mockAudioUrl} />);
+        render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
         const audioElement = document.querySelector('audio');
         
@@ -1773,7 +1773,7 @@ describe('AudioPlayer', () => {
         const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
         const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
         
-        const { unmount } = render(<AudioPlayer audioUrl={mockAudioUrl} />);
+        const { unmount } = render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
         const audioElement = document.querySelector('audio');
         
@@ -1852,7 +1852,7 @@ describe('AudioPlayer', () => {
         const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
         const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
         
-        const { unmount } = render(<AudioPlayer audioUrl={mockAudioUrl} />);
+        const { unmount } = render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
         const audioElement = document.querySelector('audio');
         

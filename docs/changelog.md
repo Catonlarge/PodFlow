@@ -4,6 +4,32 @@
 
 ---
 
+## [2025-01-27] [refactor] - 删除不必要的AudioPlayer包装组件
+
+**变更内容**：
+- 删除 `components/AudioPlayer.jsx` 包装组件
+- 直接使用 `components/player/AudioBarContainer.jsx` 作为实际组件
+- 更新 `App.jsx` 和所有测试文件，使用 `AudioBarContainer` 替代 `AudioPlayer`
+
+**原因**：
+- 没有历史数据依赖（项目刚开始，没有其他地方在使用这个组件）
+- 还没有链接后端
+- `AudioPlayer.jsx` 只是一个简单的透传包装，没有实际价值
+- 简化代码结构，减少不必要的抽象层
+
+**技术实现**：
+- 删除 `frontend/src/components/AudioPlayer.jsx`
+- 更新 `frontend/src/App.jsx`：直接导入和使用 `AudioBarContainer`
+- 更新 `frontend/src/components/__tests__/AudioPlayer.test.jsx`：所有测试用例改为使用 `AudioBarContainer`
+- 更新 `frontend/src/tests/App.test.jsx`：更新文本匹配
+
+**影响**：
+- 代码结构更简洁，减少一层不必要的抽象
+- 所有测试通过（51个通过，6个跳过）
+- 更直接地使用实际组件，提高代码可读性
+
+---
+
 ## [2025-01-27] [fix] - 修复调节倍速时影响音量控制条的问题
 
 **问题描述**：

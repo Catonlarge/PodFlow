@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import axios from 'axios'
 import { Button, Container, Typography, Card, Box, Stack } from '@mui/material'
-import AudioPlayer from './components/AudioPlayer'
+import AudioBarContainer from './components/player/AudioBarContainer'
 
 function App() {
   const [msg, setMsg] = useState("")
@@ -32,12 +32,12 @@ function App() {
           )}
         </Box>
 
-        {/* AudioPlayer 组件测试 */}
+        {/* AudioBarContainer 组件测试 */}
         <Box>
           <Typography variant="h5" gutterBottom sx={{ mb: 2 }}>
-            AudioPlayer 组件测试
+            AudioBarContainer 组件测试
           </Typography>
-          <AudioPlayer 
+          <AudioBarContainer 
             audioUrl={testAudioUrl}
           />
         </Box>
