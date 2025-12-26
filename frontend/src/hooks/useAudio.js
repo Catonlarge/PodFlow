@@ -63,9 +63,9 @@ export function useAudio({ audioUrl, onTimeUpdate, initialVolume = 0.8, onIntera
     const audio = audioRef.current;
     if (!audio) return;
 
-    // 只在初始化时设置音量和播放速度，避免在 playbackRate 改变时重置音量
+    // 只在初始化时设置音量，避免在 playbackRate 改变时重置音量
+    // 注意：不在这里设置 playbackRate，它由单独的 useEffect 处理
     audio.volume = initialVolume;
-    audio.playbackRate = playbackRate;
 
     const handleLoadedMetadata = () => {
       setDuration(audio.duration || 0);
@@ -146,7 +146,15 @@ export function useAudio({ audioUrl, onTimeUpdate, initialVolume = 0.8, onIntera
       audio.removeEventListener('volumechange', handleVolumeChange);
       audio.removeEventListener('error', handleError);
     };
-  }, [audioUrl, onTimeUpdate, initialVolume, playbackRate, triggerInteraction]);
+  }, [audioUrl, onTimeUpdate, initialVolume, triggerInteraction]);
+
+  // 单独处理播放速度变化，避免影响音量
+  // 这个useEffect会在组件挂载时执行一次（设置初始值），也会在playbackRate改变时执行
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.playbackRate = playbackRate;
+  }, [playbackRate]);
 
   // 单独处理播放速度变化，避免影响音量
   useEffect(() => {

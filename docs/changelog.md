@@ -4,6 +4,31 @@
 
 ---
 
+## [2025-01-27] [fix] - 修复调节倍速时影响音量控制条的问题
+
+**问题描述**：
+调节倍速时，每调节一个倍速都会记录一个音量的大小，导致音量控制条受到影响。倍速和音量应该是两个独立的逻辑。
+
+**根本原因**：
+在 `useAudio.js` 中，事件监听器的 `useEffect` 依赖项包含了 `playbackRate`，导致每次倍速改变时，整个 `useEffect` 重新执行，包括重新设置 `audio.volume = initialVolume`，从而重置了音量。
+
+**修复方案**：
+1. 从事件监听器的 `useEffect` 依赖项中移除 `playbackRate`
+2. 移除在事件监听器 `useEffect` 中设置 `audio.playbackRate` 的代码（因为已经有单独的 `useEffect` 处理）
+3. 保留单独的 `useEffect` 来处理播放速度变化，确保倍速和音量逻辑完全独立
+
+**技术实现**：
+- 修改 `frontend/src/hooks/useAudio.js`
+- 将事件监听器的 `useEffect` 依赖项从 `[audioUrl, onTimeUpdate, initialVolume, playbackRate, triggerInteraction]` 改为 `[audioUrl, onTimeUpdate, initialVolume, triggerInteraction]`
+- 确保播放速度变化只影响 `audio.playbackRate`，不影响音量
+
+**影响**：
+- 倍速和音量逻辑完全独立，互不影响
+- 所有测试通过（51个通过，6个跳过）
+- 用户体验提升：调节倍速时音量控制条不再受影响
+
+---
+
 ## [2025-01-27] [refactor] - 前端组件结构重构：拆分AudioPlayer为多个小组件
 
 **变更内容**：
