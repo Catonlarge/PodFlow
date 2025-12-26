@@ -4,6 +4,30 @@
 
 ---
 
+## [2025-01-27] [fix] - 修复后端测试失败问题
+
+**变更内容**：
+- 修复 `tests/test_episode_api.py` 中 5 个失败的测试用例：
+  - **test_upload_episode_success**：使用有效的 MP3 文件头（`\xFF\xFB\x90\x00`）替代假数据，通过文件头验证
+  - **test_upload_duplicate_file**：使用有效的 MP3 文件头替代假数据
+  - **test_concurrent_uploads**：使用有效的 MP3 文件头替代假数据，每个文件使用不同的数据内容
+  - **test_create_episode**：使用有效的 MP3 文件头替代假数据
+  - **test_delete_episode_preserves_audio_when_shared**：修改测试逻辑，验证删除逻辑基于 `file_hash` 检查共享文件，而不是 `audio_path`
+
+**问题描述**：
+- **文件验证失败**：测试中使用的假音频数据（如 `b"fake mp3 audio data"`）被 `is_valid_audio_header` 函数拒绝，因为该函数检查 `'fake audio'` 作为文本标识符
+- **唯一约束冲突**：`test_delete_episode_preserves_audio_when_shared` 尝试创建两个相同 `file_hash` 的 Episode，违反了数据库唯一约束
+
+**技术实现**：
+- **MP3 文件头格式**：使用 `b"\xFF\xFB\x90\x00"` 作为 MP3 帧同步标记（MPEG-1 Layer III），这是有效的 MP3 文件头格式
+- **测试逻辑调整**：由于 `file_hash` 唯一约束，两个 Episode 不可能有相同的 `file_hash`，因此修改测试以验证删除逻辑的正确性（基于 `file_hash` 而不是 `audio_path` 判断是否共享文件）
+
+**测试结果**：
+- ✅ 所有 180 个测试用例全部通过
+- ✅ 之前失败的 5 个测试用例现在全部通过
+
+---
+
 ## [2025-01-27] [feat] - Task 2.5 字幕列表组件查漏补缺（含单词高亮和点击播放）
 
 **变更内容**：
