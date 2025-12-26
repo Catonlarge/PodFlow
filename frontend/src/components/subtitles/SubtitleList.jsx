@@ -28,6 +28,7 @@ import { getMockCues } from '../../services/subtitleService';
  * @param {Function} [props.onCueClick] - 字幕点击回调函数 (startTime) => void
  * @param {string} [props.audioUrl] - 音频 URL（用于后续对接 API）
  * @param {number} [props.episodeId] - Episode ID（用于后续对接 API）
+ * @param {React.RefObject} [props.scrollContainerRef] - 外部滚动容器引用（如果提供，将使用外部容器滚动；否则使用内部滚动）
  */
 export default function SubtitleList({
   cues: propsCues,
@@ -36,13 +37,22 @@ export default function SubtitleList({
   onCueClick,
   audioUrl,
   episodeId,
+  scrollContainerRef,
+  isUserScrollingRef: externalIsUserScrollingRef,
 }) {
   const [cues, setCues] = useState(propsCues || []);
   const [showTranslation, setShowTranslation] = useState(false);
-  const containerRef = useRef(null);
-  const userScrollTimeoutRef = useRef(null);
-  const isUserScrollingRef = useRef(false);
+  const internalContainerRef = useRef(null);
+  const internalUserScrollTimeoutRef = useRef(null);
+  const internalIsUserScrollingRef = useRef(false);
   const subtitleRefs = useRef({});
+
+  // 使用外部滚动容器或内部滚动容器
+  // 当使用外部滚动容器时，containerRef 指向外部容器；否则使用内部容器
+  const containerRef = scrollContainerRef || internalContainerRef;
+  
+  // 使用外部用户滚动状态或内部状态
+  const isUserScrollingRef = externalIsUserScrollingRef || internalIsUserScrollingRef;
 
   // 使用 useSubtitleSync hook 获取当前高亮字幕索引
   const { currentSubtitleIndex, scrollToSubtitle, registerSubtitleRef } = useSubtitleSync({
@@ -141,9 +151,14 @@ export default function SubtitleList({
 
         // 如果不在可见区域，自动滚动到屏幕 1/3 处
         if (!isVisible) {
-          const elementTop = element.offsetTop;
+          // 计算元素相对于滚动容器的位置
+          // 使用 getBoundingClientRect 获取相对于视口的位置，然后加上容器的 scrollTop
+          const containerScrollTop = container.scrollTop;
+          
+          // 元素相对于容器的顶部位置
+          const elementTopRelativeToContainer = elementRect.top - containerRect.top + containerScrollTop;
           const containerHeight = container.clientHeight;
-          const scrollTarget = elementTop - containerHeight / 3;
+          const scrollTarget = elementTopRelativeToContainer - containerHeight / 3;
 
           container.scrollTo({
             top: Math.max(0, scrollTarget),
@@ -152,34 +167,44 @@ export default function SubtitleList({
         }
       }
     }
-  }, [currentSubtitleIndex]);
+  }, [currentSubtitleIndex, containerRef, isUserScrollingRef]);
 
   /**
-   * 监听用户滚动事件
+   * 监听用户滚动事件（仅当使用内部滚动容器时）
    * 根据 PRD 6.2.4.1，用户使用滚轮操作屏幕时，停止滚动，用户鼠标没有动作之后5s，重新回到滚动状态
    */
   const handleScroll = useCallback(() => {
+    if (scrollContainerRef) {
+      // 如果使用外部滚动容器，滚动事件在外部处理
+      return;
+    }
+    
     isUserScrollingRef.current = true;
 
     // 清除之前的定时器
-    if (userScrollTimeoutRef.current) {
-      clearTimeout(userScrollTimeoutRef.current);
+    if (internalUserScrollTimeoutRef.current) {
+      clearTimeout(internalUserScrollTimeoutRef.current);
     }
 
     // 5秒后恢复自动滚动
-    userScrollTimeoutRef.current = setTimeout(() => {
+    internalUserScrollTimeoutRef.current = setTimeout(() => {
       isUserScrollingRef.current = false;
     }, 5000);
-  }, []);
+  }, [scrollContainerRef, isUserScrollingRef]);
 
-  // 清理定时器
+  // 清理定时器（仅当使用内部滚动容器时）
   useEffect(() => {
+    if (scrollContainerRef) {
+      // 如果使用外部滚动容器，定时器在外部处理
+      return;
+    }
+    
     return () => {
-      if (userScrollTimeoutRef.current) {
-        clearTimeout(userScrollTimeoutRef.current);
+      if (internalUserScrollTimeoutRef.current) {
+        clearTimeout(internalUserScrollTimeoutRef.current);
       }
     };
-  }, []);
+  }, [scrollContainerRef]);
 
   // 如果没有字幕数据，显示占位内容
   if (!cues || cues.length === 0) {
@@ -227,13 +252,13 @@ export default function SubtitleList({
 
       {/* 字幕列表容器 */}
       <Box
-        ref={containerRef}
-        onScroll={handleScroll}
-        data-subtitle-container
+        ref={internalContainerRef}
+        onScroll={scrollContainerRef ? undefined : handleScroll}
+        data-subtitle-container={scrollContainerRef ? undefined : true}
         sx={{
           width: '100%',
           height: '100%',
-          overflowY: 'auto',
+          overflowY: scrollContainerRef ? 'visible' : 'auto',
           pt: 5, // 为翻译按钮留出空间
         }}
       >

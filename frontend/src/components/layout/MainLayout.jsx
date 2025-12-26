@@ -27,7 +27,7 @@
  * @param {string} [props.audioUrl] - 音频文件 URL，传递给 AudioBarContainer
  * @param {React.ReactNode} [props.children] - 可选，用于未来扩展
  */
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Box } from '@mui/material';
 import EpisodeHeader from './EpisodeHeader';
 import SubtitleList from '../subtitles/SubtitleList';
@@ -51,6 +51,37 @@ export default function MainLayout({
 
   // 音频控制方法引用
   const audioControlsRef = useRef(null);
+
+  // 主体滚动容器引用（用于 SubtitleList 的自动滚动）
+  const mainScrollRef = useRef(null);
+  
+  // 用户滚动状态（用于 SubtitleList 的自动滚动暂停逻辑）
+  const userScrollTimeoutRef = useRef(null);
+  const isUserScrollingRef = useRef(false);
+
+  // 处理主体区域滚动（用于 SubtitleList 的用户滚动检测）
+  const handleMainScroll = useCallback(() => {
+    isUserScrollingRef.current = true;
+
+    // 清除之前的定时器
+    if (userScrollTimeoutRef.current) {
+      clearTimeout(userScrollTimeoutRef.current);
+    }
+
+    // 5秒后恢复自动滚动
+    userScrollTimeoutRef.current = setTimeout(() => {
+      isUserScrollingRef.current = false;
+    }, 5000);
+  }, []);
+
+  // 清理定时器
+  useEffect(() => {
+    return () => {
+      if (userScrollTimeoutRef.current) {
+        clearTimeout(userScrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // 处理音频时间更新回调
   const handleTimeUpdate = (time) => {
@@ -91,27 +122,37 @@ export default function MainLayout({
         showName={showName}
       />
 
-      {/* 主体区域：左右分栏 */}
+      {/* 主体区域：左右分栏（统一滚动容器） */}
       <Box
         component="main"
+        ref={mainScrollRef}
+        onScroll={handleMainScroll}
         sx={{
-          marginTop: `${HEADER_HEIGHT}px`,
-          height: `calc(100vh - ${HEADER_HEIGHT}px)`,
+          position: 'fixed',
+          top: `${HEADER_HEIGHT}px`,
+          left: 0,
+          right: 0,
+          bottom: audioUrl ? `${PLAYER_HEIGHT}px` : 0,
           width: '100%',
           display: 'flex',
+          overflowY: 'auto',
+          overflowX: 'hidden',
         }}
+        data-subtitle-container
       >
-        {/* 左侧：英文字幕区域 */}
+        {/* 左侧：英文字幕区域（70%） */}
         <Box
           sx={{
-            flex: { xs: '1 1 100%', md: '0 0 58.33%' },
-            height: '100%',
-            overflowY: 'auto',
+            flex: { xs: '1 1 100%', md: '0 0 70%' },
+            width: { xs: '100%', md: '70%' },
+            maxWidth: { xs: '100%', md: '70%' },
             borderRight: { md: 1 },
             borderColor: 'divider',
             px: 2,
             pt: 2,
-            pb: audioUrl ? `${PLAYER_HEIGHT + 20}px` : 2,
+            pb: 2,
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
           <SubtitleList 
@@ -120,20 +161,24 @@ export default function MainLayout({
             onCueClick={handleCueClick}
             audioUrl={audioUrl}
             episodeId={undefined} // TODO: 从 props 或其他地方获取 episodeId
+            scrollContainerRef={mainScrollRef}
+            isUserScrollingRef={isUserScrollingRef}
           />
         </Box>
 
-        {/* 右侧：笔记区域 */}
+        {/* 右侧：笔记区域（30%） */}
         <Box
           sx={{
-            flex: { xs: '1 1 100%', md: '0 0 41.67%' },
-            height: '100%',
-            overflowY: 'auto',
+            flex: { xs: '0 0 0', md: '0 0 30%' },
+            width: { xs: 0, md: '30%' },
+            maxWidth: { xs: 0, md: '30%' },
             px: 2,
             pt: 2,
-            pb: audioUrl ? `${PLAYER_HEIGHT + 20}px` : 2,
-            display: { xs: 'none', md: 'block' },
+            pb: 2,
+            display: { xs: 'none', md: 'flex' },
+            flexDirection: 'column',
             bgcolor: 'background.paper',
+            overflow: 'hidden',
           }}
         >
           <NoteSidebar />
