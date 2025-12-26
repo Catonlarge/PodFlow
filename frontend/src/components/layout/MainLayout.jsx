@@ -122,6 +122,21 @@ export default function MainLayout({
         showName={showName}
       />
 
+      {/* 分界线（固定在视口中，不受滚动影响） */}
+      <Box
+        sx={{
+          position: 'fixed',
+          left: { xs: 0, md: '70%' },
+          top: `${HEADER_HEIGHT}px`,
+          bottom: audioUrl ? `${PLAYER_HEIGHT}px` : 0,
+          width: '1.5px',
+          backgroundColor: '#e0e0e0',
+          pointerEvents: 'none',
+          display: { xs: 'none', md: 'block' },
+          zIndex: 1000,
+        }}
+      />
+
       {/* 主体区域：左右分栏（统一滚动容器） */}
       <Box
         component="main"
@@ -146,8 +161,6 @@ export default function MainLayout({
             flex: { xs: '1 1 100%', md: '0 0 70%' },
             width: { xs: '100%', md: '70%' },
             maxWidth: { xs: '100%', md: '70%' },
-            borderRight: { md: 1 },
-            borderColor: 'divider',
             px: 2,
             pt: 2,
             pb: 2,
@@ -165,6 +178,7 @@ export default function MainLayout({
             isUserScrollingRef={isUserScrollingRef}
           />
         </Box>
+
 
         {/* 右侧：笔记区域（30%） */}
         <Box
