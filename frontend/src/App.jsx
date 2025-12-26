@@ -39,10 +39,6 @@ function App() {
           </Typography>
           <AudioPlayer 
             audioUrl={testAudioUrl}
-            onTimeUpdate={(time) => {
-              // 可选：用于调试，查看时间更新
-              console.log('当前播放时间:', time);
-            }}
           />
         </Box>
       </Stack>
