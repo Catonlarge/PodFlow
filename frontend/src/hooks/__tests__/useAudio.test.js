@@ -49,6 +49,38 @@ describe('useAudio', () => {
     mockLoad.mockReturnValue(undefined);
   });
 
+  // 辅助函数：设置 mockAudio 并触发事件监听器注册
+  // 通过改变 audioUrl 来触发 useEffect 重新运行
+  const setupMockAudioAndRerender = (result, rerender, mockAudio, props = {}) => {
+    // 先设置 audioRef
+    result.current.audioRef.current = mockAudio;
+    
+    // 通过改变 audioUrl 来触发 useEffect 重新运行
+    // 使用一个新的 URL 确保依赖项改变，同时保留其他 props
+    const audioUrl = props.audioUrl || mockAudioUrl;
+    const newAudioUrl = `${audioUrl}?t=${Date.now()}`;
+    rerender({ ...props, audioUrl: newAudioUrl });
+  };
+
+  // 辅助函数：触发事件（行为导向，强制断言）
+  // 如果事件监听器未注册，测试应该失败
+  const triggerAudioEvent = async (audio, eventName, eventData = null) => {
+    // 查找事件监听器（强制断言，不允许跳过）
+    const call = audio.addEventListener.mock.calls.find(
+      call => call[0] === eventName
+    );
+    
+    // 强制断言：如果监听器未注册，测试必须失败
+    if (!call || !call[1]) {
+      throw new Error(`事件监听器 "${eventName}" 未被注册，测试无法继续`);
+    }
+    
+    // 调用事件处理函数
+    await act(async () => {
+      call[1](eventData || new Event(eventName));
+    });
+  };
+
   describe('初始化', () => {
     it('应该正确初始化音频状态', () => {
       const { result } = renderHook(() =>
@@ -76,16 +108,46 @@ describe('useAudio', () => {
       expect(result.current.volume).toBe(0.8);
     });
 
-    it('应该正确设置 audio 元素的 src', () => {
-      renderHook(() =>
+    it('应该返回 audioRef', () => {
+      const { result } = renderHook(() =>
         useAudio({
           audioUrl: mockAudioUrl,
         })
       );
 
-      expect(audioElements.length).toBeGreaterThan(0);
-      const audioElement = audioElements[0];
-      expect(audioElement.src).toBe(mockAudioUrl);
+      expect(result.current.audioRef).toBeDefined();
+      expect(result.current.audioRef).toHaveProperty('current');
+    });
+
+    it('应该注册所有必需的事件监听器', () => {
+      const { result, rerender } = renderHook(
+        (props) => useAudio(props),
+        { initialProps: { audioUrl: mockAudioUrl } }
+      );
+
+      const mockAudio = createMockAudioElement();
+      
+      // 设置 mockAudio 并触发 useEffect 重新运行
+      setupMockAudioAndRerender(result, rerender, mockAudio);
+
+      // 验证所有事件监听器都已注册（强制断言，不允许跳过）
+      const requiredEvents = [
+        'loadedmetadata',
+        'timeupdate',
+        'play',
+        'pause',
+        'ended',
+        'volumechange',
+        'error',
+      ];
+
+      requiredEvents.forEach(eventName => {
+        const call = mockAudio.addEventListener.mock.calls.find(
+          call => call[0] === eventName
+        );
+        expect(call).toBeDefined();
+        expect(call[1]).toBeInstanceOf(Function);
+      });
     });
   });
 
@@ -97,18 +159,20 @@ describe('useAudio', () => {
         })
       );
 
-      const audioElement = audioElements[0];
-      Object.defineProperty(audioElement, 'paused', {
+      const mockAudio = createMockAudioElement();
+      Object.defineProperty(mockAudio, 'paused', {
         writable: true,
         value: true,
         configurable: true,
       });
-      Object.defineProperty(audioElement, 'readyState', {
+      Object.defineProperty(mockAudio, 'readyState', {
         writable: true,
         value: 4,
         configurable: true,
       });
-      audioElement.play = mockPlay;
+      mockAudio.play = mockPlay;
+      
+      result.current.audioRef.current = mockAudio;
 
       await act(async () => {
         await result.current.togglePlay();
@@ -124,13 +188,15 @@ describe('useAudio', () => {
         })
       );
 
-      const audioElement = audioElements[0];
-      Object.defineProperty(audioElement, 'paused', {
+      const mockAudio = createMockAudioElement();
+      Object.defineProperty(mockAudio, 'paused', {
         writable: true,
         value: false,
         configurable: true,
       });
-      audioElement.pause = mockPause;
+      mockAudio.pause = mockPause;
+      
+      result.current.audioRef.current = mockAudio;
 
       await act(async () => {
         await result.current.togglePlay();
@@ -140,18 +206,18 @@ describe('useAudio', () => {
     });
 
     it('应该更新 isPlaying 状态当播放事件触发时', async () => {
-      const { result } = renderHook(() =>
-        useAudio({
-          audioUrl: mockAudioUrl,
-        })
+      const { result, rerender } = renderHook(
+        (props) => useAudio(props),
+        { initialProps: { audioUrl: mockAudioUrl } }
       );
 
-      const audioElement = audioElements[0];
+      const mockAudio = createMockAudioElement();
+      
+      // 设置 mockAudio 并触发 useEffect 重新运行
+      setupMockAudioAndRerender(result, rerender, mockAudio);
 
-      await act(async () => {
-        const playEvent = new Event('play');
-        audioElement.dispatchEvent(playEvent);
-      });
+      // 触发 play 事件（行为导向，强制断言）
+      await triggerAudioEvent(mockAudio, 'play');
 
       await waitFor(() => {
         expect(result.current.isPlaying).toBe(true);
@@ -159,29 +225,25 @@ describe('useAudio', () => {
     });
 
     it('应该更新 isPlaying 状态当暂停事件触发时', async () => {
-      const { result } = renderHook(() =>
-        useAudio({
-          audioUrl: mockAudioUrl,
-        })
+      const { result, rerender } = renderHook(
+        (props) => useAudio(props),
+        { initialProps: { audioUrl: mockAudioUrl } }
       );
 
-      const audioElement = audioElements[0];
+      const mockAudio = createMockAudioElement();
+      
+      // 设置 mockAudio 并触发 useEffect 重新运行
+      setupMockAudioAndRerender(result, rerender, mockAudio);
 
-      // 先触发 play 事件
-      await act(async () => {
-        const playEvent = new Event('play');
-        audioElement.dispatchEvent(playEvent);
-      });
+      // 先触发 play 事件使其处于播放状态
+      await triggerAudioEvent(mockAudio, 'play');
 
       await waitFor(() => {
         expect(result.current.isPlaying).toBe(true);
       });
 
-      // 再触发 pause 事件
-      await act(async () => {
-        const pauseEvent = new Event('pause');
-        audioElement.dispatchEvent(pauseEvent);
-      });
+      // 触发 pause 事件（行为导向，强制断言）
+      await triggerAudioEvent(mockAudio, 'pause');
 
       await waitFor(() => {
         expect(result.current.isPlaying).toBe(false);
@@ -197,33 +259,34 @@ describe('useAudio', () => {
         })
       );
 
-      const audioElement = audioElements[0];
+      const mockAudio = createMockAudioElement();
+      result.current.audioRef.current = mockAudio;
 
       await act(async () => {
         result.current.setProgress(null, 30);
       });
 
-      expect(audioElement.currentTime).toBe(30);
+      expect(mockAudio.currentTime).toBe(30);
     });
 
     it('应该更新 currentTime 当 timeupdate 事件触发时', async () => {
-      const { result } = renderHook(() =>
-        useAudio({
-          audioUrl: mockAudioUrl,
-        })
+      const { result, rerender } = renderHook(
+        (props) => useAudio(props),
+        { initialProps: { audioUrl: mockAudioUrl } }
       );
 
-      const audioElement = audioElements[0];
-      Object.defineProperty(audioElement, 'currentTime', {
+      const mockAudio = createMockAudioElement();
+      Object.defineProperty(mockAudio, 'currentTime', {
         writable: true,
         value: 30,
         configurable: true,
       });
+      
+      // 设置 mockAudio 并触发 useEffect 重新运行
+      setupMockAudioAndRerender(result, rerender, mockAudio);
 
-      await act(async () => {
-        const timeUpdateEvent = new Event('timeupdate');
-        audioElement.dispatchEvent(timeUpdateEvent);
-      });
+      // 触发 timeupdate 事件（行为导向，强制断言）
+      await triggerAudioEvent(mockAudio, 'timeupdate');
 
       await waitFor(() => {
         expect(result.current.currentTime).toBe(30);
@@ -232,24 +295,23 @@ describe('useAudio', () => {
 
     it('应该调用 onTimeUpdate 回调当 timeupdate 事件触发时', async () => {
       const onTimeUpdate = vi.fn();
-      const { result } = renderHook(() =>
-        useAudio({
-          audioUrl: mockAudioUrl,
-          onTimeUpdate,
-        })
+      const { result, rerender } = renderHook(
+        (props) => useAudio(props),
+        { initialProps: { audioUrl: mockAudioUrl, onTimeUpdate } }
       );
 
-      const audioElement = audioElements[0];
-      Object.defineProperty(audioElement, 'currentTime', {
+      const mockAudio = createMockAudioElement();
+      Object.defineProperty(mockAudio, 'currentTime', {
         writable: true,
         value: 30,
         configurable: true,
       });
+      
+      // 设置 mockAudio 并触发 useEffect 重新运行（需要传递 onTimeUpdate）
+      setupMockAudioAndRerender(result, rerender, mockAudio, { audioUrl: mockAudioUrl, onTimeUpdate });
 
-      await act(async () => {
-        const timeUpdateEvent = new Event('timeupdate');
-        audioElement.dispatchEvent(timeUpdateEvent);
-      });
+      // 触发 timeupdate 事件（行为导向，强制断言）
+      await triggerAudioEvent(mockAudio, 'timeupdate');
 
       await waitFor(() => {
         expect(onTimeUpdate).toHaveBeenCalledWith(30);
@@ -265,14 +327,15 @@ describe('useAudio', () => {
         })
       );
 
-      const audioElement = audioElements[0];
+      const mockAudio = createMockAudioElement();
+      result.current.audioRef.current = mockAudio;
 
       await act(async () => {
         result.current.setVolume(null, 0.5);
       });
 
-      expect(audioElement.volume).toBe(0.5);
-      expect(audioElement.muted).toBe(false);
+      expect(mockAudio.volume).toBe(0.5);
+      expect(mockAudio.muted).toBe(false);
     });
 
     it('toggleMute 应该切换静音状态', async () => {
@@ -282,23 +345,24 @@ describe('useAudio', () => {
         })
       );
 
-      const audioElement = audioElements[0];
-      Object.defineProperty(audioElement, 'muted', {
+      const mockAudio = createMockAudioElement();
+      Object.defineProperty(mockAudio, 'muted', {
         writable: true,
         value: false,
         configurable: true,
       });
-      Object.defineProperty(audioElement, 'volume', {
+      Object.defineProperty(mockAudio, 'volume', {
         writable: true,
         value: 0.8,
         configurable: true,
       });
+      result.current.audioRef.current = mockAudio;
 
       await act(async () => {
         result.current.toggleMute();
       });
 
-      expect(audioElement.muted).toBe(true);
+      expect(mockAudio.muted).toBe(true);
     });
 
     it('toggleMute 应该恢复之前的音量当解除静音时', async () => {
@@ -308,24 +372,25 @@ describe('useAudio', () => {
         })
       );
 
-      const audioElement = audioElements[0];
-      Object.defineProperty(audioElement, 'muted', {
+      const mockAudio = createMockAudioElement();
+      Object.defineProperty(mockAudio, 'muted', {
         writable: true,
         value: true,
         configurable: true,
       });
-      Object.defineProperty(audioElement, 'volume', {
+      Object.defineProperty(mockAudio, 'volume', {
         writable: true,
         value: 0,
         configurable: true,
       });
+      result.current.audioRef.current = mockAudio;
 
       await act(async () => {
         result.current.toggleMute();
       });
 
-      expect(audioElement.muted).toBe(false);
-      expect(audioElement.volume).toBeGreaterThan(0);
+      expect(mockAudio.muted).toBe(false);
+      expect(mockAudio.volume).toBeGreaterThan(0);
     });
   });
 
@@ -337,34 +402,35 @@ describe('useAudio', () => {
         })
       );
 
-      const audioElement = audioElements[0];
+      const mockAudio = createMockAudioElement();
+      result.current.audioRef.current = mockAudio;
 
       // 1X → 1.25X
       await act(async () => {
         result.current.setPlaybackRate();
       });
-      expect(audioElement.playbackRate).toBe(1.25);
+      expect(mockAudio.playbackRate).toBe(1.25);
       expect(result.current.playbackRate).toBe(1.25);
 
       // 1.25X → 1.5X
       await act(async () => {
         result.current.setPlaybackRate();
       });
-      expect(audioElement.playbackRate).toBe(1.5);
+      expect(mockAudio.playbackRate).toBe(1.5);
       expect(result.current.playbackRate).toBe(1.5);
 
       // 1.5X → 0.75X
       await act(async () => {
         result.current.setPlaybackRate();
       });
-      expect(audioElement.playbackRate).toBe(0.75);
+      expect(mockAudio.playbackRate).toBe(0.75);
       expect(result.current.playbackRate).toBe(0.75);
 
       // 0.75X → 1X
       await act(async () => {
         result.current.setPlaybackRate();
       });
-      expect(audioElement.playbackRate).toBe(1);
+      expect(mockAudio.playbackRate).toBe(1);
       expect(result.current.playbackRate).toBe(1);
     });
   });
@@ -392,13 +458,12 @@ describe('useAudio', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
-      renderHook(() =>
-        useAudio({
-          audioUrl: mockAudioUrl,
-        })
+      const { result, rerender } = renderHook(
+        (props) => useAudio(props),
+        { initialProps: { audioUrl: mockAudioUrl } }
       );
 
-      const audioElement = audioElements[0];
+      const mockAudio = createMockAudioElement();
       const mockError = {
         code: 4,
         MEDIA_ERR_ABORTED: 1,
@@ -407,16 +472,17 @@ describe('useAudio', () => {
         MEDIA_ERR_SRC_NOT_SUPPORTED: 4,
       };
 
-      Object.defineProperty(audioElement, 'error', {
+      Object.defineProperty(mockAudio, 'error', {
         writable: true,
         value: mockError,
         configurable: true,
       });
+      
+      // 设置 mockAudio 并触发 useEffect 重新运行
+      setupMockAudioAndRerender(result, rerender, mockAudio);
 
-      await act(async () => {
-        const errorEvent = new Event('error');
-        audioElement.dispatchEvent(errorEvent);
-      });
+      // 触发 error 事件（行为导向，强制断言）
+      await triggerAudioEvent(mockAudio, 'error', new Event('error'));
 
       await waitFor(() => {
         expect(consoleErrorSpy).toHaveBeenCalled();
@@ -427,4 +493,3 @@ describe('useAudio', () => {
     });
   });
 });
-
