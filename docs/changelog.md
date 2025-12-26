@@ -4,6 +4,54 @@
 
 ---
 
+## [2025-01-27] [feat] - 实现前端布局组件（MainLayout 和 EpisodeHeader）
+
+**变更内容**：
+- 实现 `components/layout/EpisodeHeader.jsx`：播客信息头部组件，固定在屏幕顶层矩形区域
+- 实现 `components/layout/MainLayout.jsx`：主布局容器，管理播客学习界面的整体结构
+- 添加单元测试：`components/layout/__tests__/EpisodeHeader.test.jsx` 和 `components/layout/__tests__/MainLayout.test.jsx`
+
+**功能描述**：
+- **EpisodeHeader**：
+  - 固定在屏幕顶层，使用 `position: fixed`
+  - 靠左展示播客 episode 名称和 show/channel 名称
+  - 支持占位文本（当没有数据时显示"未选择播客"）
+  - 传播功能（分享、收藏按钮）暂时不实现，留作占位
+
+- **MainLayout**：
+  - 包含三个主要区域：
+    1. 顶部：EpisodeHeader（固定，不占用主体区域空间）
+    2. 主体区域：左右分栏布局（占屏幕 90%）
+       - 左侧：SubtitleList（英文字幕区域，占 7/12）
+       - 右侧：NoteSidebar（笔记区域，占 5/12）
+    3. 底部：AudioBarContainer（固定悬浮，不占用主体区域空间）
+  - 响应式设计：移动端（xs）笔记区域隐藏，桌面端（md+）并排显示
+
+**技术实现**：
+- 使用 MUI `Box`、`Typography` 组件（改用 Box + flexbox 替代 Grid，避免 Grid v2 迁移问题）
+- 所有样式使用 `sx` prop，不使用 CSS 文件
+- 遵循 MUI 设计系统和 spacing 系统
+- 组件接口：
+  - `EpisodeHeader`: `{ episodeTitle?: string, showName?: string }`
+  - `MainLayout`: `{ episodeTitle?: string, showName?: string, audioUrl?: string, children?: React.ReactNode }`
+
+**相关PRD**：
+- PRD 6.2.1: 总原则和界面模块
+- PRD 6.2.2: 播客源数据展示模块
+
+**测试覆盖**：
+- EpisodeHeader：6 个测试用例，覆盖渲染、布局和样式验证
+- MainLayout：7 个测试用例，覆盖渲染、props 传递、布局结构验证
+- 所有测试通过（13/13）
+
+**影响**：
+- 建立了播客学习界面的基础布局骨架
+- 为后续字幕和笔记组件的集成提供了布局容器
+- 符合项目目录结构规范（`components/layout/`）
+- 通过单元测试验证了实现的正确性
+
+---
+
 ## [2025-01-27] [refactor] - 删除不必要的AudioPlayer包装组件
 
 **变更内容**：
