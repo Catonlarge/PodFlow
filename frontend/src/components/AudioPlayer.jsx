@@ -97,6 +97,7 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
     const audio = audioRef.current;
     if (!audio) return;
 
+    // 只在初始化时设置音量和播放速度，避免在 playbackRate 改变时重置音量
     audio.volume = initialVolume;
     audio.playbackRate = playbackRate;
 
@@ -178,7 +179,14 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
       audio.removeEventListener('volumechange', handleVolumeChange);
       audio.removeEventListener('error', handleError);
     };
-  }, [audioUrl, onTimeUpdate, initialVolume, playbackRate, resetCollapseTimer]);
+  }, [audioUrl, onTimeUpdate, initialVolume, resetCollapseTimer]);
+
+  // 单独处理播放速度变化，避免影响音量
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.playbackRate = playbackRate;
+  }, [playbackRate]);
 
   // 播放/暂停切换
   const handlePlayPause = useCallback(async () => {
@@ -244,17 +252,27 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
   // 空格键快捷键
   useEffect(() => {
     const handleKeyPress = (e) => {
-      if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+      // 排除输入框和文本域
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+      }
+      
+      // 如果是空格键，无论焦点在哪里（包括按钮），都触发播放/暂停
+      if (e.code === 'Space') {
+        // 阻止默认行为（包括按钮的点击行为）
         e.preventDefault();
-        e.stopPropagation();
         // 使用 ref 获取最新的 handlePlayPause，确保即使切换倍速后也能正常工作
         if (handlePlayPauseRef.current) {
           handlePlayPauseRef.current();
         }
+        // 阻止事件继续传播到目标元素，避免触发按钮的点击事件
+        e.stopPropagation();
       }
     };
 
-    window.addEventListener('keydown', handleKeyPress, true); // 使用捕获阶段确保事件被处理
+    // 使用捕获阶段确保事件被优先处理，避免被其他元素拦截
+    // 捕获阶段在目标阶段之前执行，所以我们可以先处理并阻止传播
+    window.addEventListener('keydown', handleKeyPress, true);
     return () => window.removeEventListener('keydown', handleKeyPress, true);
   }, []); // 不依赖 handlePlayPause，使用 ref 来获取最新版本
 
@@ -277,9 +295,16 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
   };
 
   // 播放速度调节
-  const handlePlaybackRateChange = () => {
+  const handlePlaybackRateChange = (e) => {
     const audio = audioRef.current;
     if (!audio) return;
+
+    // 如果是空格键触发的点击，不处理（让空格键监听器处理）
+    // 注意：由于我们在捕获阶段处理空格键并阻止传播，这里通常不会收到空格键事件
+    // 但为了安全起见，还是保留这个检查
+    if (e && (e.type === 'keydown' || e.detail === 0) && e.code === 'Space') {
+      return;
+    }
 
     resetCollapseTimer();
     const currentIndex = playbackRates.indexOf(playbackRate);
@@ -287,6 +312,14 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
     const newRate = playbackRates[nextIndex];
     audio.playbackRate = newRate;
     setPlaybackRate(newRate);
+    
+    // 点击后移除按钮焦点，让空格键可以正常控制播放/暂停
+    // 使用 setTimeout 确保在事件处理完成后再移除焦点
+    setTimeout(() => {
+      if (e && e.currentTarget) {
+        e.currentTarget.blur();
+      }
+    }, 0);
   };
 
   // 进度条变化处理
@@ -298,6 +331,13 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
     const newTime = typeof newValue === 'number' ? newValue : parseFloat(newValue);
     audio.currentTime = newTime;
     setCurrentTime(newTime);
+
+    // 操作后移除焦点，让空格键可以正常控制播放/暂停
+    setTimeout(() => {
+      if (event && event.currentTarget) {
+        event.currentTarget.blur();
+      }
+    }, 0);
   };
 
   // 音量变化处理
@@ -320,10 +360,17 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
       setVolume(0);
       setIsMuted(true);
     }
+
+    // 操作后移除焦点，让空格键可以正常控制播放/暂停
+    setTimeout(() => {
+      if (event && event.currentTarget) {
+        event.currentTarget.blur();
+      }
+    }, 0);
   };
 
   // 音量按钮点击处理（切换静音）
-  const handleVolumeToggle = () => {
+  const handleVolumeToggle = (e) => {
     const audio = audioRef.current;
     if (!audio) return;
 
@@ -340,6 +387,13 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
       audio.muted = true;
       setIsMuted(true);
     }
+
+    // 点击后移除按钮焦点，让空格键可以正常控制播放/暂停
+    setTimeout(() => {
+      if (e && e.currentTarget) {
+        e.currentTarget.blur();
+      }
+    }, 0);
   };
 
   // 点击收缩面板展开
@@ -435,6 +489,24 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
               step={0.1}
               onChange={handleProgressChange}
               onClick={resetCollapseTimer}
+              onMouseUp={(e) => {
+                // 鼠标释放后移除焦点，让空格键可以正常控制播放/暂停
+                setTimeout(() => {
+                  if (e && e.currentTarget) {
+                    e.currentTarget.blur();
+                  }
+                }, 0);
+              }}
+              onKeyDown={(e) => {
+                // 如果按空格键，不触发滑块操作，让空格键监听器处理
+                if (e.code === 'Space') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  // 空格键监听器会处理播放/暂停
+                  return;
+                }
+                // 其他按键正常处理（如方向键）
+              }}
               sx={{
                 flex: 1,
                 color: 'primary.main',
@@ -471,7 +543,7 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
             {/* 前进30s按钮 */}
             <IconButton
               aria-label="前进30秒"
-              onClick={handleForward}
+              onClick={handleRewind}
               size="small"
               sx={{
                 '&:hover': {
@@ -506,7 +578,7 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
             {/* 后退15s按钮 */}
             <IconButton
               aria-label="后退15秒"
-              onClick={handleRewind}
+              onClick={handleForward}
               size="small"
               sx={{
                 '&:hover': {
@@ -527,7 +599,9 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
               size="small"
               variant="text"
               sx={{
-                minWidth: 50,
+                width: 60, // 固定宽度，确保所有倍速档位（1X、1.25X、1.5X、0.75X）显示时宽度一致
+                minWidth: 60,
+                maxWidth: 60,
                 '&:hover': {
                   bgcolor: 'action.hover',
                 },
@@ -566,6 +640,24 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
                 step={0.01}
                 onChange={handleVolumeSliderChange}
                 onClick={resetCollapseTimer}
+                onMouseUp={(e) => {
+                  // 鼠标释放后移除焦点，让空格键可以正常控制播放/暂停
+                  setTimeout(() => {
+                    if (e && e.currentTarget) {
+                      e.currentTarget.blur();
+                    }
+                  }, 0);
+                }}
+                onKeyDown={(e) => {
+                  // 如果按空格键，不触发滑块操作，让空格键监听器处理
+                  if (e.code === 'Space') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // 空格键监听器会处理播放/暂停
+                    return;
+                  }
+                  // 其他按键正常处理（如方向键）
+                }}
                 sx={{
                   color: 'primary.main',
                   width: 100,

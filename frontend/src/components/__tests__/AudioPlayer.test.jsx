@@ -36,6 +36,14 @@ global.HTMLAudioElement = vi.fn().mockImplementation(() => {
   return audio;
 });
 
+// Mock fetch 全局设置（在所有测试之前）
+// 避免测试时发送真实的 HTTP 请求，防止后端日志出现 404 错误
+global.fetch = vi.fn().mockResolvedValue({
+  ok: true,
+  status: 200,
+  statusText: 'OK',
+});
+
 describe('AudioPlayer', () => {
   const mockAudioUrl = 'http://localhost:8000/static/audio/test.mp3';
 
@@ -45,6 +53,13 @@ describe('AudioPlayer', () => {
     mockPlay.mockResolvedValue(undefined);
     mockPause.mockReturnValue(undefined);
     mockLoad.mockReturnValue(undefined);
+    
+    // 确保 fetch mock 在每个测试前重置
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+    });
   });
 
   describe('组件渲染', () => {
@@ -457,6 +472,38 @@ describe('AudioPlayer', () => {
       });
     });
 
+    it('静音时音量控制面板宽度应该保持不变', async () => {
+      render(<AudioPlayer audioUrl={mockAudioUrl} />);
+
+      const audioElement = document.querySelector('audio');
+      
+      // 先获取正常状态下的容器宽度
+      const volumeButton = screen.getByRole('button', { name: /音量/i });
+      const volumeStack = volumeButton.closest('[class*="MuiStack"]');
+      expect(volumeStack).toBeInTheDocument();
+      
+      const normalWidth = window.getComputedStyle(volumeStack).minWidth;
+
+      // 设置为静音状态
+      Object.defineProperty(audioElement, 'muted', {
+        writable: true,
+        value: true,
+      });
+      Object.defineProperty(audioElement, 'volume', {
+        writable: true,
+        value: 0.8,
+      });
+
+      const volumeChangeEvent = new Event('volumechange');
+      audioElement.dispatchEvent(volumeChangeEvent);
+
+      await waitFor(() => {
+        // 静音后容器宽度应该保持不变
+        const mutedWidth = window.getComputedStyle(volumeStack).minWidth;
+        expect(mutedWidth).toBe(normalWidth);
+      });
+    });
+
     it('音量为0时不应该显示音量滑块但保持布局', async () => {
       // 测试音量为0时，音量滑块被隐藏但布局不偏移
       render(<AudioPlayer audioUrl={mockAudioUrl} initialVolume={0} />);
@@ -830,7 +877,7 @@ describe('AudioPlayer', () => {
   });
 
   describe('后退15s功能', () => {
-    it('点击后退15s按钮应该将音频后退15秒', async () => {
+    it('点击后退15s按钮应该将音频前进30秒（逻辑已交换）', async () => {
       const user = userEvent.setup();
       render(<AudioPlayer audioUrl={mockAudioUrl} />);
 
@@ -861,35 +908,45 @@ describe('AudioPlayer', () => {
       const rewindButton = screen.getByRole('button', { name: /后退15秒/i });
       await user.click(rewindButton);
 
+      // 现在后退按钮执行的是前进30秒的逻辑
       await waitFor(() => {
-        expect(audioElement.currentTime).toBe(45);
+        expect(audioElement.currentTime).toBe(90);
       });
     });
 
-    it('后退15s不应该小于0', async () => {
+    it('后退15s按钮不应该超过总时长（逻辑已交换）', async () => {
       const user = userEvent.setup();
       render(<AudioPlayer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
-      // 设置当前播放时间为10秒
+      // 设置当前播放时间为280秒，总时长为300秒
       Object.defineProperty(audioElement, 'currentTime', {
         writable: true,
-        value: 10,
+        value: 280,
         configurable: true,
       });
+      Object.defineProperty(audioElement, 'duration', {
+        writable: true,
+        value: 300,
+        configurable: true,
+      });
+
+      const loadedMetadataEvent = new Event('loadedmetadata');
+      audioElement.dispatchEvent(loadedMetadataEvent);
 
       const rewindButton = screen.getByRole('button', { name: /后退15秒/i });
       await user.click(rewindButton);
 
+      // 现在后退按钮执行的是前进30秒的逻辑，但不应超过总时长
       await waitFor(() => {
-        expect(audioElement.currentTime).toBe(0);
+        expect(audioElement.currentTime).toBe(300);
       });
     });
   });
 
   describe('前进30s功能', () => {
-    it('点击前进30s按钮应该将音频前进30秒', async () => {
+    it('点击前进30s按钮应该将音频后退15秒（逻辑已交换）', async () => {
       const user = userEvent.setup();
       render(<AudioPlayer audioUrl={mockAudioUrl} />);
 
@@ -917,25 +974,22 @@ describe('AudioPlayer', () => {
       const forwardButton = screen.getByRole('button', { name: /前进30秒/i });
       await user.click(forwardButton);
 
+      // 现在前进按钮执行的是后退15秒的逻辑
       await waitFor(() => {
-        expect(audioElement.currentTime).toBe(90);
+        expect(audioElement.currentTime).toBe(45);
       });
     });
 
-    it('前进30s不应该超过总时长', async () => {
+    it('前进30s按钮不应该小于0（逻辑已交换）', async () => {
       const user = userEvent.setup();
       render(<AudioPlayer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
       
+      // 设置当前播放时间为10秒
       Object.defineProperty(audioElement, 'currentTime', {
         writable: true,
-        value: 280,
-        configurable: true,
-      });
-      Object.defineProperty(audioElement, 'duration', {
-        writable: true,
-        value: 300,
+        value: 10,
         configurable: true,
       });
 
@@ -945,8 +999,9 @@ describe('AudioPlayer', () => {
       const forwardButton = screen.getByRole('button', { name: /前进/i });
       await user.click(forwardButton);
 
+      // 现在前进按钮执行的是后退15秒的逻辑，但不应小于0
       await waitFor(() => {
-        expect(audioElement.currentTime).toBe(300);
+        expect(audioElement.currentTime).toBe(0);
       });
     });
   });
