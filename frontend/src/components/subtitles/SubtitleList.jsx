@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Box, IconButton } from '@mui/material';
+import { Box, IconButton, Skeleton } from '@mui/material';
 import { Translate as TranslateIcon } from '@mui/icons-material';
 import SubtitleRow from './SubtitleRow';
 import { useSubtitleSync } from '../../hooks/useSubtitleSync';
@@ -30,6 +30,9 @@ import { getMockCues, getCuesByEpisodeId } from '../../services/subtitleService'
  * @param {number} [props.episodeId] - Episode ID（用于后续对接 API）
  * @param {React.RefObject} [props.scrollContainerRef] - 外部滚动容器引用（如果提供，将使用外部容器滚动；否则使用内部滚动）
  * @param {boolean} [props.isInteracting] - 用户是否正在进行交互操作（划线、查询卡片展示等），用于阻断自动滚动
+ * @param {Array} [props.highlights] - 划线数据数组，格式为 [{ cue_id, start_offset, end_offset, highlighted_text, color }]
+ * @param {Function} [props.onHighlightClick] - 点击划线源的回调函数 (highlight) => void
+ * @param {boolean} [props.isLoading] - 是否处于加载状态
  */
 export default function SubtitleList({
   cues: propsCues,
@@ -41,6 +44,9 @@ export default function SubtitleList({
   scrollContainerRef,
   isUserScrollingRef: externalIsUserScrollingRef,
   isInteracting = false,
+  highlights = [],
+  onHighlightClick,
+  isLoading = false,
 }) {
   const [cues, setCues] = useState(propsCues || []);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -287,6 +293,25 @@ export default function SubtitleList({
     };
   }, [scrollContainerRef]);
 
+  // Loading 状态：显示 Skeleton
+  if (isLoading) {
+    return (
+      <Box
+        sx={{
+          width: '100%',
+          height: '100%',
+          p: 2,
+        }}
+      >
+        <Skeleton variant="text" height={60} sx={{ mb: 1 }} />
+        <Skeleton variant="text" height={60} sx={{ mb: 1 }} />
+        <Skeleton variant="text" height={60} sx={{ mb: 1 }} />
+        <Skeleton variant="text" height={60} sx={{ mb: 1 }} />
+        <Skeleton variant="text" height={60} />
+      </Box>
+    );
+  }
+
   // 如果没有字幕数据，显示占位内容
   if (!cues || cues.length === 0) {
     return (
@@ -365,6 +390,23 @@ export default function SubtitleList({
             const isHighlighted = currentSubtitleIndex === item.index;
             const isPast = currentSubtitleIndex !== null && item.index < currentSubtitleIndex;
 
+            // 计算单词高亮进度 (0 到 1 之间的小数)
+            let progress = 0;
+            if (isPast) {
+              progress = 1; // 过去的时间，全亮
+            } else if (isHighlighted) {
+              // 当前行：计算线性进度
+              const cueDuration = item.cue.end_time - item.cue.start_time;
+              if (cueDuration > 0) {
+                // 限制在 0-1 之间
+                progress = Math.min(1, Math.max(0, (currentTime - item.cue.start_time) / cueDuration));
+              }
+            }
+            // 未来的行 progress 默认为 0
+
+            // 获取当前 cue 的 highlights
+            const cueHighlights = highlights.filter(h => h.cue_id === item.cue.id);
+
             return (
               <SubtitleRow
                 key={`subtitle-${item.cue.id}`}
@@ -376,7 +418,9 @@ export default function SubtitleList({
                 onClick={onCueClick}
                 showSpeaker={false}
                 showTranslation={showTranslation}
-                currentTime={currentTime}
+                progress={progress}
+                highlights={cueHighlights}
+                onHighlightClick={onHighlightClick}
               />
             );
           }

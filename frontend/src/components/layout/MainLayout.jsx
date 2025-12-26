@@ -109,11 +109,18 @@ export default function MainLayout({
     setIsPlayerIdle(isIdle);
   }, []);
 
-  // 处理字幕点击，跳转播放位置
+  // 处理字幕点击，跳转播放位置并取消暂停
   const handleCueClick = useCallback((startTime) => {
-    if (audioControlsRef.current && audioControlsRef.current.setProgress) {
-      // setProgress 需要 (event, newValue) 两个参数，这里传入 null 作为 event
-      audioControlsRef.current.setProgress(null, startTime);
+    if (audioControlsRef.current) {
+      // 1. 跳转时间
+      if (audioControlsRef.current.setProgress) {
+        // setProgress 需要 (event, newValue) 两个参数，这里传入 null 作为 event
+        audioControlsRef.current.setProgress(null, startTime);
+      }
+      // 2. 如果暂停，则开始播放
+      if (audioControlsRef.current.togglePlay && !audioControlsRef.current.isPlaying) {
+        audioControlsRef.current.togglePlay();
+      }
     }
   }, []);
 

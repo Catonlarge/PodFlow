@@ -62,9 +62,11 @@ export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationCh
     if (onAudioControlsReady) {
       onAudioControlsReady({
         setProgress: audio.setProgress,
+        togglePlay: audio.togglePlay,
+        isPlaying: audio.isPlaying,
       });
     }
-  }, [audio.setProgress, onAudioControlsReady]);
+  }, [audio.setProgress, audio.togglePlay, audio.isPlaying, onAudioControlsReady]);
 
   // 处理鼠标进入播放器
   const handleMouseEnter = useCallback(() => {

@@ -1,21 +1,53 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import MainLayout from '../MainLayout';
 
 // Mock 子组件
 vi.mock('../../subtitles/SubtitleList', () => ({
-  default: () => <div data-testid="subtitle-list">SubtitleList</div>
+  default: ({ onCueClick }) => (
+    <div data-testid="subtitle-list">
+      <button 
+        data-testid="cue-click-button"
+        onClick={() => onCueClick && onCueClick(10.5)}
+      >
+        点击字幕
+      </button>
+    </div>
+  )
 }));
 
 vi.mock('../../notes/NoteSidebar', () => ({
   default: () => <div data-testid="note-sidebar">NoteSidebar</div>
 }));
 
+// Mock AudioBarContainer，模拟音频控制方法
+const mockSetProgress = vi.fn();
+const mockTogglePlay = vi.fn();
+let mockIsPlaying = false;
+
 vi.mock('../../player/AudioBarContainer', () => ({
-  default: ({ audioUrl }) => audioUrl ? <div data-testid="audio-bar-container">AudioBarContainer</div> : null
+  default: ({ audioUrl, onAudioControlsReady }) => {
+    // 模拟音频控制方法就绪回调
+    if (onAudioControlsReady) {
+      setTimeout(() => {
+        onAudioControlsReady({
+          setProgress: mockSetProgress,
+          togglePlay: mockTogglePlay,
+          isPlaying: mockIsPlaying,
+        });
+      }, 0);
+    }
+    return audioUrl ? <div data-testid="audio-bar-container">AudioBarContainer</div> : null;
+  }
 }));
 
 describe('MainLayout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsPlaying = false;
+  });
+
   describe('渲染', () => {
     it('应该渲染所有主要区域', () => {
       render(
@@ -116,6 +148,95 @@ describe('MainLayout', () => {
       expect(screen.getByText('测试节目')).toBeInTheDocument();
       expect(screen.getByTestId('subtitle-list')).toBeInTheDocument();
       expect(screen.getByTestId('note-sidebar')).toBeInTheDocument();
+    });
+  });
+
+  describe('点击字幕跳转和取消暂停', () => {
+    it('应该在点击字幕时调用 setProgress 跳转时间', async () => {
+      const user = userEvent.setup();
+      
+      render(
+        <MainLayout 
+          episodeTitle="测试"
+          showName="测试节目"
+          audioUrl="http://example.com/audio.mp3"
+        />
+      );
+
+      // 等待音频控制方法就绪
+      await waitFor(() => {
+        expect(mockSetProgress).toBeDefined();
+      }, { timeout: 1000 });
+
+      // 点击字幕
+      const cueClickButton = screen.getByTestId('cue-click-button');
+      await user.click(cueClickButton);
+
+      // 验证 setProgress 被调用
+      await waitFor(() => {
+        expect(mockSetProgress).toHaveBeenCalledTimes(1);
+        expect(mockSetProgress).toHaveBeenCalledWith(null, 10.5);
+      });
+    });
+
+    it('应该在点击字幕时，如果暂停则调用 togglePlay 开始播放', async () => {
+      const user = userEvent.setup();
+      mockIsPlaying = false; // 设置为暂停状态
+      
+      render(
+        <MainLayout 
+          episodeTitle="测试"
+          showName="测试节目"
+          audioUrl="http://example.com/audio.mp3"
+        />
+      );
+
+      // 等待音频控制方法就绪
+      await waitFor(() => {
+        expect(mockTogglePlay).toBeDefined();
+      }, { timeout: 1000 });
+
+      // 点击字幕
+      const cueClickButton = screen.getByTestId('cue-click-button');
+      await user.click(cueClickButton);
+
+      // 验证 togglePlay 被调用（因为 isPlaying 为 false）
+      await waitFor(() => {
+        expect(mockTogglePlay).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('应该在点击字幕时，如果正在播放则不调用 togglePlay', async () => {
+      const user = userEvent.setup();
+      mockIsPlaying = true; // 设置为播放状态
+      
+      render(
+        <MainLayout 
+          episodeTitle="测试"
+          showName="测试节目"
+          audioUrl="http://example.com/audio.mp3"
+        />
+      );
+
+      // 等待音频控制方法就绪
+      await waitFor(() => {
+        expect(mockSetProgress).toBeDefined();
+      }, { timeout: 1000 });
+
+      // 清空之前的调用记录
+      vi.clearAllMocks();
+
+      // 点击字幕
+      const cueClickButton = screen.getByTestId('cue-click-button');
+      await user.click(cueClickButton);
+
+      // 验证 setProgress 被调用
+      await waitFor(() => {
+        expect(mockSetProgress).toHaveBeenCalledTimes(1);
+      });
+
+      // 验证 togglePlay 没有被调用（因为 isPlaying 为 true）
+      expect(mockTogglePlay).not.toHaveBeenCalled();
     });
   });
 });
