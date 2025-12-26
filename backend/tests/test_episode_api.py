@@ -467,4 +467,105 @@ class TestEpisodeCRUD:
             assert "segment_id" in data[0]
             assert "status" in data[0]
             assert "cue_count" in data[0]
+    
+    def test_delete_episode_success(self, client, db_session, tmp_path):
+        """测试删除 Episode：成功删除"""
+        # 创建 Episode 和音频文件
+        audio_file = tmp_path / "test_audio.mp3"
+        audio_content = b"fake audio data"
+        audio_file.write_bytes(audio_content)
+        file_hash = hashlib.md5(audio_content).hexdigest()
+        
+        # Mock 存储路径
+        audio_storage = tmp_path / "audios"
+        audio_storage.mkdir(parents=True, exist_ok=True)
+        final_audio_path = audio_storage / f"{file_hash}.mp3"
+        audio_file.rename(final_audio_path)
+        
+        # 创建 Episode
+        episode = Episode(
+            title="Test Episode",
+            file_hash=file_hash,
+            duration=180.0,
+            audio_path=str(final_audio_path),
+            transcription_status="pending"
+        )
+        db_session.add(episode)
+        db_session.commit()
+        episode_id = episode.id
+        
+        # Mock 存储路径配置
+        with patch('app.config.AUDIO_STORAGE_PATH', str(audio_storage)):
+            # 删除 Episode
+            response = client.delete(f"/api/episodes/{episode_id}")
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["message"] == f"Episode {episode_id} 已删除"
+            assert data["episode_id"] == episode_id
+            
+            # 验证数据库记录已删除
+            deleted_episode = db_session.query(Episode).filter(Episode.id == episode_id).first()
+            assert deleted_episode is None
+            
+            # 验证音频文件已删除（因为没有其他 Episode 使用相同的 file_hash）
+            assert not final_audio_path.exists()
+    
+    def test_delete_episode_not_found(self, client, db_session):
+        """测试删除 Episode：Episode 不存在"""
+        response = client.delete("/api/episodes/99999")
+        assert response.status_code == 404
+        data = response.json()
+        assert "不存在" in data["detail"]
+    
+    def test_delete_episode_preserves_audio_when_shared(self, client, db_session, tmp_path):
+        """测试删除 Episode：多个 Episode 共享同一音频文件时，不删除音频文件"""
+        # 创建共享的音频文件
+        audio_file = tmp_path / "test_audio.mp3"
+        audio_content = b"shared audio data"
+        audio_file.write_bytes(audio_content)
+        file_hash = hashlib.md5(audio_content).hexdigest()
+        
+        # Mock 存储路径
+        audio_storage = tmp_path / "audios"
+        audio_storage.mkdir(parents=True, exist_ok=True)
+        final_audio_path = audio_storage / f"{file_hash}.mp3"
+        audio_file.rename(final_audio_path)
+        
+        # 创建两个 Episode，使用相同的 file_hash
+        episode1 = Episode(
+            title="Episode 1",
+            file_hash=file_hash,
+            duration=180.0,
+            audio_path=str(final_audio_path),
+            transcription_status="pending"
+        )
+        episode2 = Episode(
+            title="Episode 2",
+            file_hash=file_hash,
+            duration=180.0,
+            audio_path=str(final_audio_path),
+            transcription_status="pending"
+        )
+        db_session.add_all([episode1, episode2])
+        db_session.commit()
+        episode1_id = episode1.id
+        episode2_id = episode2.id
+        
+        # Mock 存储路径配置
+        with patch('app.config.AUDIO_STORAGE_PATH', str(audio_storage)):
+            # 删除第一个 Episode
+            response = client.delete(f"/api/episodes/{episode1_id}")
+            assert response.status_code == 200
+            
+            # 验证第一个 Episode 已删除
+            deleted_episode = db_session.query(Episode).filter(Episode.id == episode1_id).first()
+            assert deleted_episode is None
+            
+            # 验证第二个 Episode 仍然存在
+            remaining_episode = db_session.query(Episode).filter(Episode.id == episode2_id).first()
+            assert remaining_episode is not None
+            
+            # 验证音频文件仍然存在（因为还有另一个 Episode 在使用）
+            assert final_audio_path.exists()
 

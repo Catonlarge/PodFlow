@@ -331,14 +331,14 @@ export function getMockCues() {
  * 根据 Episode ID 获取字幕数据
  * 
  * 后续扩展：从后端 API 获取字幕数据
- * API 端点：GET /episodes/{episode_id}
+ * API 端点：GET /api/episodes/{episode_id}
  * 
  * @param {number} episodeId - Episode ID
  * @returns {Promise<Array>} 字幕数组
  */
 export async function getCuesByEpisodeId(episodeId) {
   try {
-    const response = await api.get(`/episodes/${episodeId}`);
+    const response = await api.get(`/api/episodes/${episodeId}`);
     return response.cues || [];
   } catch (error) {
     console.error(`[subtitleService] 获取字幕失败 (episodeId: ${episodeId}):`, error);
@@ -347,7 +347,29 @@ export async function getCuesByEpisodeId(episodeId) {
   }
 }
 
+/**
+ * 根据 Episode ID 获取 Episode 详情（包含字幕数据）
+ * 
+ * API 端点：GET /api/episodes/{episode_id}
+ * 
+ * @param {number} episodeId - Episode ID
+ * @returns {Promise<Object>} Episode 对象，包含：
+ *   - id, title, duration, transcription_status, transcription_progress
+ *   - cues: 字幕数组
+ *   - podcast_id, created_at 等
+ */
+export async function getEpisode(episodeId) {
+  try {
+    const response = await api.get(`/api/episodes/${episodeId}`);
+    return response;
+  } catch (error) {
+    console.error(`[subtitleService] 获取 Episode 失败 (episodeId: ${episodeId}):`, error);
+    throw error; // 不返回 mock 数据，让调用方处理错误
+  }
+}
+
 export const subtitleService = {
   getMockCues,
   getCuesByEpisodeId,
+  getEpisode,
 };

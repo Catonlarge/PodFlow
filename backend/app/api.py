@@ -320,11 +320,13 @@ def get_episode_detail(
         "title": episode.title,
         "duration": episode.duration,
         "file_size": episode.file_size,
+        "audio_path": episode.audio_path,  # 添加音频路径
         "transcription_status": episode.transcription_status,
         "transcription_progress": episode.transcription_progress,
         "transcription_status_display": episode.transcription_status_display,
         "created_at": episode.created_at.isoformat() if episode.created_at else None,
         "podcast_id": episode.podcast_id,
+        "show_name": episode.show_name,  # 添加节目名称（动态属性）
         "cues": cues_data,
         "cues_count": len(cues_data)
     }
@@ -478,6 +480,67 @@ async def start_transcription(
     return {
         "status": "processing",
         "message": f"Episode {episode_id} 转录任务已启动",
+        "episode_id": episode_id
+    }
+
+
+# ==================== Episode 删除 ====================
+
+@router.delete("/episodes/{episode_id}")
+def delete_episode(
+    episode_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    删除 Episode 及其关联数据
+    
+    删除内容：
+    1. Episode 记录
+    2. 关联的 AudioSegment（级联删除）
+    3. 关联的 TranscriptCue（级联删除）
+    4. 关联的 Highlight 和 Note（级联删除）
+    5. 音频文件（如果存在且没有其他 Episode 使用相同的 file_hash）
+    
+    参数:
+        episode_id: Episode ID
+        
+    返回:
+        {
+            "message": "Episode 已删除",
+            "episode_id": 1
+        }
+    """
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
+    
+    # 保存音频文件路径和 file_hash，用于后续判断是否删除文件
+    audio_path = episode.audio_path
+    file_hash = episode.file_hash
+    
+    # 删除 Episode（级联删除会自动处理关联的 AudioSegment、TranscriptCue 等）
+    db.delete(episode)
+    db.commit()
+    
+    # 检查是否有其他 Episode 使用相同的 file_hash
+    # 如果没有，删除音频文件
+    if audio_path and file_hash:
+        other_episode = db.query(Episode).filter(
+            Episode.file_hash == file_hash,
+            Episode.id != episode_id
+        ).first()
+        
+        if not other_episode and os.path.exists(audio_path):
+            try:
+                os.unlink(audio_path)
+                logger.info(f"已删除音频文件: {audio_path}")
+            except Exception as e:
+                logger.warning(f"删除音频文件失败: {audio_path}, 错误: {e}")
+    
+    logger.info(f"Episode {episode_id} 已删除")
+    
+    return {
+        "message": f"Episode {episode_id} 已删除",
         "episode_id": episode_id
     }
 
