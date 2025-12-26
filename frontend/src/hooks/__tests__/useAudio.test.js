@@ -571,7 +571,13 @@ describe('useAudio', () => {
         expect(mockAudio.load).toHaveBeenCalled();
       });
 
-      // 模拟成功加载
+      // 模拟成功加载：先设置 duration，再触发事件
+      Object.defineProperty(mockAudio, 'duration', {
+        writable: true,
+        value: 100,
+        configurable: true,
+      });
+
       await triggerAudioEvent(mockAudio, 'loadedmetadata');
 
       await waitFor(() => {

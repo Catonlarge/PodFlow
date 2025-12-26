@@ -99,8 +99,14 @@ describe('AudioBarContainer', () => {
         vi.advanceTimersByTime(1000);
       });
 
-      // 验证进度条仍然存在（收缩态仍然显示进度条）
-      expect(screen.getByRole('slider', { name: /进度/i })).toBeInTheDocument();
+      // 验证收缩态：应该显示 MiniAudioBar（简单的进度条线），而不是完整的播放器
+      // MiniAudioBar 是一个固定底部的 Box，没有 slider 角色
+      const miniBar = document.querySelector('[class*="MuiBox-root"]');
+      expect(miniBar).toBeInTheDocument();
+      
+      // 验证完整的播放器界面（包含 slider）不应该存在
+      const slider = screen.queryByRole('slider', { name: /进度/i });
+      expect(slider).not.toBeInTheDocument();
       
       vi.useRealTimers();
     });
@@ -109,12 +115,18 @@ describe('AudioBarContainer', () => {
   describe('收缩/展开逻辑', () => {
     it('应该展开当点击收缩面板时', async () => {
       const { act } = await import('@testing-library/react');
-      const user = userEvent.setup({ delay: null, advanceTimers: vi.advanceTimersByTime });
+      const { fireEvent } = await import('@testing-library/react');
       vi.useFakeTimers();
 
       render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
+      // 等待 audio 元素渲染（使用 act 和定时器）
+      await act(async () => {
+        vi.advanceTimersByTime(0);
+      });
+
       const audioElement = document.querySelector('audio');
+      expect(audioElement).toBeTruthy();
 
       // 设置为播放状态
       Object.defineProperty(audioElement, 'paused', {
@@ -141,13 +153,33 @@ describe('AudioBarContainer', () => {
         vi.advanceTimersByTime(1000);
       });
       
-      // 查找进度条容器并点击（收缩面板就是进度条容器）
-      const progressSlider = screen.getByRole('slider', { name: /进度/i });
-      const progressContainer = progressSlider.closest('[class*="MuiStack"]') || progressSlider.closest('div');
-      expect(progressContainer).toBeTruthy();
+      // 验证已经收缩（找不到播放按钮）
+      expect(screen.queryByRole('button', { name: /暂停/i })).not.toBeInTheDocument();
       
+      // 查找收缩面板（MiniAudioBar 的容器 Box）
+      // MiniAudioBar 是一个固定底部的 Box，通过计算样式来查找
+      const miniBarContainers = document.querySelectorAll('[class*="MuiBox-root"]');
+      const miniBarContainer = Array.from(miniBarContainers).find(
+        el => {
+          const styles = window.getComputedStyle(el);
+          return styles.position === 'fixed' && styles.bottom === '0px';
+        }
+      );
+      expect(miniBarContainer).toBeTruthy();
+      
+      // 点击收缩面板
       await act(async () => {
-        await user.click(progressContainer);
+        fireEvent.click(miniBarContainer);
+      });
+
+      // 等待定时器检查（定时器每秒检查一次）
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      // 等待状态更新
+      await act(async () => {
+        vi.advanceTimersByTime(100);
       });
 
       // 验证播放按钮仍然存在（说明展开功能正常）
@@ -164,7 +196,13 @@ describe('AudioBarContainer', () => {
       
       render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
+      // 等待 audio 元素渲染（使用 act 和定时器）
+      await act(async () => {
+        vi.advanceTimersByTime(0);
+      });
+
       const audioElement = document.querySelector('audio');
+      expect(audioElement).toBeTruthy();
 
       // 先设置为播放状态
       Object.defineProperty(audioElement, 'paused', {
@@ -208,7 +246,13 @@ describe('AudioBarContainer', () => {
 
       render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
+      // 等待 audio 元素渲染（使用 act 和定时器）
+      await act(async () => {
+        vi.advanceTimersByTime(0);
+      });
+
       const audioElement = document.querySelector('audio');
+      expect(audioElement).toBeTruthy();
 
       // 设置为播放状态
       Object.defineProperty(audioElement, 'paused', {
@@ -234,11 +278,24 @@ describe('AudioBarContainer', () => {
       await act(async () => {
         vi.advanceTimersByTime(1000);
       });
+
+      // 验证已经收缩（找不到播放按钮）
+      expect(screen.queryByRole('button', { name: /暂停/i })).not.toBeInTheDocument();
       
-      // 模拟鼠标进入（通过触发 mousemove 事件）
+      // 模拟鼠标移动（这会触发 useIdle 的 resetIdleTimer，重置空闲定时器）
       await act(async () => {
-        const mousemoveEvent = new Event('mousemove');
+        const mousemoveEvent = new Event('mousemove', { bubbles: true });
         window.dispatchEvent(mousemoveEvent);
+      });
+
+      // 等待定时器检查（定时器每秒检查一次）
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      // 等待状态更新
+      await act(async () => {
+        vi.advanceTimersByTime(100);
       });
 
       // 应该展开（播放按钮应该存在）
