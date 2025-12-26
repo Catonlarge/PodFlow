@@ -842,9 +842,9 @@ describe('AudioPlayer', () => {
         expect(consoleErrorSpy).toHaveBeenCalled();
       }, { timeout: 5000 });
 
-      // 验证错误消息被记录
+      // 验证错误消息被记录（注意：日志消息已改为[useAudio]，因为逻辑已移到useAudio hook）
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[AudioPlayer] 播放失败:', 
+        '[useAudio] 播放失败:', 
         expect.any(Error)
       );
 

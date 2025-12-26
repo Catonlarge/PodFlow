@@ -4,6 +4,51 @@
 
 ---
 
+## [2025-01-27] [refactor] - 前端组件结构重构：拆分AudioPlayer为多个小组件
+
+**变更内容**：
+
+1. **第一阶段：提取Hooks**
+   - 创建 `hooks/useAudio.js`：从AudioPlayer提取音频播放逻辑（播放/暂停、进度控制、音量、倍速等）
+   - 创建 `hooks/useIdle.js`：从AudioPlayer提取5s无操作检测逻辑
+   - 创建占位Hooks：`useSubtitleSync.js`、`useTextSelection.js`
+
+2. **第二阶段：拆分AudioPlayer组件（采用"逻辑聚合"策略）**
+   - 创建 `components/player/ProgressBar.jsx`：进度条组件，独立拆分（拖拽交互逻辑复杂）
+   - 创建 `components/player/MiniAudioBar.jsx`：收缩态UI（5px进度条线）
+   - 创建 `components/player/FullAudioBar.jsx`：展开态UI（包含所有按钮、音量、倍速，按钮不拆分）
+   - 创建 `components/player/AudioBarContainer.jsx`：智能容器（检测鼠标活动，决定显示Full还是Mini）
+   - 重构 `components/AudioPlayer.jsx`：简化为包装组件，保持向后兼容的API
+
+3. **第三阶段：创建占位文件**
+   - 通用组件：`Icon.jsx`、`Modal.jsx`、`Toast.jsx`
+   - 布局组件：`MainLayout.jsx`、`EpisodeHeader.jsx`
+   - 字幕组件：`SubtitleList.jsx`、`SubtitleRow.jsx`、`SelectionMenu.jsx`、`AICard.jsx`
+   - 笔记组件：`NoteSidebar.jsx`、`NoteCard.jsx`
+   - 上传组件：`FileImportModal.jsx`、`ProcessingOverlay.jsx`
+   - Context：`AudioContext.jsx`、`SubtitleContext.jsx`、`NoteContext.jsx`
+   - Services：`audioService.js`、`subtitleService.js`、`noteService.js`
+
+4. **测试验证**
+   - 所有测试通过（51个通过，6个跳过）
+   - 修复测试中的日志消息（从`[AudioPlayer]`改为`[useAudio]`）
+
+**技术实现**：
+- 采用"逻辑聚合"策略，遵循"逻辑复杂度不够，就不配单独建文件"原则
+- 按钮不拆分，直接写在`FullAudioBar.jsx`内部（逻辑简单）
+- 进度条独立拆分（拖拽交互逻辑复杂）
+- 使用`useRef`解决循环依赖问题（`AudioBarContainer`中`useAudio`和`useIdle`的交互）
+- 保持`AudioPlayer`组件API不变，确保向后兼容
+
+**影响**：
+- 代码结构更清晰：743行的AudioPlayer拆分为4个核心组件
+- 可维护性提升：逻辑分离，每个组件职责单一
+- 可测试性提升：每个组件和Hook都有对应的测试文件
+- 向后兼容：现有使用AudioPlayer的地方不受影响
+- 为未来功能扩展打下基础：占位文件已创建，便于后续开发
+
+---
+
 ## [2025-01-27] [feat] - 优化 AudioPlayer 收缩逻辑，提升用户体验
 
 **变更内容**：
