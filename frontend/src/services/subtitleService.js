@@ -91,6 +91,230 @@ const MOCK_CUES = [
     end_time: 56.5,
     speaker: 'Lenny',
     text: "That's interesting. Can you give us an example of how you've applied that in practice?"
+  },
+  {
+    id: 11,
+    start_time: 57.0,
+    end_time: 65.3,
+    speaker: 'Guest',
+    text: "Sure. When we were building our mobile app, we realized users weren't just trying to buy products. They were trying to solve problems in their daily lives."
+  },
+  {
+    id: 12,
+    start_time: 66.0,
+    end_time: 72.8,
+    speaker: 'Lenny',
+    text: "That's a great insight. How did that change your product decisions?"
+  },
+  {
+    id: 13,
+    start_time: 73.5,
+    end_time: 82.0,
+    speaker: 'Guest',
+    text: "It completely shifted our focus. Instead of optimizing for conversion, we started optimizing for helping users accomplish their goals faster."
+  },
+  {
+    id: 14,
+    start_time: 82.5,
+    end_time: 89.2,
+    speaker: 'Lenny',
+    text: "That makes a lot of sense. What metrics did you use to measure success?"
+  },
+  {
+    id: 15,
+    start_time: 90.0,
+    end_time: 98.5,
+    speaker: 'Guest',
+    text: "We looked at time-to-value, how quickly users could accomplish their primary task. That became our north star metric."
+  },
+  {
+    id: 16,
+    start_time: 99.0,
+    end_time: 105.8,
+    speaker: 'Lenny',
+    text: "Interesting. Let's talk about working with engineering teams. How do you balance speed and quality?"
+  },
+  {
+    id: 17,
+    start_time: 106.5,
+    end_time: 115.2,
+    speaker: 'Guest',
+    text: "That's always a challenge. I think the key is to be very clear about what 'done' means for each feature, and to prioritize ruthlessly."
+  },
+  {
+    id: 18,
+    start_time: 116.0,
+    end_time: 123.5,
+    speaker: 'Lenny',
+    text: "How do you handle disagreements with engineering about scope or timeline?"
+  },
+  {
+    id: 19,
+    start_time: 124.0,
+    end_time: 132.8,
+    speaker: 'Guest',
+    text: "I try to understand their perspective first. Usually, when engineers push back, there's a good technical reason. Then we work together to find a solution."
+  },
+  {
+    id: 20,
+    start_time: 133.5,
+    end_time: 140.2,
+    speaker: 'Lenny',
+    text: "That's a collaborative approach. What about working with designers?"
+  },
+  {
+    id: 21,
+    start_time: 141.0,
+    end_time: 149.5,
+    speaker: 'Guest',
+    text: "Designers and PMs need to be partners from day one. The best products come from close collaboration between product, design, and engineering."
+  },
+  {
+    id: 22,
+    start_time: 150.0,
+    end_time: 157.8,
+    speaker: 'Lenny',
+    text: "Absolutely. What's your process for gathering user feedback?"
+  },
+  {
+    id: 23,
+    start_time: 158.5,
+    end_time: 167.2,
+    speaker: 'Guest',
+    text: "We do a mix of things: user interviews, surveys, analytics, and in-app feedback. But the most valuable insights come from talking to users directly."
+  },
+  {
+    id: 24,
+    start_time: 168.0,
+    end_time: 175.5,
+    speaker: 'Lenny',
+    text: "How often do you talk to users?"
+  },
+  {
+    id: 25,
+    start_time: 176.0,
+    end_time: 184.8,
+    speaker: 'Guest',
+    text: "I try to do at least two user interviews per week. It keeps me grounded in reality and helps me understand what users actually need, not what I think they need."
+  },
+  {
+    id: 26,
+    start_time: 185.5,
+    end_time: 192.2,
+    speaker: 'Lenny',
+    text: "That's a great habit. What advice would you give to someone just starting out in product management?"
+  },
+  {
+    id: 27,
+    start_time: 193.0,
+    end_time: 201.5,
+    speaker: 'Guest',
+    text: "Learn to say no. You can't do everything, and trying to do too much means you'll do nothing well. Focus on what matters most."
+  },
+  {
+    id: 28,
+    start_time: 202.0,
+    end_time: 209.8,
+    speaker: 'Lenny',
+    text: "That's excellent advice. What about building relationships with stakeholders?"
+  },
+  {
+    id: 29,
+    start_time: 210.5,
+    end_time: 218.2,
+    speaker: 'Guest',
+    text: "Communication is key. Keep stakeholders informed, be transparent about challenges, and always explain the 'why' behind your decisions."
+  },
+  {
+    id: 30,
+    start_time: 219.0,
+    end_time: 226.5,
+    speaker: 'Lenny',
+    text: "Great insights. Let's talk about product roadmaps. How do you approach planning?"
+  },
+  {
+    id: 31,
+    start_time: 227.0,
+    end_time: 235.8,
+    speaker: 'Guest',
+    text: "I prefer a theme-based roadmap over a feature-based one. Focus on outcomes, not outputs. What problems are we solving, not what features are we building?"
+  },
+  {
+    id: 32,
+    start_time: 236.5,
+    end_time: 243.2,
+    speaker: 'Lenny',
+    text: "That's a more strategic approach. How do you handle changing priorities?"
+  },
+  {
+    id: 33,
+    start_time: 244.0,
+    end_time: 252.5,
+    speaker: 'Guest',
+    text: "Change is inevitable. The key is to be flexible but also to understand the cost of changing direction. Sometimes you need to say no to protect what you're already building."
+  },
+  {
+    id: 34,
+    start_time: 253.0,
+    end_time: 260.8,
+    speaker: 'Lenny',
+    text: "What about dealing with failure? How do you handle when a product or feature doesn't work out?"
+  },
+  {
+    id: 35,
+    start_time: 261.5,
+    end_time: 270.2,
+    speaker: 'Guest',
+    text: "Failure is part of the job. The important thing is to learn from it. What did we learn? What would we do differently? Use it as data for the next decision."
+  },
+  {
+    id: 36,
+    start_time: 271.0,
+    end_time: 278.5,
+    speaker: 'Lenny',
+    text: "That's a growth mindset. What tools do you use to stay organized?"
+  },
+  {
+    id: 37,
+    start_time: 279.0,
+    end_time: 287.8,
+    speaker: 'Guest',
+    text: "I keep it simple: a task list, a notes app, and good communication tools. The tools don't matter as much as the process and discipline."
+  },
+  {
+    id: 38,
+    start_time: 288.5,
+    end_time: 295.2,
+    speaker: 'Lenny',
+    text: "What's the most challenging part of being a PM for you?"
+  },
+  {
+    id: 39,
+    start_time: 296.0,
+    end_time: 304.5,
+    speaker: 'Guest',
+    text: "The constant context switching. You're talking to users, then engineers, then designers, then executives. It's mentally exhausting but also really rewarding."
+  },
+  {
+    id: 40,
+    start_time: 305.0,
+    end_time: 312.8,
+    speaker: 'Lenny',
+    text: "That's a great way to put it. Well, thank you so much for sharing your insights today. This has been really valuable."
+  },
+  {
+    id: 41,
+    start_time: 313.5,
+    end_time: 320.2,
+    speaker: 'Guest',
+    text: "Thank you for having me. I really enjoyed our conversation."
+  },
+  {
+    id: 42,
+    start_time: 321.0,
+    end_time: 328.5,
+    speaker: 'Lenny',
+    text: "And thank you to our listeners. We'll be back next week with another great conversation about product management."
   }
 ];
 

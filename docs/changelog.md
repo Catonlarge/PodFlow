@@ -4,6 +4,71 @@
 
 ---
 
+## [2025-01-27] [fix] - 修复字幕自动滚动逻辑：仅在不可见区域时自动滚动
+
+**变更内容**：
+- 修复 `components/subtitles/SubtitleList.jsx`：调整自动滚动触发条件，只有当高亮字幕在不可见区域时才自动滚动
+
+**问题描述**：
+- **滚动逻辑错误**：之前的逻辑是只要字幕不在屏幕上1/3处就滚动，但正确逻辑应该是：只有当高亮字幕在不可见区域时才自动滚动，滚动后让字幕保持在屏幕上1/3处
+- 如果字幕已经在可见区域内（即使不在1/3处），不应该自动滚动，除非用户没有操作
+
+**技术实现**：
+- **滚动触发条件调整**：
+  - 移除对"字幕是否在上半部分"的检查
+  - 改为检查"字幕是否完全在可见区域内"：`elementRect.top >= containerRect.top && elementRect.bottom <= containerRect.bottom`
+  - 只有当字幕不在可见区域时（`!isInViewport`），才触发自动滚动
+  - 滚动目标保持不变：让字幕顶部距离容器顶部为容器高度的1/3
+- **用户滚动处理**：
+  - 保持现有逻辑：用户滚动时设置 `isUserScrollingRef.current = true`，停止自动滚动
+  - 用户滚动停止5秒后，恢复自动滚动（`isUserScrollingRef.current = false`）
+
+**影响范围**：
+- 用户体验改善：自动滚动不会在字幕已经在可见区域时触发，减少不必要的滚动干扰
+
+---
+
+## [2025-01-27] [fix] - 修复字幕自动滚动位置、高亮状态残留和 hover 状态残留问题
+
+**变更内容**：
+- 修复 `components/subtitles/SubtitleList.jsx`：改进自动滚动逻辑，确保高亮字幕滚动到屏幕上1/3处（上半部分），而不是下方
+- 修复 `components/subtitles/SubtitleRow.jsx`：
+  - 优化 React.memo 比较函数，确保高亮状态（isHighlighted、isPast）改变时组件正确重新渲染
+  - 改进比较逻辑的可读性和正确性，避免样式状态残留
+  - **修复 hover 状态残留问题**：使用 React 状态管理 hover，确保当字幕失去高亮时自动清除 hover 背景色
+  - 添加 `onMouseEnter` 和 `onMouseLeave` 事件处理，替代纯 CSS `:hover` 伪类
+- 添加 `components/subtitles/__tests__/SubtitleRow.test.jsx` 测试：
+  - 验证 hover 状态在非高亮字幕上的行为
+  - 验证失去高亮时 hover 状态自动清除
+  - 验证高亮状态下不显示 hover 背景色
+
+**问题描述**：
+- **滚动位置偏下**：当高亮字幕播放到下方时，自动滚动后的位置仍然偏下，不符合用户预期（应该在屏幕上1/3处或中央）
+- **高亮残留**：滚动后，某些字幕行（非当前高亮的）会残留灰色选中底色，说明高亮状态没有正确清除
+- **hover 状态残留**：当用户鼠标悬停在第一句字幕上时，显示灰色 hover 背景。当播放到第2句时，第一句失去高亮，但鼠标仍在原位置，导致灰色 hover 背景残留
+
+**技术实现**：
+- **SubtitleList 滚动逻辑**：
+  - 改进可见区域检测：判断元素是否在可见区域的上半部分（距离顶部0到1/3高度之间）
+  - 检测元素是否在可见区域外（上方或下方），如果在外部或不在上半部分，则触发滚动
+  - 滚动目标位置：元素顶部距离容器顶部为容器高度的1/3，确保高亮字幕显示在屏幕上半部分
+- **SubtitleRow memo 优化**：
+  - 重构 React.memo 比较函数，使用更清晰的 if-else 逻辑
+  - 明确处理关键属性变化（isHighlighted、isPast 等），确保状态改变时组件重新渲染
+  - 修复可能的比较逻辑错误，避免组件跳过必要的重渲染
+- **SubtitleRow hover 状态管理**：
+  - 使用 `useState` 管理 `isHovered` 状态，替代纯 CSS `:hover` 伪类
+  - 添加 `handleMouseEnter` 和 `handleMouseLeave` 事件处理函数
+  - 在 `handleMouseEnter` 中：只有当字幕非高亮时才设置 hover 状态
+  - 使用 `useEffect` 监听 `isHighlighted` 变化：当字幕失去高亮且处于 hover 状态时，自动清除 hover 状态
+  - 背景色根据 `isHighlighted` 和 `isHovered` 状态动态计算
+
+**影响范围**：
+- 用户体验改善：自动滚动更准确，高亮状态更新更及时，hover 状态不会残留
+- 测试覆盖：新增 4 个测试用例验证 hover 状态管理
+
+---
+
 ## [2025-01-27] [fix] - 修复字幕区域布局问题：第一句speaker位置和分界线底部空白
 
 **变更内容**：

@@ -127,10 +127,10 @@ export default function SubtitleList({
 
   /**
    * 自动滚动到当前播放的字幕
-   * 根据 PRD 6.2.4.1，当高亮字幕不在可见区域时，自动滚动到屏幕 1/3 处
-   * 如果用户在页面上进行划线操作、"查询和想法操作弹框"展示或者是"AI查询卡片"在展示的时候，不自动滚动
-   * 
-   * 注意：目前先实现基础滚动逻辑，后续可以扩展暂停滚动的条件
+   * 根据 PRD 6.2.4.1：
+   * - 如果用户在界面上没有进行任何操作（如点击、滚动等），当高亮字幕在不可见区域时，自动滚动，让高亮字幕保持在屏幕上1/3处
+   * - 如果用户使用滚轮操作屏幕，则停止滚动，用户鼠标没有动作之后5s，重新回到滚动状态
+   * - 如果用户在页面上进行划线操作、"查询和想法操作弹框"展示或者是"AI查询卡片"在展示的时候，不自动滚动
    */
   useEffect(() => {
     // 如果用户正在滚动，不执行自动滚动
@@ -151,25 +151,86 @@ export default function SubtitleList({
         const elementRect = element.getBoundingClientRect();
         const containerRect = container.getBoundingClientRect();
 
-        // 检查元素是否在可见区域
-        const isVisible =
-          elementRect.top >= containerRect.top &&
+        // 检查元素是否完全在可见区域内
+        // 元素在可见区域：元素的顶部 >= 容器的顶部 && 元素的底部 <= 容器的底部
+        const isInViewport = 
+          elementRect.top >= containerRect.top && 
           elementRect.bottom <= containerRect.bottom;
 
-        // 如果不在可见区域，自动滚动到屏幕 1/3 处
-        if (!isVisible) {
+        // 调试信息
+        const containerScrollTop = container.scrollTop;
+        const containerHeight = container.clientHeight;
+        const containerWidth = container.clientWidth;
+        const elementTopRelativeToContainer = elementRect.top - containerRect.top + containerScrollTop;
+        const elementHeight = elementRect.height;
+        
+        console.log('[SubtitleList Auto-Scroll Debug]', {
+          currentSubtitleIndex,
+          isUserScrolling: isUserScrollingRef.current,
+          isInteracting,
+          isInViewport,
+          containerInfo: {
+            scrollTop: containerScrollTop,
+            height: containerHeight,
+            width: containerWidth,
+            top: containerRect.top,
+            bottom: containerRect.bottom,
+            left: containerRect.left,
+            right: containerRect.right,
+          },
+          elementInfo: {
+            top: elementRect.top,
+            bottom: elementRect.bottom,
+            left: elementRect.left,
+            right: elementRect.right,
+            height: elementHeight,
+            width: elementRect.width,
+            topRelativeToContainer: elementTopRelativeToContainer,
+          },
+          positionCalculation: {
+            elementTopOffset: elementRect.top - containerRect.top,
+            elementBottomOffset: elementRect.bottom - containerRect.bottom,
+            containerTop: containerRect.top,
+            containerBottom: containerRect.bottom,
+            targetPositionRatio: (elementRect.top - containerRect.top) / containerHeight,
+          },
+        });
+
+        // 只有当高亮字幕不在可见区域时，才自动滚动
+        if (!isInViewport) {
           // 计算元素相对于滚动容器的位置
           // 使用 getBoundingClientRect 获取相对于视口的位置，然后加上容器的 scrollTop
-          const containerScrollTop = container.scrollTop;
           
-          // 元素相对于容器的顶部位置
-          const elementTopRelativeToContainer = elementRect.top - containerRect.top + containerScrollTop;
-          const containerHeight = container.clientHeight;
+          // 滚动到屏幕上1/3处（让元素顶部距离容器顶部为容器高度的1/3）
+          // 这样高亮字幕会显示在屏幕上半部分，更符合用户预期
           const scrollTarget = elementTopRelativeToContainer - containerHeight / 3;
+          const finalScrollTarget = Math.max(0, scrollTarget);
+
+          console.log('[SubtitleList Auto-Scroll Action]', {
+            elementTopRelativeToContainer,
+            containerHeight,
+            scrollTarget,
+            finalScrollTarget,
+            scrollBehavior: 'smooth',
+          });
 
           container.scrollTo({
-            top: Math.max(0, scrollTarget),
+            top: finalScrollTarget,
             behavior: 'smooth',
+          });
+        } else {
+          // 即使在可见区域内，也记录当前位置信息，帮助调试
+          const currentPositionRatio = (elementRect.top - containerRect.top) / containerHeight;
+          const expectedPositionRatio = 1 / 3;
+          const positionDiff = currentPositionRatio - expectedPositionRatio;
+          
+          console.log('[SubtitleList Auto-Scroll Skip]', {
+            reason: 'Element is in viewport',
+            currentPositionRatio: currentPositionRatio.toFixed(3),
+            expectedPositionRatio: expectedPositionRatio.toFixed(3),
+            positionDiff: positionDiff.toFixed(3),
+            elementTopOffset: elementRect.top - containerRect.top,
+            containerHeight,
           });
         }
       }

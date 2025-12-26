@@ -1,4 +1,4 @@
-import React, { memo, forwardRef } from 'react';
+import React, { memo, forwardRef, useState, useEffect } from 'react';
 import { Box, Typography } from '@mui/material';
 import { formatTime } from '../../utils/timeUtils';
 
@@ -41,6 +41,15 @@ const SubtitleRow = forwardRef(function SubtitleRow({
   showTranslation = false,
   currentTime = 0,
 }, ref) {
+  const [isHovered, setIsHovered] = useState(false);
+
+  // 当字幕失去高亮时，清除 hover 状态，避免灰色背景残留
+  useEffect(() => {
+    if (!isHighlighted && isHovered) {
+      setIsHovered(false);
+    }
+  }, [isHighlighted, isHovered]);
+
   if (!cue) {
     return null;
   }
@@ -49,6 +58,17 @@ const SubtitleRow = forwardRef(function SubtitleRow({
     if (onClick) {
       onClick(cue.start_time);
     }
+  };
+
+  const handleMouseEnter = () => {
+    // 只有在非高亮状态下才设置 hover
+    if (!isHighlighted) {
+      setIsHovered(true);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    setIsHovered(false);
   };
 
   // Speaker 标签行（单独一行，无时间标签）
@@ -75,10 +95,19 @@ const SubtitleRow = forwardRef(function SubtitleRow({
   }
 
   // 字幕行
+  // 根据高亮状态和 hover 状态确定背景色
+  const backgroundColor = isHighlighted 
+    ? 'background.default' 
+    : isHovered 
+      ? 'action.hover' 
+      : 'background.default';
+
   return (
     <Box
       ref={ref}
       onClick={handleClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       sx={{
         display: 'flex',
         alignItems: 'flex-start',
@@ -86,7 +115,7 @@ const SubtitleRow = forwardRef(function SubtitleRow({
         py: 3,
         mb: 0,
         cursor: 'pointer',
-        backgroundColor: 'background.default',
+        backgroundColor: backgroundColor,
         border: isHighlighted ? '2px solid' : '2px solid transparent',
         borderColor: isHighlighted ? 'primary.main' : 'transparent',
         borderRadius: 1,
@@ -94,9 +123,6 @@ const SubtitleRow = forwardRef(function SubtitleRow({
         boxSizing: 'border-box',
         maxWidth: '100%',
         width: '100%',
-        '&:hover': {
-          backgroundColor: 'action.hover',
-        },
       }}
       data-subtitle-id={cue.id}
       data-subtitle-index={index}
@@ -162,18 +188,28 @@ const SubtitleRow = forwardRef(function SubtitleRow({
 });
 
 // 使用 React.memo 优化性能，仅在关键 props 变化时重渲染
+// 注意：如果返回 true，表示 props 相等，跳过渲染；返回 false，表示 props 不相等，需要渲染
 export default memo(SubtitleRow, (prevProps, nextProps) => {
-  return (
-    prevProps.cue?.id === nextProps.cue?.id &&
-    prevProps.isHighlighted === nextProps.isHighlighted &&
-    prevProps.isPast === nextProps.isPast &&
-    prevProps.showSpeaker === nextProps.showSpeaker &&
-    prevProps.showTranslation === nextProps.showTranslation &&
-    prevProps.cue?.text === nextProps.cue?.text &&
-    prevProps.cue?.translation === nextProps.cue?.translation &&
-    prevProps.cue?.start_time === nextProps.cue?.start_time &&
-    prevProps.cue?.speaker === nextProps.cue?.speaker &&
-    // currentTime 变化时，只有当前高亮的字幕需要重渲染（用于单词级高亮）
-    (prevProps.isHighlighted === false || prevProps.currentTime === nextProps.currentTime)
-  );
+  // 如果关键属性改变，必须重新渲染
+  if (
+    prevProps.cue?.id !== nextProps.cue?.id ||
+    prevProps.isHighlighted !== nextProps.isHighlighted ||
+    prevProps.isPast !== nextProps.isPast ||
+    prevProps.showSpeaker !== nextProps.showSpeaker ||
+    prevProps.showTranslation !== nextProps.showTranslation ||
+    prevProps.cue?.text !== nextProps.cue?.text ||
+    prevProps.cue?.translation !== nextProps.cue?.translation ||
+    prevProps.cue?.start_time !== nextProps.cue?.start_time ||
+    prevProps.cue?.speaker !== nextProps.cue?.speaker
+  ) {
+    return false; // 需要重新渲染
+  }
+
+  // currentTime 变化时，只有当前高亮的字幕需要重渲染（用于单词级高亮）
+  if (prevProps.isHighlighted && prevProps.currentTime !== nextProps.currentTime) {
+    return false; // 需要重新渲染
+  }
+
+  // 其他情况，跳过渲染
+  return true;
 });
