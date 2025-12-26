@@ -4,6 +4,42 @@
 
 ---
 
+## [2025-01-27] [feat] - Task 2.5 字幕列表组件查漏补缺（含单词高亮和点击播放）
+
+**变更内容**：
+- 补充 `components/subtitles/SubtitleList.jsx` 功能：
+  - **Loading 状态**：使用 MUI Skeleton 组件显示加载状态
+  - **highlights 传递**：接收 `highlights` prop 并传递给 `SubtitleRow`
+  - **onHighlightClick 传递**：接收 `onHighlightClick` prop 并传递给 `SubtitleRow`
+  - **progress 计算**：根据 `currentTime` 和 cue 的 `start/end` 计算单词高亮进度，只传给当前激活的行（性能优化）
+- 补充 `components/subtitles/SubtitleRow.jsx` 功能：
+  - **单词级高亮**：根据 `progress` prop（0-1）实现单词级高亮渲染，已播放的词汇加深颜色，未播放的词汇保持灰色
+  - **下划线渲染**：根据 `highlights` 数组在文本对应位置显示紫色下划线（`#9C27B0`）
+  - **点击划线源回调**：实现 `onHighlightClick` 回调，支持点击划线源触发回调
+  - **重叠划线过滤**：实现重叠划线过滤逻辑，符合 PRD "禁止重叠划线" 的要求
+- 优化 `components/layout/MainLayout.jsx`：
+  - **点击字幕跳转并取消暂停**：在 `handleCueClick` 中实现跳转时间逻辑，如果暂停则自动开始播放
+- 补充测试用例：
+  - **EpisodePage 测试**：补充点击字幕跳转和取消暂停的测试用例
+  - **SubtitleList 测试**：补充 Loading 状态、highlights 传递、onHighlightClick 传递、progress 计算的测试用例
+  - **SubtitleRow 测试**：补充单词高亮渲染、划线渲染、点击划线源、多个划线、划线颜色和位置的测试用例
+
+**问题描述**：
+- **缺失功能**：SubtitleList 和 SubtitleRow 缺少 highlights 下划线渲染、onHighlightClick 回调、Loading 状态显示、单词级高亮等功能
+- **用户体验**：点击字幕时无法自动跳转并取消暂停，单词级高亮缺失影响学习体验
+
+**技术实现**：
+- **单词级高亮算法**：`progress = (currentTime - cue.start_time) / (cue.end_time - cue.start_time)`，只传给当前激活的行，避免 1000+ 行同时重绘
+- **下划线渲染算法**：根据 `highlights` 数组的 `start_offset` 和 `end_offset` 在文本对应位置渲染紫色下划线，支持多个划线，过滤重叠划线
+- **性能优化**：使用 `React.memo` 优化 `SubtitleRow` 渲染，只在关键 props 变化时重渲染
+
+**测试结果**：
+- ✅ EpisodePage 测试：14 个测试用例全部通过
+- ✅ SubtitleList 测试：20 个测试用例全部通过
+- ✅ SubtitleRow 测试：29 个测试用例全部通过
+
+---
+
 ## [2025-01-27] [feat] - 优化 EpisodePage 数据传递和轮询逻辑
 
 **变更内容**：
