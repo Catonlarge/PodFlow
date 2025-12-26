@@ -42,9 +42,14 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
   const previousVolumeRef = useRef(initialVolume);
   const collapseTimerRef = useRef(null);
   const handlePlayPauseRef = useRef(null);
+  const isHoveringRef = useRef(false); // 跟踪鼠标是否悬停在播放器上
+  const playerBoxRef = useRef(null); // 播放器容器的 ref
 
   // 播放速度选项（循环顺序：1X → 1.25X → 1.5X → 0.75X → 1X）
   const playbackRates = [1, 1.25, 1.5, 0.75];
+
+  // 收缩延迟时间（毫秒）
+  const COLLAPSE_DELAY = 3000;
 
   // 重置收缩倒计时
   const resetCollapseTimer = useCallback(() => {
@@ -105,6 +110,8 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
     const handlePause = () => {
       setIsPlaying(false);
       console.log('[AudioPlayer] 暂停播放');
+      // 暂停时立即展开面板，让用户可以看到控制按钮
+      setIsCollapsed(false);
       resetCollapseTimer();
     };
 
@@ -112,6 +119,8 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
       setIsPlaying(false);
       setCurrentTime(0);
       console.log('[AudioPlayer] 播放结束');
+      // 播放结束时立即展开面板
+      setIsCollapsed(false);
     };
 
     const handleVolumeChange = () => {
@@ -392,6 +401,81 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
     resetCollapseTimer();
   };
 
+  // 处理鼠标进入播放器
+  const handleMouseEnter = useCallback(() => {
+    isHoveringRef.current = true;
+    resetCollapseTimer();
+  }, [resetCollapseTimer]);
+
+  // 处理鼠标离开播放器
+  const handleMouseLeave = useCallback(() => {
+    isHoveringRef.current = false;
+    // 离开时不立即重置，让定时器检查是否应该收缩
+  }, []);
+
+  // 全局用户交互监听（mousemove、keydown、click）
+  // 只在播放中时监听，因为暂停时不需要收缩
+  useEffect(() => {
+    if (!isPlaying) {
+      return; // 暂停时不监听全局事件
+    }
+
+    const handleGlobalInteraction = () => {
+      resetCollapseTimer();
+    };
+
+    // 监听全局事件
+    window.addEventListener('mousemove', handleGlobalInteraction);
+    window.addEventListener('keydown', handleGlobalInteraction);
+    window.addEventListener('click', handleGlobalInteraction);
+
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalInteraction);
+      window.removeEventListener('keydown', handleGlobalInteraction);
+      window.removeEventListener('click', handleGlobalInteraction);
+    };
+  }, [isPlaying, resetCollapseTimer]);
+
+  // 收缩逻辑：定期检查是否应该收缩
+  // 只在播放中时启动定时器，暂停时不需要检查
+  useEffect(() => {
+    // 清除之前的定时器
+    if (collapseTimerRef.current) {
+      clearInterval(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+
+    // 只在播放中时启动定时器
+    if (!isPlaying) {
+      return;
+    }
+
+    // 设置定时器，每秒检查一次是否应该收缩
+    collapseTimerRef.current = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastInteraction = now - lastInteractionTime;
+      
+      // 收缩条件：
+      // 1. 音频正在播放（isPlaying === true）- 已在 useEffect 依赖中保证
+      // 2. 距离上次交互超过延迟时间
+      // 3. 鼠标不在播放器上悬停
+      if (
+        timeSinceLastInteraction >= COLLAPSE_DELAY &&
+        !isHoveringRef.current &&
+        !isCollapsed
+      ) {
+        setIsCollapsed(true);
+      }
+    }, 1000); // 每秒检查一次
+
+    return () => {
+      if (collapseTimerRef.current) {
+        clearInterval(collapseTimerRef.current);
+        collapseTimerRef.current = null;
+      }
+    };
+  }, [isPlaying, lastInteractionTime, isCollapsed]);
+
   // 计算进度百分比（用于收缩状态显示）
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -441,6 +525,7 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
         crossOrigin="anonymous"
       />
       <Box
+        ref={playerBoxRef}
         sx={{
           position: 'fixed',
           bottom: 0,
@@ -453,8 +538,8 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
           px: 3,
           py: 2,
         }}
-        onMouseMove={resetCollapseTimer}
-        onMouseEnter={resetCollapseTimer}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         <Stack direction="row" spacing={3} alignItems="center">
           {/* 左侧：音频播放进度条区域 */}
