@@ -219,7 +219,6 @@ describe('FullAudioBar', () => {
     });
 
     it('应该调用 onMouseEnter 当鼠标进入时', async () => {
-      const user = userEvent.setup();
       const { container } = render(
         <FullAudioBar
           audioState={mockAudioState}
@@ -232,17 +231,12 @@ describe('FullAudioBar', () => {
 
       // 查找最外层的 Box 容器（通过 MUI Box 的 class）
       const boxContainer = container.querySelector('[class*="MuiBox-root"]');
-      if (boxContainer) {
-        fireEvent.mouseEnter(boxContainer);
-        expect(mockOnMouseEnter).toHaveBeenCalledTimes(1);
-      } else {
-        // 如果找不到，直接测试功能是否正常
-        expect(mockOnMouseEnter).toBeDefined();
-      }
+      expect(boxContainer).toBeTruthy();
+      fireEvent.mouseEnter(boxContainer);
+      expect(mockOnMouseEnter).toHaveBeenCalledTimes(1);
     });
 
     it('应该调用 onMouseLeave 当鼠标离开时', async () => {
-      const user = userEvent.setup();
       const { container } = render(
         <FullAudioBar
           audioState={mockAudioState}
@@ -255,19 +249,15 @@ describe('FullAudioBar', () => {
 
       // 查找最外层的 Box 容器（通过 MUI Box 的 class）
       const boxContainer = container.querySelector('[class*="MuiBox-root"]');
-      if (boxContainer) {
-        fireEvent.mouseLeave(boxContainer);
-        expect(mockOnMouseLeave).toHaveBeenCalledTimes(1);
-      } else {
-        // 如果找不到，直接测试功能是否正常
-        expect(mockOnMouseLeave).toBeDefined();
-      }
+      expect(boxContainer).toBeTruthy();
+      fireEvent.mouseLeave(boxContainer);
+      expect(mockOnMouseLeave).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('样式', () => {
     it('应该固定在屏幕底部', () => {
-      render(
+      const { container } = render(
         <FullAudioBar
           audioState={mockAudioState}
           audioControls={mockAudioControls}
@@ -277,13 +267,18 @@ describe('FullAudioBar', () => {
         />
       );
 
-      // MUI Box的样式通过sx prop应用，在测试环境中可能无法直接查询
-      // 我们验证组件能够正常渲染即可
-      expect(screen.getByRole('slider', { name: /进度/i })).toBeInTheDocument();
+      // 查找最外层的 Box 容器
+      const boxContainer = container.querySelector('[class*="MuiBox-root"]');
+      expect(boxContainer).toBeTruthy();
+      
+      // 验证 position: fixed 和 bottom: 0
+      const computedStyle = window.getComputedStyle(boxContainer);
+      expect(computedStyle.position).toBe('fixed');
+      expect(computedStyle.bottom).toBe('0px');
     });
 
     it('应该有正确的 z-index', () => {
-      render(
+      const { container } = render(
         <FullAudioBar
           audioState={mockAudioState}
           audioControls={mockAudioControls}
@@ -293,9 +288,13 @@ describe('FullAudioBar', () => {
         />
       );
 
-      // MUI Box的样式通过sx prop应用，在测试环境中可能无法直接查询
-      // 我们验证组件能够正常渲染即可
-      expect(screen.getByRole('slider', { name: /进度/i })).toBeInTheDocument();
+      // 查找最外层的 Box 容器
+      const boxContainer = container.querySelector('[class*="MuiBox-root"]');
+      expect(boxContainer).toBeTruthy();
+      
+      // 验证 z-index
+      const computedStyle = window.getComputedStyle(boxContainer);
+      expect(computedStyle.zIndex).toBe('1000');
     });
   });
 });

@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AudioBarContainer from '../AudioBarContainer';
 
-// Mock HTML5 Audio API
+// Mock HTML5 Audio API - 在 describe 外部定义，避免测试间状态污染
 const mockPlay = vi.fn();
 const mockPause = vi.fn();
 const mockLoad = vi.fn();
@@ -27,14 +27,9 @@ const createMockAudioElement = () => {
   return audio;
 };
 
-// 存储创建的 audio 元素引用
-let audioElements = [];
-
-// Mock window.HTMLAudioElement
+// Mock HTMLAudioElement 构造函数
 global.HTMLAudioElement = vi.fn().mockImplementation(() => {
-  const audio = createMockAudioElement();
-  audioElements.push(audio);
-  return audio;
+  return createMockAudioElement();
 });
 
 describe('AudioBarContainer', () => {
@@ -42,10 +37,13 @@ describe('AudioBarContainer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    audioElements = [];
     mockPlay.mockResolvedValue(undefined);
     mockPause.mockReturnValue(undefined);
     mockLoad.mockReturnValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
   });
 
   describe('渲染', () => {
@@ -162,10 +160,8 @@ describe('AudioBarContainer', () => {
       // 查找进度条容器并点击（收缩面板就是进度条容器）
       const progressSlider = screen.getByRole('slider', { name: /进度/i });
       const progressContainer = progressSlider.closest('[class*="MuiStack"]') || progressSlider.closest('div');
-      
-      if (progressContainer) {
-        await user.click(progressContainer);
-      }
+      expect(progressContainer).toBeTruthy();
+      await user.click(progressContainer);
 
       // 验证播放按钮仍然存在（说明展开功能正常）
       await waitFor(() => {
