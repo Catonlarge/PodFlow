@@ -1,6 +1,11 @@
 # PodFlow 单元测试运行脚本
 # Purpose: 运行前端和后端的单元测试，并生成测试报告
 
+# 设置 UTF-8 编码以正确显示中文
+chcp 65001 | Out-Null
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 $ErrorActionPreference = "Stop"
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -63,6 +68,9 @@ Write-Host "----------------------------------------" -ForegroundColor Cyan
 Write-Host "  运行后端单元测试" -ForegroundColor Cyan
 Write-Host "----------------------------------------" -ForegroundColor Cyan
 Write-Host ""
+
+# Set UTF-8 encoding for Python output (fix Chinese character display issues)
+$env:PYTHONIOENCODING = 'utf-8'
 
 # Activate virtual environment and run backend unit tests
 Push-Location $BackendDir

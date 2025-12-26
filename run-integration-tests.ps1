@@ -1,6 +1,11 @@
 # PodFlow 集成测试运行脚本
 # Purpose: 运行前端和后端的集成测试，并生成测试报告
 
+# 设置 UTF-8 编码以正确显示中文
+chcp 65001 | Out-Null
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 $ErrorActionPreference = "Stop"
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -65,6 +70,9 @@ Write-Host "----------------------------------------" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "注意: 集成测试可能需要较长时间，请耐心等待..." -ForegroundColor Yellow
 Write-Host ""
+
+# Set UTF-8 encoding for Python output (fix Chinese character display issues)
+$env:PYTHONIOENCODING = 'utf-8'
 
 # Activate virtual environment and run backend integration tests
 Push-Location $BackendDir
