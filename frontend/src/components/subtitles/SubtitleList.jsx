@@ -29,6 +29,7 @@ import { getMockCues } from '../../services/subtitleService';
  * @param {string} [props.audioUrl] - 音频 URL（用于后续对接 API）
  * @param {number} [props.episodeId] - Episode ID（用于后续对接 API）
  * @param {React.RefObject} [props.scrollContainerRef] - 外部滚动容器引用（如果提供，将使用外部容器滚动；否则使用内部滚动）
+ * @param {boolean} [props.isInteracting] - 用户是否正在进行交互操作（划线、查询卡片展示等），用于阻断自动滚动
  */
 export default function SubtitleList({
   cues: propsCues,
@@ -39,6 +40,7 @@ export default function SubtitleList({
   episodeId,
   scrollContainerRef,
   isUserScrollingRef: externalIsUserScrollingRef,
+  isInteracting = false,
 }) {
   const [cues, setCues] = useState(propsCues || []);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -136,6 +138,11 @@ export default function SubtitleList({
       return;
     }
 
+    // 如果用户正在进行交互操作（划线、查询卡片展示等），不执行自动滚动
+    if (isInteracting) {
+      return;
+    }
+
     if (currentSubtitleIndex !== null && containerRef.current) {
       const ref = subtitleRefs.current[currentSubtitleIndex];
       if (ref && ref.current) {
@@ -167,7 +174,7 @@ export default function SubtitleList({
         }
       }
     }
-  }, [currentSubtitleIndex, containerRef, isUserScrollingRef]);
+      }, [currentSubtitleIndex, containerRef, isUserScrollingRef, isInteracting]);
 
   /**
    * 监听用户滚动事件（仅当使用内部滚动容器时）
@@ -295,6 +302,8 @@ export default function SubtitleList({
                 isPast={isPast}
                 onClick={onCueClick}
                 showSpeaker={false}
+                showTranslation={showTranslation}
+                currentTime={currentTime}
               />
             );
           }

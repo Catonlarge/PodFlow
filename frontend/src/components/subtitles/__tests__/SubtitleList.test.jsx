@@ -213,5 +213,42 @@ describe('SubtitleList', () => {
       expect(handleCueClick).toBeDefined();
     });
   });
+
+  describe('交互阻断', () => {
+    it('应该接受 isInteracting prop', async () => {
+      render(
+        <SubtitleList
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          isInteracting={true}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      });
+
+      // 测试通过意味着组件能够接受 isInteracting prop 而不报错
+      expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+    });
+
+    it('应该在 isInteracting 为 false 时正常工作', async () => {
+      render(
+        <SubtitleList
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          isInteracting={false}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+    });
+  });
 });
 

@@ -4,6 +4,50 @@
 
 ---
 
+## [2025-01-27] [fix] - 修复字幕组件 Code Review 问题：布局稳定性、翻译渲染和滚动阻断
+
+**变更内容**：
+- 修复 `components/layout/EpisodeHeader.jsx`：添加严格的高度锁定（`minHeight`、`maxHeight`）和溢出处理，防止标题换行导致布局崩坏
+- 修复 `components/subtitles/SubtitleList.jsx`：
+  - 添加 `isInteracting` prop 用于阻断自动滚动（当用户进行划线、查询卡片等操作时）
+  - 传递 `showTranslation` 和 `currentTime` 给 `SubtitleRow`
+- 修复 `components/subtitles/SubtitleRow.jsx`：
+  - 接收并渲染翻译文本（符合 PRD 6.2.4.a.ii：中文翻译和英文字幕左对齐，行距8px）
+  - 更新 `React.memo` 比较函数，包含 `showTranslation` 和 `translation` 字段
+  - 接收 `currentTime` prop（为后续单词级高亮做准备）
+
+**问题描述**：
+- **布局回归风险**：`EpisodeHeader` 缺少严格的高度锁定，标题换行可能导致 Header 高度撑开，遮挡字幕列表
+- **翻译未渲染**：`SubtitleList` 有 `showTranslation` 状态，但未传递给 `SubtitleRow`，导致翻译功能无法使用
+- **滚动阻断缺失**：缺少对用户交互操作（划线、查询卡片）的检测，无法在交互时暂停自动滚动
+
+**技术实现**：
+- **EpisodeHeader**：
+  - 添加 `minHeight: '80px'`、`maxHeight: '80px'` 严格锁定高度
+  - 添加 `overflow: 'hidden'` 防止内容溢出
+  - 已有 `noWrap` 和 `Tooltip` 处理文本溢出
+- **SubtitleList**：
+  - 新增 `isInteracting` prop（默认 `false`），在自动滚动逻辑中检查此状态
+  - 传递 `showTranslation={showTranslation}` 和 `currentTime={currentTime}` 给 `SubtitleRow`
+- **SubtitleRow**：
+  - 新增 `showTranslation` 和 `currentTime` props
+  - 当 `showTranslation` 为 `true` 且 `cue.translation` 存在时，在英文字幕下方渲染翻译文本
+  - 翻译文本样式：`fontSize: '15px'`，`lineHeight: 1.5`，支持自动换行
+  - 使用 `Box` 容器包裹字幕和翻译，设置 `gap: 1`（8px）实现行距要求
+  - 更新 `React.memo` 比较逻辑，包含新 props 的比较
+
+**影响**：
+- ✅ 解决了布局稳定性问题，防止 Header 高度变化导致页面布局崩坏
+- ✅ 实现了翻译功能的基础渲染逻辑，符合 PRD 要求
+- ✅ 为后续 `SelectionMenu` 和 `AICard` 的集成预留了滚动阻断接口
+- ✅ 数据字段一致性确认：所有组件统一使用 `start_time`/`end_time`（而非 `start`/`end`）
+
+**后续工作**：
+- 单词级高亮功能（根据 `currentTime` 和单词级时间戳实现逐词高亮）
+- 集成 `SelectionMenu` 和 `AICard` 时，设置 `isInteracting={true}` 来阻断滚动
+
+---
+
 ## [2025-01-27] [fix] - 修复滚动问题：实现字幕区域和笔记区域统一滚动
 
 **变更内容**：

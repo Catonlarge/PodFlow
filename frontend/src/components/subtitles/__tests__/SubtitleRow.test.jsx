@@ -146,6 +146,58 @@ describe('SubtitleRow', () => {
     });
   });
 
+  describe('翻译显示', () => {
+    const cueWithTranslation = {
+      ...mockCue,
+      translation: '这是一个测试字幕文本。',
+    };
+
+    it('应该在 showTranslation 为 true 且有翻译时显示翻译', () => {
+      render(
+        <SubtitleRow
+          cue={cueWithTranslation}
+          index={0}
+          isHighlighted={false}
+          isPast={false}
+          showTranslation={true}
+        />
+      );
+
+      expect(screen.getByText('这是一个测试字幕文本。')).toBeInTheDocument();
+      expect(screen.getByText('This is a test subtitle text.')).toBeInTheDocument();
+    });
+
+    it('应该在 showTranslation 为 false 时不显示翻译', () => {
+      render(
+        <SubtitleRow
+          cue={cueWithTranslation}
+          index={0}
+          isHighlighted={false}
+          isPast={false}
+          showTranslation={false}
+        />
+      );
+
+      expect(screen.queryByText('这是一个测试字幕文本。')).not.toBeInTheDocument();
+      expect(screen.getByText('This is a test subtitle text.')).toBeInTheDocument();
+    });
+
+    it('应该在 cue 没有 translation 字段时不显示翻译', () => {
+      render(
+        <SubtitleRow
+          cue={mockCue}
+          index={0}
+          isHighlighted={false}
+          isPast={false}
+          showTranslation={true}
+        />
+      );
+
+      expect(screen.queryByText('这是一个测试字幕文本。')).not.toBeInTheDocument();
+      expect(screen.getByText('This is a test subtitle text.')).toBeInTheDocument();
+    });
+  });
+
   describe('属性传递', () => {
     it('应该正确设置 data-subtitle-id 属性', () => {
       const { container } = render(

@@ -22,12 +22,14 @@ import { formatTime } from '../../utils/timeUtils';
  * @module components/subtitles/SubtitleRow
  * 
  * @param {Object} props
- * @param {Object} props.cue - 字幕数据 { id, start_time, end_time, speaker, text }
+ * @param {Object} props.cue - 字幕数据 { id, start_time, end_time, speaker, text, translation? }
  * @param {number} props.index - 字幕索引（用于排序）
  * @param {boolean} props.isHighlighted - 是否高亮（当前播放）
  * @param {boolean} props.isPast - 是否已播放过
  * @param {Function} [props.onClick] - 点击回调函数 (startTime) => void
  * @param {boolean} [props.showSpeaker] - 是否显示 speaker 标签
+ * @param {boolean} [props.showTranslation] - 是否显示翻译
+ * @param {number} [props.currentTime] - 当前播放时间（用于单词级高亮，可选）
  */
 const SubtitleRow = forwardRef(function SubtitleRow({
   cue,
@@ -36,6 +38,8 @@ const SubtitleRow = forwardRef(function SubtitleRow({
   isPast,
   onClick,
   showSpeaker = false,
+  showTranslation = false,
+  currentTime = 0,
 }, ref) {
   if (!cue) {
     return null;
@@ -112,20 +116,47 @@ const SubtitleRow = forwardRef(function SubtitleRow({
         {formatTime(cue.start_time)}
       </Typography>
 
-      {/* 字幕文本 */}
-      <Typography
-        variant="body1"
-        component="div"
+      {/* 字幕文本容器 */}
+      <Box
         sx={{
-          fontSize: '15px',
-          color: isHighlighted ? 'text.primary' : 'text.secondary',
-          fontWeight: isHighlighted ? 500 : 400,
-          lineHeight: 1.5,
           flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: showTranslation && cue.translation ? 1 : 0, // 8px gap when translation is shown
         }}
       >
-        {cue.text}
-      </Typography>
+        {/* 英文字幕文本 */}
+        <Typography
+          variant="body1"
+          component="div"
+          sx={{
+            fontSize: '15px',
+            color: isHighlighted ? 'text.primary' : 'text.secondary',
+            fontWeight: isHighlighted ? 500 : 400,
+            lineHeight: 1.5,
+          }}
+        >
+          {cue.text}
+        </Typography>
+
+        {/* 中文翻译（根据 PRD 6.2.4.a.ii：左对齐，行距8px） */}
+        {showTranslation && cue.translation && (
+          <Typography
+            variant="body2"
+            component="div"
+            sx={{
+              fontSize: '15px',
+              color: 'text.secondary',
+              fontWeight: 400,
+              lineHeight: 1.5,
+              whiteSpace: 'normal',
+              wordWrap: 'break-word',
+            }}
+          >
+            {cue.translation}
+          </Typography>
+        )}
+      </Box>
     </Box>
   );
 });
@@ -137,8 +168,12 @@ export default memo(SubtitleRow, (prevProps, nextProps) => {
     prevProps.isHighlighted === nextProps.isHighlighted &&
     prevProps.isPast === nextProps.isPast &&
     prevProps.showSpeaker === nextProps.showSpeaker &&
+    prevProps.showTranslation === nextProps.showTranslation &&
     prevProps.cue?.text === nextProps.cue?.text &&
+    prevProps.cue?.translation === nextProps.cue?.translation &&
     prevProps.cue?.start_time === nextProps.cue?.start_time &&
-    prevProps.cue?.speaker === nextProps.cue?.speaker
+    prevProps.cue?.speaker === nextProps.cue?.speaker &&
+    // currentTime 变化时，只有当前高亮的字幕需要重渲染（用于单词级高亮）
+    (prevProps.isHighlighted === false || prevProps.currentTime === nextProps.currentTime)
   );
 });

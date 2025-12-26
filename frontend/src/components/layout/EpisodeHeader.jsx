@@ -38,9 +38,13 @@ export default function EpisodeHeader({ episodeTitle, showName }) {
         borderBottom: 1,
         borderColor: 'divider',
         height: '80px',
+        minHeight: '80px',
+        maxHeight: '80px',
         px: 3,
         display: 'flex',
         alignItems: 'center',
+        overflow: 'hidden',
+        boxSizing: 'border-box',
       }}
     >
       <Box
