@@ -1,3 +1,4 @@
+# Python 版本要求: 3.8+
 # FastAPI 核心依赖
 fastapi>=0.127.0
 uvicorn[standard]>=0.40.0
