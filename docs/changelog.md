@@ -4,6 +4,41 @@
 
 ---
 
+## [2025-01-27] [feat] - 实现字幕识别进度遮罩组件 ProcessingOverlay（Task 2.9）
+
+**变更内容**：
+- **前端组件**：
+  - 实现 `frontend/src/components/upload/ProcessingOverlay.jsx`：进度遮罩组件
+    - 支持三种处理类型：音频上传（upload）、字幕加载（load）、字幕识别（recognize）
+    - 显示处理状态提示文字和进度条
+    - 错误状态显示和重试功能
+    - 字幕识别暂停/继续控制按钮（方形/三角形切换）
+    - 按钮三状态样式（Normal/Hover/Active）
+  - 创建 `frontend/src/components/upload/__tests__/ProcessingOverlay.test.jsx`：22 个测试用例
+    - 遮罩渲染测试（5个）
+    - 音频上传进度测试（2个）
+    - 字幕加载进度测试（2个）
+    - 字幕识别进度测试（6个）
+    - 错误状态测试（4个）
+    - 重试逻辑测试（1个）
+    - 按钮三状态测试（2个）
+  - 测试通过率：22/22（100%）
+
+**技术实现**：
+- **进度显示**：使用 MUI LinearProgress 组件，支持 0-100 的进度值
+- **错误处理**：错误状态时显示错误提示和重试图标（Refresh 图标）
+- **控制按钮**：仅 recognize 类型显示，使用 Stop（方形）和 PlayArrow（三角形）图标切换
+- **样式设计**：半透明黑色遮罩背景，居中白色内容区域，圆角设计
+- **三状态按钮**：Normal（默认）、Hover（背景色加深）、Active（缩放效果）
+
+**PRD 对应**：
+- PRD 6.1.2: 音频处理逻辑和loading界面（159-192行）
+
+**测试结果**：
+- ✅ 22/22 个测试用例全部通过
+
+---
+
 ## [2025-01-27] [feat] - 实现文件上传弹窗组件 FileImportModal（Task 2.8）
 
 **变更内容**：
