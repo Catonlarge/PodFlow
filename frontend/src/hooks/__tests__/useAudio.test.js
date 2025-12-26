@@ -491,5 +491,95 @@ describe('useAudio', () => {
       consoleErrorSpy.mockRestore();
       alertSpy.mockRestore();
     });
+
+    it('应该处理空 URL 的情况', () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      
+      const { result, rerender } = renderHook(
+        (props) => useAudio(props),
+        { initialProps: { audioUrl: mockAudioUrl } }
+      );
+
+      const mockAudio = createMockAudioElement();
+      result.current.audioRef.current = mockAudio;
+
+      // 清除之前的调用记录
+      consoleWarnSpy.mockClear();
+
+      // 通过改变 audioUrl 为空字符串来触发 useEffect
+      rerender({ audioUrl: '' });
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('audioUrl 为空'));
+      expect(mockAudio.load).not.toHaveBeenCalled();
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('应该处理网络错误后恢复的情况', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+
+      const { result, rerender } = renderHook(
+        (props) => useAudio(props),
+        { initialProps: { audioUrl: 'http://invalid-url.com/audio.mp3' } }
+      );
+
+      const mockAudio = createMockAudioElement();
+      
+      // 模拟第一次加载失败（网络错误）
+      const mockNetworkError = {
+        code: 2,
+        MEDIA_ERR_ABORTED: 1,
+        MEDIA_ERR_NETWORK: 2,
+        MEDIA_ERR_DECODE: 3,
+        MEDIA_ERR_SRC_NOT_SUPPORTED: 4,
+      };
+
+      Object.defineProperty(mockAudio, 'error', {
+        writable: true,
+        value: mockNetworkError,
+        configurable: true,
+      });
+
+      setupMockAudioAndRerender(result, rerender, mockAudio, { audioUrl: 'http://invalid-url.com/audio.mp3' });
+
+      // 触发 error 事件
+      await triggerAudioEvent(mockAudio, 'error', new Event('error'));
+
+      await waitFor(() => {
+        expect(consoleErrorSpy).toHaveBeenCalled();
+      });
+
+      // 清除错误，模拟网络恢复
+      Object.defineProperty(mockAudio, 'error', {
+        writable: true,
+        value: null,
+        configurable: true,
+      });
+
+      // 重置 mock
+      mockAudio.load.mockClear();
+      consoleErrorSpy.mockClear();
+      alertSpy.mockClear();
+
+      // 使用新的有效 URL 重新加载
+      const validAudioUrl = 'http://localhost:8000/static/audio/valid.mp3';
+      setupMockAudioAndRerender(result, rerender, mockAudio, { audioUrl: validAudioUrl });
+
+      // 验证音频尝试重新加载
+      await waitFor(() => {
+        expect(mockAudio.load).toHaveBeenCalled();
+      });
+
+      // 模拟成功加载
+      await triggerAudioEvent(mockAudio, 'loadedmetadata');
+
+      await waitFor(() => {
+        expect(result.current.duration).toBeGreaterThan(0);
+      });
+
+      consoleErrorSpy.mockRestore();
+      alertSpy.mockRestore();
+    });
   });
 });

@@ -64,6 +64,11 @@ export default function MainLayout({
   // 用户滚动状态（用于 SubtitleList 的自动滚动暂停逻辑）
   const userScrollTimeoutRef = useRef(null);
   const isUserScrollingRef = useRef(false);
+  
+  // 用户交互状态（用于 SubtitleList 的自动滚动暂停逻辑）
+  // 当用户进行划线、查询卡片展示等操作时，需要暂停自动滚动
+  // TODO: 当 SelectionMenu 实现后，需要根据其打开状态更新 isInteracting
+  const [isInteracting, setIsInteracting] = useState(false);
 
   // 处理主体区域滚动（用于 SubtitleList 的用户滚动检测）
   const handleMainScroll = useCallback(() => {
@@ -157,6 +162,11 @@ export default function MainLayout({
       />
 
       {/* 主体区域：左右分栏（统一滚动容器） */}
+      {/* 
+        布局说明：使用 position: fixed 配合 top 和 bottom 自动计算高度
+        这是正确的做法，避免了使用 height: calc(100vh - HEADER_HEIGHT) 可能导致的双重滚动条问题
+        当使用 height: 90vh + marginTop: 80px 时，总高度会超过 100vh，导致页面出现全局滚动条
+      */}
       <Box
         component="main"
         ref={mainScrollRef}
@@ -199,6 +209,7 @@ export default function MainLayout({
             episodeId={episodeId}
             scrollContainerRef={mainScrollRef}
             isUserScrollingRef={isUserScrollingRef}
+            isInteracting={isInteracting}
           />
         </Box>
 

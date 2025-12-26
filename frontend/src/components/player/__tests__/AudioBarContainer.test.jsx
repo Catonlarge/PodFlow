@@ -44,6 +44,7 @@ describe('AudioBarContainer', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   describe('渲染', () => {
@@ -64,7 +65,7 @@ describe('AudioBarContainer', () => {
       expect(audioElement).toHaveAttribute('src', mockAudioUrl);
     });
 
-    it('应该渲染收缩态当 isIdle 为 true 时', { timeout: 10000 }, async () => {
+    it('应该渲染收缩态当 isIdle 为 true 时', async () => {
       const { act } = await import('@testing-library/react');
       vi.useFakeTimers();
 
@@ -85,16 +86,10 @@ describe('AudioBarContainer', () => {
         audioElement.dispatchEvent(playEvent);
       });
 
-      // 等待播放按钮出现（使用真实定时器）
-      vi.useRealTimers();
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /暂停/i })).toBeInTheDocument();
-      }, { timeout: 2000 });
-
-      // 切换回 fake timers 来测试空闲检测
-      vi.useFakeTimers();
+      // 验证播放按钮出现
+      expect(screen.getByRole('button', { name: /暂停/i })).toBeInTheDocument();
       
-      // 快进 4 秒（超过 3 秒延迟）
+      // 快进 4 秒（超过 3 秒延迟）使播放器进入空闲状态
       await act(async () => {
         vi.advanceTimersByTime(4000);
       });
@@ -104,19 +99,17 @@ describe('AudioBarContainer', () => {
         vi.advanceTimersByTime(1000);
       });
 
-      // 切换回真实定时器来等待 DOM 更新
+      // 验证进度条仍然存在（收缩态仍然显示进度条）
+      expect(screen.getByRole('slider', { name: /进度/i })).toBeInTheDocument();
+      
       vi.useRealTimers();
-      await waitFor(() => {
-        // 验证进度条仍然存在（收缩态仍然显示进度条）
-        expect(screen.getByRole('slider', { name: /进度/i })).toBeInTheDocument();
-      }, { timeout: 2000 });
-    }, { timeout: 10000 });
+    });
   });
 
   describe('收缩/展开逻辑', () => {
-    it('应该展开当点击收缩面板时', { timeout: 10000 }, async () => {
+    it('应该展开当点击收缩面板时', async () => {
       const { act } = await import('@testing-library/react');
-      const user = userEvent.setup({ delay: null });
+      const user = userEvent.setup({ delay: null, advanceTimers: vi.advanceTimersByTime });
       vi.useFakeTimers();
 
       render(<AudioBarContainer audioUrl={mockAudioUrl} />);
@@ -136,14 +129,8 @@ describe('AudioBarContainer', () => {
         audioElement.dispatchEvent(playEvent);
       });
 
-      // 等待播放按钮出现（使用真实定时器）
-      vi.useRealTimers();
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /暂停/i })).toBeInTheDocument();
-      }, { timeout: 2000 });
-
-      // 切换回 fake timers 来测试空闲检测
-      vi.useFakeTimers();
+      // 验证播放按钮出现
+      expect(screen.getByRole('button', { name: /暂停/i })).toBeInTheDocument();
       
       // 快进 4 秒使其收缩
       await act(async () => {
@@ -153,26 +140,28 @@ describe('AudioBarContainer', () => {
       await act(async () => {
         vi.advanceTimersByTime(1000);
       });
-
-      // 切换回真实定时器来等待 DOM 更新和点击
-      vi.useRealTimers();
       
       // 查找进度条容器并点击（收缩面板就是进度条容器）
       const progressSlider = screen.getByRole('slider', { name: /进度/i });
       const progressContainer = progressSlider.closest('[class*="MuiStack"]') || progressSlider.closest('div');
       expect(progressContainer).toBeTruthy();
-      await user.click(progressContainer);
+      
+      await act(async () => {
+        await user.click(progressContainer);
+      });
 
       // 验证播放按钮仍然存在（说明展开功能正常）
-      await waitFor(() => {
-        const playButtons = screen.getAllByRole('button');
-        const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放' || btn.getAttribute('aria-label') === '暂停');
-        expect(playButton).toBeInTheDocument();
-      }, { timeout: 2000 });
-    }, { timeout: 10000 });
+      const playButtons = screen.getAllByRole('button');
+      const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放' || btn.getAttribute('aria-label') === '暂停');
+      expect(playButton).toBeInTheDocument();
+      
+      vi.useRealTimers();
+    });
 
-    it('应该立即展开当暂停时', { timeout: 10000 }, async () => {
+    it('应该立即展开当暂停时', async () => {
       const { act } = await import('@testing-library/react');
+      vi.useFakeTimers();
+      
       render(<AudioBarContainer audioUrl={mockAudioUrl} />);
 
       const audioElement = document.querySelector('audio');
@@ -189,9 +178,7 @@ describe('AudioBarContainer', () => {
         audioElement.dispatchEvent(playEvent);
       });
 
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /暂停/i })).toBeInTheDocument();
-      }, { timeout: 2000 });
+      expect(screen.getByRole('button', { name: /暂停/i })).toBeInTheDocument();
 
       // 触发 pause 事件
       Object.defineProperty(audioElement, 'paused', {
@@ -206,18 +193,17 @@ describe('AudioBarContainer', () => {
       });
 
       // 暂停后应该立即展开面板（播放按钮应该出现）
-      await waitFor(() => {
-        const playButtons = screen.getAllByRole('button');
-        const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放');
-        expect(playButton).toBeInTheDocument();
-      }, { timeout: 2000 });
-    }, { timeout: 10000 });
+      const playButtons = screen.getAllByRole('button');
+      const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放');
+      expect(playButton).toBeInTheDocument();
+      
+      vi.useRealTimers();
+    });
   });
 
   describe('鼠标悬停', () => {
-    it('应该展开当鼠标悬停在播放器上时', { timeout: 10000 }, async () => {
+    it('应该展开当鼠标悬停在播放器上时', async () => {
       const { act } = await import('@testing-library/react');
-      const user = userEvent.setup({ delay: null });
       vi.useFakeTimers();
 
       render(<AudioBarContainer audioUrl={mockAudioUrl} />);
@@ -237,14 +223,8 @@ describe('AudioBarContainer', () => {
         audioElement.dispatchEvent(playEvent);
       });
 
-      // 等待播放按钮出现（使用真实定时器）
-      vi.useRealTimers();
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /暂停/i })).toBeInTheDocument();
-      }, { timeout: 2000 });
-
-      // 切换回 fake timers 来测试空闲检测
-      vi.useFakeTimers();
+      // 验证播放按钮出现
+      expect(screen.getByRole('button', { name: /暂停/i })).toBeInTheDocument();
       
       // 快进 4 秒使其收缩
       await act(async () => {
@@ -254,21 +234,20 @@ describe('AudioBarContainer', () => {
       await act(async () => {
         vi.advanceTimersByTime(1000);
       });
-
-      // 切换回真实定时器来等待 DOM 更新
-      vi.useRealTimers();
       
       // 模拟鼠标进入（通过触发 mousemove 事件）
-      const mousemoveEvent = new Event('mousemove');
-      window.dispatchEvent(mousemoveEvent);
+      await act(async () => {
+        const mousemoveEvent = new Event('mousemove');
+        window.dispatchEvent(mousemoveEvent);
+      });
 
       // 应该展开（播放按钮应该存在）
-      await waitFor(() => {
-        const playButtons = screen.getAllByRole('button');
-        const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放' || btn.getAttribute('aria-label') === '暂停');
-        expect(playButton).toBeInTheDocument();
-      }, { timeout: 2000 });
-    }, { timeout: 10000 });
+      const playButtons = screen.getAllByRole('button');
+      const playButton = playButtons.find(btn => btn.getAttribute('aria-label') === '播放' || btn.getAttribute('aria-label') === '暂停');
+      expect(playButton).toBeInTheDocument();
+      
+      vi.useRealTimers();
+    });
   });
 });
 
