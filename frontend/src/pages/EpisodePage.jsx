@@ -31,65 +31,65 @@ export default function EpisodePage() {
   const [error, setError] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
 
+  // 从环境变量或 api.js 获取 Base URL（避免硬编码）
+  // 优先使用环境变量，否则从 api 实例获取 baseURL，最后使用默认值
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || api.defaults.baseURL || 'http://localhost:8000';
+
   // 获取 Episode 数据
-  const fetchEpisode = useCallback(async () => {
+  // 注意：只有在没有数据时才全页 Loading，避免轮询时页面闪烁
+  const fetchEpisode = useCallback(async (isInitialLoad = false) => {
     try {
-      setLoading(true);
+      // 只有在首次加载时才显示全页 Loading
+      if (isInitialLoad) {
+        setLoading(true);
+      }
       setError(null);
+      
       const data = await subtitleService.getEpisode(episodeId);
       setEpisode(data);
       
-      // 处理音频 URL
+      // 处理音频 URL（健壮的 URL 拼接）
       if (data.audio_path) {
-        const baseUrl = 'http://localhost:8000';
         // 从 audio_path 中提取文件名（file_hash + extension）
         // audio_path 可能是绝对路径（Windows: D:\...\data\audios\xxx.mp3）或相对路径（./data/audios/xxx.mp3）
         const pathParts = data.audio_path.split(/[/\\]/);
         const filename = pathParts[pathParts.length - 1];
-        // 构建静态文件 URL: /static/audio/{filename}
-        const url = `${baseUrl}/static/audio/${filename}`;
+        // 如果 audio_path 已经是完整 URL，直接使用；否则拼接
+        const url = data.audio_path.startsWith('http') 
+          ? data.audio_path 
+          : new URL(`/static/audio/${filename}`, API_BASE_URL).href;
         setAudioUrl(url);
       }
     } catch (err) {
       setError(err);
     } finally {
-      setLoading(false);
+      if (isInitialLoad) {
+        setLoading(false);
+      }
     }
-  }, [episodeId]);
+  }, [episodeId, API_BASE_URL]);
 
   // 初始加载
   useEffect(() => {
     if (episodeId) {
-      fetchEpisode();
+      fetchEpisode(true); // 首次加载，显示 Loading
     }
   }, [episodeId, fetchEpisode]);
 
   // 轮询转录状态
+  // 优化：直接复用 fetchEpisode 进行轮询，避免调用可能不存在的 /status 接口
   useEffect(() => {
-    if (!episode || episode.transcription_status !== 'processing') {
+    if (!episode || episode.transcription_status === 'completed') {
       return;
     }
 
-    const interval = setInterval(async () => {
-      try {
-        const statusResponse = await api.get(`/api/episodes/${episodeId}/status`);
-        setEpisode(prev => ({
-          ...prev,
-          transcription_status: statusResponse.transcription_status,
-          transcription_progress: statusResponse.transcription_progress,
-        }));
-
-        if (statusResponse.transcription_status === 'completed') {
-          fetchEpisode();
-          clearInterval(interval);
-        }
-      } catch (err) {
-        console.error('[EpisodePage] 轮询状态失败:', err);
-      }
-    }, 3000); // 每 3 秒轮询一次
+    const interval = setInterval(() => {
+      // 轮询时调用 fetchEpisode，但不显示全页 Loading（isInitialLoad=false）
+      fetchEpisode(false);
+    }, 3000);
 
     return () => clearInterval(interval);
-  }, [episode, episodeId, fetchEpisode]);
+  }, [episode?.transcription_status, fetchEpisode]);
 
   // 错误处理
   if (error) {
@@ -104,7 +104,7 @@ export default function EpisodePage() {
         <Alert 
           severity="error" 
           action={
-            <Button onClick={fetchEpisode} size="small">
+            <Button onClick={() => fetchEpisode(true)} size="small">
               重试
             </Button>
           }
@@ -128,11 +128,13 @@ export default function EpisodePage() {
   }
 
   // 正常渲染
+  // 关键：必须传递 episodeId，以便 MainLayout 传给 SubtitleList 加载字幕
   return (
     <MainLayout
       episodeTitle={episode.title}
       showName={episode.show_name || '本地音频'}
       audioUrl={audioUrl}
+      episodeId={episodeId}
     />
   );
 }

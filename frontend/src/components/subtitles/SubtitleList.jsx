@@ -3,7 +3,7 @@ import { Box, IconButton } from '@mui/material';
 import { Translate as TranslateIcon } from '@mui/icons-material';
 import SubtitleRow from './SubtitleRow';
 import { useSubtitleSync } from '../../hooks/useSubtitleSync';
-import { getMockCues } from '../../services/subtitleService';
+import { getMockCues, getCuesByEpisodeId } from '../../services/subtitleService';
 
 /**
  * SubtitleList 组件
@@ -62,17 +62,30 @@ export default function SubtitleList({
     cues,
   });
 
-  // 加载字幕数据（如果没有传入 cues，使用 mock 数据）
+  // 加载字幕数据
+  // 优先级：propsCues > episodeId > mock 数据
   useEffect(() => {
     if (propsCues) {
+      // 如果传入了 cues prop，直接使用
       setCues(propsCues);
+    } else if (episodeId) {
+      // 如果有 episodeId，从 API 加载字幕数据
+      getCuesByEpisodeId(episodeId).then((cues) => {
+        setCues(cues);
+      }).catch((error) => {
+        console.error('[SubtitleList] 加载字幕失败，使用 mock 数据:', error);
+        // 如果 API 失败，降级到 mock 数据
+        getMockCues().then((mockCues) => {
+          setCues(mockCues);
+        });
+      });
     } else {
-      // 使用 mock 数据
+      // 既没有 cues 也没有 episodeId，使用 mock 数据
       getMockCues().then((mockCues) => {
         setCues(mockCues);
       });
     }
-  }, [propsCues]);
+  }, [propsCues, episodeId]);
 
   /**
    * 处理 speaker 分组，为每个新的 speaker 添加 speaker 标签

@@ -4,6 +4,41 @@
 
 ---
 
+## [2025-01-27] [feat] - 优化 EpisodePage 数据传递和轮询逻辑
+
+**变更内容**：
+- 优化 `pages/EpisodePage.jsx`：
+  - **修复字幕数据传递**：添加 `episodeId` prop 传递给 `MainLayout`，确保字幕能够正确加载
+  - **修复硬编码 API URL**：使用环境变量 `VITE_API_BASE_URL` 或从 `api.js` 获取 baseURL，避免硬编码
+  - **优化轮询逻辑**：`fetchEpisode` 接受 `isInitialLoad` 参数，只在首次加载时显示全页 Loading，轮询时静默更新，避免页面闪烁
+  - **简化轮询 API**：直接复用 `fetchEpisode` 进行轮询，移除对可能不存在的 `/status` 接口的依赖
+- 更新 `components/layout/MainLayout.jsx`：
+  - 接收 `episodeId` prop 并传递给 `SubtitleList` 组件
+- 更新 `components/subtitles/SubtitleList.jsx`：
+  - 根据 `episodeId` 自动加载字幕数据，优先级：`propsCues` > `episodeId` > `mock 数据`
+  - 导入 `getCuesByEpisodeId` 方法用于 API 数据加载
+- 更新 `api.js`：
+  - 支持从环境变量 `VITE_API_BASE_URL` 读取 API 基础 URL
+
+**问题描述**：
+- **字幕无法加载**：`EpisodePage` 没有传递 `episodeId` 给 `MainLayout`，导致 `SubtitleList` 无法知道要加载哪个 Episode 的字幕
+- **硬编码 URL**：硬编码 `'http://localhost:8000'` 不利于部署和维护
+- **轮询闪烁**：轮询时触发全页 Loading，导致页面闪烁，影响用户体验
+- **API 接口不一致**：Plan 中提到轮询 `/status` 接口，但后端可能没有实现该接口
+
+**技术实现**：
+- **数据传递链路**：`EpisodePage` → `MainLayout` → `SubtitleList`，确保 `episodeId` 正确传递
+- **环境变量配置**：优先使用 `import.meta.env.VITE_API_BASE_URL`，否则从 `api.defaults.baseURL` 获取，最后使用默认值
+- **Loading 状态管理**：区分首次加载和轮询更新，只在首次加载时显示全页 Loading
+- **字幕数据加载**：`SubtitleList` 根据 `episodeId` 调用 `getCuesByEpisodeId`，失败时降级到 mock 数据
+
+**影响范围**：
+- 修复了字幕无法加载的关键问题
+- 提升了代码的可维护性和部署灵活性
+- 改善了用户体验，消除了轮询时的页面闪烁
+
+---
+
 ## [2025-01-27] [fix] - 修复字幕自动滚动逻辑：仅在不可见区域时自动滚动
 
 **变更内容**：

@@ -1,8 +1,11 @@
 import axios from 'axios';
 
 // API 基础配置
+// 优先使用环境变量，否则使用默认值
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 const api = axios.create({
-  baseURL: 'http://localhost:8000', // 后端 API 地址
+  baseURL: API_BASE_URL, // 后端 API 地址
   timeout: 30000, // 30秒超时
   headers: {
     'Content-Type': 'application/json',

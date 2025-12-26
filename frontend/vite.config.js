@@ -8,5 +8,6 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './setupTests.js',
+    testTimeout: 10000, // 10秒超时，用于轮询测试
   },
 })

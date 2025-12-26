@@ -25,6 +25,7 @@
  * @param {string} [props.episodeTitle] - 播客 episode 的名称，传递给 EpisodeHeader
  * @param {string} [props.showName] - episode 归属的 show/channel 名称，传递给 EpisodeHeader
  * @param {string} [props.audioUrl] - 音频文件 URL，传递给 AudioBarContainer
+ * @param {number|string} [props.episodeId] - Episode ID，传递给 SubtitleList 用于加载字幕数据
  * @param {React.ReactNode} [props.children] - 可选，用于未来扩展
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -38,6 +39,7 @@ export default function MainLayout({
   episodeTitle, 
   showName, 
   audioUrl,
+  episodeId,
   children 
 }) {
   // 定义常量，方便维护
@@ -187,7 +189,7 @@ export default function MainLayout({
             duration={duration}
             onCueClick={handleCueClick}
             audioUrl={audioUrl}
-            episodeId={undefined} // TODO: 从 props 或其他地方获取 episodeId
+            episodeId={episodeId}
             scrollContainerRef={mainScrollRef}
             isUserScrollingRef={isUserScrollingRef}
           />
