@@ -68,28 +68,10 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
     setDuration(0);
     setIsPlaying(false);
     
-    // 使用 HEAD 请求预检查文件是否存在（静默失败，不阻塞加载）
-    fetch(audioUrl, { method: 'HEAD', mode: 'cors' })
-      .then((response) => {
-        if (response.ok) {
-          console.log('[AudioPlayer] 音频 URL 可访问，状态码:', response.status);
-        } else {
-          // 静默处理：HEAD 请求失败不影响音频加载
-          // audio 元素本身会处理文件不存在的情况
-          console.warn(`[AudioPlayer] HEAD 请求返回 ${response.status}，将尝试直接加载音频`);
-        }
-        // 无论 HEAD 请求成功与否，都尝试加载音频
-        // audio 元素会处理实际的文件加载错误
-        audio.src = audioUrl;
-        audio.load();
-      })
-      .catch((error) => {
-        // 网络错误或 CORS 限制：静默降级，直接加载音频
-        // 这在开发环境中很常见（如测试环境、CORS 限制等）
-        console.warn('[AudioPlayer] HEAD 请求失败，尝试直接加载音频:', error.message);
-        audio.src = audioUrl;
-        audio.load();
-      });
+    // 直接设置音频源，利用原生的 onError 事件处理错误
+    // 避免不必要的 HEAD 请求，减少服务器负担和播放延迟
+    audio.src = audioUrl;
+    audio.load();
   }, [audioUrl]);
 
   // 初始化 audio 元素和事件监听器
@@ -351,6 +333,8 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
     resetCollapseTimer();
     const newVolume = typeof newValue === 'number' ? newValue : parseFloat(newValue);
     
+    // 当用户拖动滑块时，自动解除静音
+    // 这样用户可以直接通过拖动滑块来恢复音量，无需先点击静音按钮
     if (newVolume > 0) {
       audio.muted = false;
       audio.volume = newVolume;
@@ -358,6 +342,7 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
       setIsMuted(false);
       previousVolumeRef.current = newVolume;
     } else {
+      // 音量为 0 时，保持静音状态但不隐藏滑块
       audio.volume = 0;
       audio.muted = true;
       setVolume(0);
@@ -630,7 +615,7 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
                 {isMuted || volume === 0 ? <VolumeOff /> : <VolumeUp />}
               </IconButton>
 
-              {/* 音量滑块：静音或音量为0时隐藏但保留空间 */}
+              {/* 音量滑块：始终显示，用户可直接拖动来解除静音并调整音量 */}
               <Slider
                 aria-label="音量"
                 value={volume}
@@ -653,7 +638,8 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
                 sx={{
                   color: 'primary.main',
                   width: 100,
-                  visibility: isMuted || volume === 0 ? 'hidden' : 'visible',
+                  // 静音时降低透明度，但保持可见，让用户知道可以拖动来恢复音量
+                  opacity: isMuted || volume === 0 ? 0.5 : 1,
                   '& .MuiSlider-thumb': {
                     width: 12,
                     height: 12,
