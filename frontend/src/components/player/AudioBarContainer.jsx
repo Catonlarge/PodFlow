@@ -13,9 +13,10 @@ import MiniAudioBar from './MiniAudioBar';
  * @param {Object} props
  * @param {string} props.audioUrl - 音频文件 URL（必需）
  * @param {Function} [props.onTimeUpdate] - 时间更新回调函数 (currentTime) => void
+ * @param {Function} [props.onDurationChange] - 时长更新回调函数 (duration) => void
  * @param {number} [props.initialVolume=0.8] - 初始音量（0-1，默认 0.8）
  */
-export default function AudioBarContainer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
+export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationChange, initialVolume = 0.8 }) {
   const [isHovering, setIsHovering] = useState(false);
   const resetIdleTimerRef = useRef(null);
 
@@ -30,6 +31,7 @@ export default function AudioBarContainer({ audioUrl, onTimeUpdate, initialVolum
   const audio = useAudio({
     audioUrl,
     onTimeUpdate,
+    onDurationChange,
     initialVolume,
     onInteraction: handleInteraction,
   });

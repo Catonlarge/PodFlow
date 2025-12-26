@@ -27,6 +27,7 @@
  * @param {string} [props.audioUrl] - 音频文件 URL，传递给 AudioBarContainer
  * @param {React.ReactNode} [props.children] - 可选，用于未来扩展
  */
+import { useState } from 'react';
 import { Box } from '@mui/material';
 import EpisodeHeader from './EpisodeHeader';
 import SubtitleList from '../subtitles/SubtitleList';
@@ -42,6 +43,21 @@ export default function MainLayout({
   // 定义常量，方便维护
   const HEADER_HEIGHT = 80; // 与 EpisodeHeader 中的 height 保持一致
   const PLAYER_HEIGHT = 90; // 预估底部播放器的高度（根据 AudioBar 实际情况调整）
+
+  // 音频状态（用于传递给 SubtitleList）
+  // TODO: 后续可以通过 AudioContext 来共享音频状态，避免 props drilling
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  // 处理音频时间更新回调
+  const handleTimeUpdate = (time) => {
+    setCurrentTime(time);
+  };
+
+  // 处理音频时长更新回调
+  const handleDurationChange = (dur) => {
+    setDuration(dur);
+  };
 
   return (
     <Box
@@ -82,7 +98,17 @@ export default function MainLayout({
             pb: audioUrl ? `${PLAYER_HEIGHT + 20}px` : 2,
           }}
         >
-          <SubtitleList />
+          <SubtitleList 
+            currentTime={currentTime}
+            duration={duration}
+            onCueClick={(startTime) => {
+              // TODO: 实现字幕点击跳转播放位置
+              // 需要从 AudioBarContainer 获取 setProgress 方法
+              console.log('字幕点击，跳转到时间:', startTime);
+            }}
+            audioUrl={audioUrl}
+            episodeId={undefined} // TODO: 从 props 或其他地方获取 episodeId
+          />
         </Box>
 
         {/* 右侧：笔记区域 */}
@@ -104,7 +130,11 @@ export default function MainLayout({
 
       {/* 底部：音频控制面板 */}
       {audioUrl && (
-        <AudioBarContainer audioUrl={audioUrl} />
+        <AudioBarContainer 
+          audioUrl={audioUrl}
+          onTimeUpdate={handleTimeUpdate}
+          onDurationChange={handleDurationChange}
+        />
       )}
 
       {children}

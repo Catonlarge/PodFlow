@@ -8,11 +8,12 @@ import { useState, useRef, useEffect, useCallback } from 'react';
  * @param {Object} options
  * @param {string} options.audioUrl - 音频文件 URL（必需）
  * @param {Function} [options.onTimeUpdate] - 时间更新回调函数 (currentTime) => void
+ * @param {Function} [options.onDurationChange] - 时长更新回调函数 (duration) => void
  * @param {number} [options.initialVolume=0.8] - 初始音量（0-1，默认 0.8）
  * @param {Function} [options.onInteraction] - 用户交互回调（用于重置收缩定时器）
  * @returns {Object} 音频状态和控制方法
  */
-export function useAudio({ audioUrl, onTimeUpdate, initialVolume = 0.8, onInteraction }) {
+export function useAudio({ audioUrl, onTimeUpdate, onDurationChange, initialVolume = 0.8, onInteraction }) {
   const audioRef = useRef(null);
   
   // 状态管理
@@ -68,8 +69,12 @@ export function useAudio({ audioUrl, onTimeUpdate, initialVolume = 0.8, onIntera
     audio.volume = initialVolume;
 
     const handleLoadedMetadata = () => {
-      setDuration(audio.duration || 0);
-      console.log('[useAudio] 音频元数据加载完成，时长:', audio.duration);
+      const newDuration = audio.duration || 0;
+      setDuration(newDuration);
+      if (onDurationChange) {
+        onDurationChange(newDuration);
+      }
+      console.log('[useAudio] 音频元数据加载完成，时长:', newDuration);
     };
 
     const handleTimeUpdate = () => {
