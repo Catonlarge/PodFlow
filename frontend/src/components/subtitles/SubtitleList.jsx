@@ -227,8 +227,11 @@ export default function SubtitleList({
     <Box
       sx={{
         width: '100%',
-        height: '100%',
+        height: scrollContainerRef ? 'auto' : '100%',
+        minHeight: scrollContainerRef ? '100%' : 'auto',
         position: 'relative',
+        boxSizing: 'border-box',
+        overflow: scrollContainerRef ? 'visible' : 'hidden',
       }}
     >
       {/* 显示翻译按钮（占位，暂不实现功能） */}
@@ -257,9 +260,11 @@ export default function SubtitleList({
         data-subtitle-container={scrollContainerRef ? undefined : true}
         sx={{
           width: '100%',
-          height: '100%',
+          height: scrollContainerRef ? 'auto' : '100%',
           overflowY: scrollContainerRef ? 'visible' : 'auto',
+          overflowX: 'hidden',
           pt: 5, // 为翻译按钮留出空间
+          boxSizing: 'border-box',
         }}
       >
         {processedItems.map((item, itemIndex) => {

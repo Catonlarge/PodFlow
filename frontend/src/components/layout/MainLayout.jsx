@@ -166,6 +166,9 @@ export default function MainLayout({
             pb: 2,
             display: 'flex',
             flexDirection: 'column',
+            overflow: 'visible',
+            position: 'relative',
+            boxSizing: 'border-box',
           }}
         >
           <SubtitleList 
@@ -192,7 +195,9 @@ export default function MainLayout({
             display: { xs: 'none', md: 'flex' },
             flexDirection: 'column',
             bgcolor: 'background.paper',
-            overflow: 'hidden',
+            overflow: 'visible',
+            position: 'relative',
+            boxSizing: 'border-box',
           }}
         >
           <NoteSidebar />

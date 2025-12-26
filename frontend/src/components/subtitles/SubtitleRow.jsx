@@ -87,6 +87,9 @@ const SubtitleRow = forwardRef(function SubtitleRow({
         borderColor: isHighlighted ? 'primary.main' : 'transparent',
         borderRadius: 1,
         transition: 'all 0.2s ease-in-out',
+        boxSizing: 'border-box',
+        maxWidth: '100%',
+        width: '100%',
         '&:hover': {
           backgroundColor: 'action.hover',
         },

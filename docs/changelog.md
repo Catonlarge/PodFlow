@@ -4,6 +4,63 @@
 
 ---
 
+## [2025-01-27] [fix] - 修复滚动问题：实现字幕区域和笔记区域统一滚动
+
+**变更内容**：
+- 修复 `components/subtitles/SubtitleList.jsx`：当使用外部滚动容器时，移除高度限制和 overflow 限制，让内容自然流动
+- 优化 `components/layout/MainLayout.jsx`：将字幕区域和笔记区域的 `overflow` 从 `'hidden'` 改为 `'visible'`，确保内容可以参与主滚动容器的滚动
+
+**问题描述**：
+- 字幕区域有独立的滚动条，但用户希望字幕区域和笔记区域一起滚动
+- 笔记始终跟随字幕，所以两个区域应该使用同一个滚动容器
+
+**技术实现**：
+- **SubtitleList**：
+  - 当使用外部滚动容器时，最外层容器高度设置为 `auto`，`minHeight: '100%'` 确保最小高度
+  - `overflow` 根据是否使用外部滚动容器动态设置：外部滚动时 `'visible'`，内部滚动时 `'hidden'`
+  - 字幕列表容器在使用外部滚动时，高度设置为 `auto`，让内容自然流动
+- **MainLayout**：
+  - 字幕区域容器：`overflow: 'visible'`，让内容参与主滚动容器的滚动
+  - 笔记区域容器：`overflow: 'visible'`，同样参与主滚动容器的滚动
+  - 主滚动容器（`mainScrollRef`）统一处理两个区域的滚动
+
+**影响**：
+- 解决了字幕区域独立滚动的问题
+- 实现了字幕区域和笔记区域的统一滚动
+- 确保笔记始终跟随字幕内容，提升用户体验
+
+---
+
+## [2025-01-27] [fix] - 修复字幕高亮背景色超出字幕区域边界的问题
+
+**变更内容**：
+- 修复 `components/subtitles/SubtitleRow.jsx`：添加 `boxSizing: 'border-box'` 和宽度限制，确保高亮边框和背景色不超出容器
+- 优化 `components/layout/MainLayout.jsx`：为字幕区域容器添加 `position: 'relative'` 和 `boxSizing: 'border-box'`
+- 优化 `components/subtitles/SubtitleList.jsx`：添加 `overflow: 'hidden'` 和 `boxSizing: 'border-box'`，确保内容不超出边界
+
+**问题描述**：
+- 当字幕句子被选中并高亮时，高亮的背景色和边框会超过字幕区域和笔记区域之间的分界线
+- 分界线是固定定位的装饰线，不是真正的容器边界，导致高亮元素可能溢出到笔记区域
+
+**技术实现**：
+- **SubtitleRow**：
+  - 添加 `boxSizing: 'border-box'` 确保边框包含在宽度计算内
+  - 添加 `maxWidth: '100%'` 和 `width: '100%'` 确保元素不超出容器
+- **MainLayout（字幕区域容器）**：
+  - 添加 `position: 'relative'` 建立定位上下文
+  - 添加 `boxSizing: 'border-box'` 确保 padding 包含在宽度内
+- **SubtitleList**：
+  - 最外层容器添加 `overflow: 'hidden'` 裁剪溢出内容
+  - 字幕列表容器添加 `overflowX: 'hidden'` 防止水平溢出
+  - 所有容器添加 `boxSizing: 'border-box'` 统一盒模型
+
+**影响**：
+- 解决了高亮背景色和边框超出字幕区域边界的问题
+- 确保字幕内容严格限制在字幕区域内，不会溢出到笔记区域
+- 提高了布局的稳定性和视觉一致性
+
+---
+
 ## [2025-01-27] [refactor] - 优化布局组件：修复高度计算和内容溢出问题
 
 **变更内容**：
