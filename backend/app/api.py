@@ -545,3 +545,47 @@ def delete_episode(
     }
 
 
+# ==================== 历史字幕检查 ====================
+
+@router.get("/episodes/check-subtitle")
+def check_subtitle_by_hash(
+    file_hash: str = Query(..., description="音频文件 MD5 hash"),
+    db: Session = Depends(get_db)
+):
+    """
+    根据文件 MD5 hash 检查是否存在历史字幕
+    
+    返回:
+        {
+            "exists": true,
+            "episode_id": 1,
+            "transcript_path": "backend/data/transcripts/abc123.json"
+        }
+        或
+        {
+            "exists": false
+        }
+    """
+    episode = db.query(Episode).filter(Episode.file_hash == file_hash).first()
+    if episode and episode.transcription_status == "completed":
+        # 检查是否有字幕数据
+        cues_count = db.query(func.count(TranscriptCue.id)).filter(
+            TranscriptCue.episode_id == episode.id
+        ).scalar() or 0
+        
+        if cues_count > 0:
+            # 构建字幕文件路径（从 audio_path 推导）
+            transcript_path = None
+            if episode.audio_path:
+                # 将 audio_path 中的 "audios" 替换为 "transcripts"，扩展名改为 .json
+                transcript_path = episode.audio_path.replace("audios", "transcripts").replace(".mp3", ".json").replace(".wav", ".json")
+            
+            return {
+                "exists": True,
+                "episode_id": episode.id,
+                "transcript_path": transcript_path
+            }
+    
+    return {"exists": False}
+
+
