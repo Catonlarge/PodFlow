@@ -173,8 +173,12 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
       
       if (historicalData.exists) {
         setHistoricalSubtitle(historicalData);
+        // 自动使用历史字幕，让用户可以直接确认
+        setUseHistoricalSubtitle(true);
+        setSubtitlePath(historicalData.transcript_path || '已检测到历史字幕');
       } else {
         setHistoricalSubtitle(null);
+        setUseHistoricalSubtitle(false);
       }
     } catch (error) {
       console.error('MD5 计算失败:', error);
@@ -355,6 +359,8 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
                 onClick={() => audioInputRef.current?.click()}
                 disabled={isCalculatingMD5}
                 sx={{
+                  minWidth: '100px',
+                  whiteSpace: 'nowrap',
                   '&:hover': { bgcolor: 'action.hover' },
                   '&:active': { transform: 'scale(0.95)' },
                 }}
@@ -387,7 +393,7 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
               <Stack direction="row" spacing={1}>
                 <Button
                   size="small"
-                  variant="outlined"
+                  variant={useHistoricalSubtitle ? "contained" : "outlined"}
                   onClick={handleUseHistoricalSubtitle}
                   disabled={useHistoricalSubtitle}
                   sx={{
@@ -395,7 +401,7 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
                     '&:active': { transform: 'scale(0.95)' },
                   }}
                 >
-                  使用历史字幕
+                  {useHistoricalSubtitle ? '已选择历史字幕' : '使用历史字幕'}
                 </Button>
                 <Button
                   size="small"
@@ -449,6 +455,8 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
                 onClick={() => subtitleInputRef.current?.click()}
                 disabled={enableTranscription || useHistoricalSubtitle}
                 sx={{
+                  minWidth: '100px',
+                  whiteSpace: 'nowrap',
                   '&:hover': { bgcolor: 'action.hover' },
                   '&:active': { transform: 'scale(0.95)' },
                 }}

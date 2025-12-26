@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import EpisodePage from './pages/EpisodePage'
 import EpisodeListPage from './pages/EpisodeListPage'
+import FileImportTestPage from './pages/FileImportTestPage'
 import MainLayout from './components/layout/MainLayout'
 
 function App() {
@@ -20,6 +21,9 @@ function App() {
           />
         } 
       />
+      
+      {/* FileImportModal 测试页面 */}
+      <Route path="/test-file-import" element={<FileImportTestPage />} />
       
       {/* Episode 页面路由 */}
       <Route path="/episodes/:episodeId" element={<EpisodePage />} />
