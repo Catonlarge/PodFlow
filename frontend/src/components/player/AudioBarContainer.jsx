@@ -14,9 +14,10 @@ import MiniAudioBar from './MiniAudioBar';
  * @param {string} props.audioUrl - 音频文件 URL（必需）
  * @param {Function} [props.onTimeUpdate] - 时间更新回调函数 (currentTime) => void
  * @param {Function} [props.onDurationChange] - 时长更新回调函数 (duration) => void
+ * @param {Function} [props.onAudioControlsReady] - 音频控制方法就绪回调 (controls) => void
  * @param {number} [props.initialVolume=0.8] - 初始音量（0-1，默认 0.8）
  */
-export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationChange, initialVolume = 0.8 }) {
+export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationChange, onAudioControlsReady, initialVolume = 0.8 }) {
   const [isHovering, setIsHovering] = useState(false);
   const resetIdleTimerRef = useRef(null);
 
@@ -47,6 +48,15 @@ export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationCh
   useEffect(() => {
     resetIdleTimerRef.current = resetIdleTimer;
   }, [resetIdleTimer]);
+
+  // 当音频控制方法就绪时，通知父组件
+  useEffect(() => {
+    if (onAudioControlsReady) {
+      onAudioControlsReady({
+        setProgress: audio.setProgress,
+      });
+    }
+  }, [audio.setProgress, onAudioControlsReady]);
 
   // 处理鼠标进入播放器
   const handleMouseEnter = useCallback(() => {

@@ -27,7 +27,7 @@
  * @param {string} [props.audioUrl] - 音频文件 URL，传递给 AudioBarContainer
  * @param {React.ReactNode} [props.children] - 可选，用于未来扩展
  */
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Box } from '@mui/material';
 import EpisodeHeader from './EpisodeHeader';
 import SubtitleList from '../subtitles/SubtitleList';
@@ -49,6 +49,9 @@ export default function MainLayout({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
+  // 音频控制方法引用
+  const audioControlsRef = useRef(null);
+
   // 处理音频时间更新回调
   const handleTimeUpdate = (time) => {
     setCurrentTime(time);
@@ -58,6 +61,19 @@ export default function MainLayout({
   const handleDurationChange = (dur) => {
     setDuration(dur);
   };
+
+  // 处理音频控制方法就绪回调
+  const handleAudioControlsReady = useCallback((controls) => {
+    audioControlsRef.current = controls;
+  }, []);
+
+  // 处理字幕点击，跳转播放位置
+  const handleCueClick = useCallback((startTime) => {
+    if (audioControlsRef.current && audioControlsRef.current.setProgress) {
+      // setProgress 需要 (event, newValue) 两个参数，这里传入 null 作为 event
+      audioControlsRef.current.setProgress(null, startTime);
+    }
+  }, []);
 
   return (
     <Box
@@ -101,11 +117,7 @@ export default function MainLayout({
           <SubtitleList 
             currentTime={currentTime}
             duration={duration}
-            onCueClick={(startTime) => {
-              // TODO: 实现字幕点击跳转播放位置
-              // 需要从 AudioBarContainer 获取 setProgress 方法
-              console.log('字幕点击，跳转到时间:', startTime);
-            }}
+            onCueClick={handleCueClick}
             audioUrl={audioUrl}
             episodeId={undefined} // TODO: 从 props 或其他地方获取 episodeId
           />
@@ -134,6 +146,7 @@ export default function MainLayout({
           audioUrl={audioUrl}
           onTimeUpdate={handleTimeUpdate}
           onDurationChange={handleDurationChange}
+          onAudioControlsReady={handleAudioControlsReady}
         />
       )}
 
