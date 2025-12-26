@@ -4,6 +4,38 @@
 
 ---
 
+## [2025-01-27] [fix] - 修复字幕区域布局问题：第一句speaker位置和分界线底部空白
+
+**变更内容**：
+- 修复 `components/subtitles/SubtitleList.jsx`：移除字幕列表容器的 `pt: 5` padding-top，让第一句字幕的speaker标签从顶部开始显示，翻译按钮作为绝对定位元素悬浮在内容上方
+- 修复 `components/layout/MainLayout.jsx`：
+  - 添加播放器展开/收缩状态管理，根据音频控制面板状态动态调整分界线底部位置
+  - 分界线底部高度：展开状态为90px，收缩状态为5px，添加过渡动画
+- 修复 `components/player/AudioBarContainer.jsx`：新增 `onPlayerStateChange` 回调prop，通知父组件播放器的展开/收缩状态变化
+
+**问题描述**：
+- **第一句speaker位置错误**：第一句字幕的speaker标签位置太靠下，因为字幕列表容器有padding-top为翻译按钮留空间，但翻译按钮是绝对定位的，不应该影响内容布局
+- **分界线底部空白**：音频控制面板收缩后，分界线底部高度仍为90px，导致底部出现空白区域
+
+**技术实现**：
+- **SubtitleList**：
+  - 移除字幕列表容器的 `pt: 5`，让内容从顶部开始
+  - 翻译按钮保持绝对定位（`position: 'absolute'`），悬浮显示，不影响文档流
+- **MainLayout**：
+  - 定义 `FULL_PLAYER_HEIGHT = 90` 和 `MINI_PLAYER_HEIGHT = 5` 常量
+  - 新增 `isPlayerIdle` 状态，跟踪播放器展开/收缩状态
+  - 分界线底部高度根据 `isPlayerIdle` 动态计算：`bottom: isPlayerIdle ? '5px' : '90px'`
+  - 主体区域底部高度同样动态调整
+  - 添加 `transition: 'bottom 0.3s ease-in-out'` 过渡动画，使高度变化更平滑
+- **AudioBarContainer**：
+  - 新增 `onPlayerStateChange` prop，当 `isIdle` 状态改变时调用此回调
+  - 使用 `useEffect` 监听 `isIdle` 变化，及时通知父组件
+
+**影响范围**：
+- UI布局调整，用户体验改善
+
+---
+
 ## [2025-01-27] [fix] - 修复字幕组件 Code Review 问题：布局稳定性、翻译渲染和滚动阻断
 
 **变更内容**：

@@ -15,9 +15,10 @@ import MiniAudioBar from './MiniAudioBar';
  * @param {Function} [props.onTimeUpdate] - 时间更新回调函数 (currentTime) => void
  * @param {Function} [props.onDurationChange] - 时长更新回调函数 (duration) => void
  * @param {Function} [props.onAudioControlsReady] - 音频控制方法就绪回调 (controls) => void
+ * @param {Function} [props.onPlayerStateChange] - 播放器状态变化回调 (isIdle) => void，用于通知父组件展开/收缩状态
  * @param {number} [props.initialVolume=0.8] - 初始音量（0-1，默认 0.8）
  */
-export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationChange, onAudioControlsReady, initialVolume = 0.8 }) {
+export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationChange, onAudioControlsReady, onPlayerStateChange, initialVolume = 0.8 }) {
   const [isHovering, setIsHovering] = useState(false);
   const resetIdleTimerRef = useRef(null);
 
@@ -48,6 +49,13 @@ export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationCh
   useEffect(() => {
     resetIdleTimerRef.current = resetIdleTimer;
   }, [resetIdleTimer]);
+
+  // 当播放器展开/收缩状态改变时，通知父组件
+  useEffect(() => {
+    if (onPlayerStateChange) {
+      onPlayerStateChange(isIdle);
+    }
+  }, [isIdle, onPlayerStateChange]);
 
   // 当音频控制方法就绪时，通知父组件
   useEffect(() => {

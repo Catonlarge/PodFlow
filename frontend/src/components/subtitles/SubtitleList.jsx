@@ -270,7 +270,6 @@ export default function SubtitleList({
           height: scrollContainerRef ? 'auto' : '100%',
           overflowY: scrollContainerRef ? 'visible' : 'auto',
           overflowX: 'hidden',
-          pt: 5, // 为翻译按钮留出空间
           boxSizing: 'border-box',
         }}
       >

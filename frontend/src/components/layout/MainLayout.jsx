@@ -42,12 +42,16 @@ export default function MainLayout({
 }) {
   // 定义常量，方便维护
   const HEADER_HEIGHT = 80; // 与 EpisodeHeader 中的 height 保持一致
-  const PLAYER_HEIGHT = 90; // 预估底部播放器的高度（根据 AudioBar 实际情况调整）
+  const FULL_PLAYER_HEIGHT = 90; // 完整播放器的高度（根据 AudioBar 实际情况调整）
+  const MINI_PLAYER_HEIGHT = 5; // 收缩播放器的高度（MiniAudioBar）
 
   // 音频状态（用于传递给 SubtitleList）
   // TODO: 后续可以通过 AudioContext 来共享音频状态，避免 props drilling
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  
+  // 播放器展开/收缩状态（false=展开，true=收缩）
+  const [isPlayerIdle, setIsPlayerIdle] = useState(false);
 
   // 音频控制方法引用
   const audioControlsRef = useRef(null);
@@ -98,6 +102,11 @@ export default function MainLayout({
     audioControlsRef.current = controls;
   }, []);
 
+  // 处理播放器状态变化回调
+  const handlePlayerStateChange = useCallback((isIdle) => {
+    setIsPlayerIdle(isIdle);
+  }, []);
+
   // 处理字幕点击，跳转播放位置
   const handleCueClick = useCallback((startTime) => {
     if (audioControlsRef.current && audioControlsRef.current.setProgress) {
@@ -128,12 +137,13 @@ export default function MainLayout({
           position: 'fixed',
           left: { xs: 0, md: '70%' },
           top: `${HEADER_HEIGHT}px`,
-          bottom: audioUrl ? `${PLAYER_HEIGHT}px` : 0,
+          bottom: audioUrl ? (isPlayerIdle ? `${MINI_PLAYER_HEIGHT}px` : `${FULL_PLAYER_HEIGHT}px`) : 0,
           width: '1.5px',
           backgroundColor: '#e0e0e0',
           pointerEvents: 'none',
           display: { xs: 'none', md: 'block' },
           zIndex: 1000,
+          transition: 'bottom 0.3s ease-in-out',
         }}
       />
 
@@ -147,11 +157,12 @@ export default function MainLayout({
           top: `${HEADER_HEIGHT}px`,
           left: 0,
           right: 0,
-          bottom: audioUrl ? `${PLAYER_HEIGHT}px` : 0,
+          bottom: audioUrl ? (isPlayerIdle ? `${MINI_PLAYER_HEIGHT}px` : `${FULL_PLAYER_HEIGHT}px`) : 0,
           width: '100%',
           display: 'flex',
           overflowY: 'auto',
           overflowX: 'hidden',
+          transition: 'bottom 0.3s ease-in-out',
         }}
         data-subtitle-container
       >
@@ -211,6 +222,7 @@ export default function MainLayout({
           onTimeUpdate={handleTimeUpdate}
           onDurationChange={handleDurationChange}
           onAudioControlsReady={handleAudioControlsReady}
+          onPlayerStateChange={handlePlayerStateChange}
         />
       )}
 
