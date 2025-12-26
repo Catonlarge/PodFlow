@@ -322,7 +322,7 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
     }, 0);
   };
 
-  // 进度条变化处理
+  // 进度条变化处理（拖拽过程中）
   const handleProgressChange = (event, newValue) => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -331,16 +331,19 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
     const newTime = typeof newValue === 'number' ? newValue : parseFloat(newValue);
     audio.currentTime = newTime;
     setCurrentTime(newTime);
+  };
 
-    // 操作后移除焦点，让空格键可以正常控制播放/暂停
+  // 进度条拖拽结束处理（释放鼠标或键盘后）
+  const handleProgressChangeCommitted = () => {
+    // 拖拽结束后移除焦点，让空格键可以正常控制播放/暂停
     setTimeout(() => {
-      if (event && event.currentTarget) {
-        event.currentTarget.blur();
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
       }
     }, 0);
   };
 
-  // 音量变化处理
+  // 音量变化处理（拖拽过程中）
   const handleVolumeSliderChange = (event, newValue) => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -360,11 +363,14 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
       setVolume(0);
       setIsMuted(true);
     }
+  };
 
-    // 操作后移除焦点，让空格键可以正常控制播放/暂停
+  // 音量滑块拖拽结束处理（释放鼠标或键盘后）
+  const handleVolumeChangeCommitted = () => {
+    // 拖拽结束后移除焦点，让空格键可以正常控制播放/暂停
     setTimeout(() => {
-      if (event && event.currentTarget) {
-        event.currentTarget.blur();
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
       }
     }, 0);
   };
@@ -488,15 +494,8 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
               max={duration || 100}
               step={0.1}
               onChange={handleProgressChange}
+              onChangeCommitted={handleProgressChangeCommitted}
               onClick={resetCollapseTimer}
-              onMouseUp={(e) => {
-                // 鼠标释放后移除焦点，让空格键可以正常控制播放/暂停
-                setTimeout(() => {
-                  if (e && e.currentTarget) {
-                    e.currentTarget.blur();
-                  }
-                }, 0);
-              }}
               onKeyDown={(e) => {
                 // 如果按空格键，不触发滑块操作，让空格键监听器处理
                 if (e.code === 'Space') {
@@ -639,15 +638,8 @@ function AudioPlayer({ audioUrl, onTimeUpdate, initialVolume = 0.8 }) {
                 max={1}
                 step={0.01}
                 onChange={handleVolumeSliderChange}
+                onChangeCommitted={handleVolumeChangeCommitted}
                 onClick={resetCollapseTimer}
-                onMouseUp={(e) => {
-                  // 鼠标释放后移除焦点，让空格键可以正常控制播放/暂停
-                  setTimeout(() => {
-                    if (e && e.currentTarget) {
-                      e.currentTarget.blur();
-                    }
-                  }, 0);
-                }}
                 onKeyDown={(e) => {
                   // 如果按空格键，不触发滑块操作，让空格键监听器处理
                   if (e.code === 'Space') {
