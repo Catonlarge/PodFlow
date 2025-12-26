@@ -4,6 +4,18 @@
 
 ---
 
+## [2025-01-27] [refactor] - 清理冗余文件夹：删除 backend/scripts
+
+**变更内容**：
+- 删除 `backend/scripts` 文件夹及其中的 `cleanup_bad_episodes.py` 文件
+- 该文件与 `backend/app/utils/cleanup_bad_episodes.py` 完全重复
+- 无任何代码引用 `backend/scripts` 文件夹
+- 文件注释中的使用方法也指向 `app.utils` 模块，说明正确位置应为 `backend/app/utils`
+
+**影响**：无功能影响，仅代码清理
+
+---
+
 ## [2025-01-27] [fix] - 修复文件上传安全漏洞：增加文件内容真伪校验
 
 **变更文件**: `backend/app/api.py`, `backend/app/utils/file_utils.py`, `backend/app/utils/cleanup_bad_episodes.py`, `backend/tests/test_file_validation.py`
