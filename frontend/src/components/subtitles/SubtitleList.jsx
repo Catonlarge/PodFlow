@@ -55,6 +55,7 @@ export default function SubtitleList({
   const [subtitleLoadingState, setSubtitleLoadingState] = useState(null); // 'loading' | 'error' | null
   const [subtitleLoadingProgress, setSubtitleLoadingProgress] = useState(0);
   const [subtitleLoadingError, setSubtitleLoadingError] = useState(null);
+  const [transcriptionError, setTranscriptionError] = useState(null); // 字幕识别失败错误信息
   const internalContainerRef = useRef(null);
   const internalUserScrollTimeoutRef = useRef(null);
   const internalIsUserScrollingRef = useRef(false);
@@ -156,7 +157,7 @@ export default function SubtitleList({
     };
   }, [propsCues, episodeId]);
 
-  // 监听转录状态变化：当状态变为 completed 时，重新加载字幕
+  // 监听转录状态变化：当状态变为 completed 时，重新加载字幕；当状态变为 failed 时，显示错误提示
   useEffect(() => {
     // 如果没有 transcriptionStatus，跳过
     if (!transcriptionStatus) {
@@ -180,9 +181,30 @@ export default function SubtitleList({
         if (cues && cues.length > 0) {
           setCues(cues);
         }
+        // 清除识别错误状态
+        setTranscriptionError(null);
       }).catch((error) => {
         console.error('[SubtitleList] 转录完成后加载字幕失败:', error);
       });
+    }
+    
+    // 根据PRD c.ii：如果转录状态为 failed，显示错误提示
+    if (currentStatus === 'failed') {
+      // 尝试从segments中获取错误信息（从失败的segment中获取）
+      // 如果没有错误信息，使用默认消息
+      if (segments && segments.length > 0) {
+        const failedSegment = segments.find(s => s.status === 'failed' && s.error_message);
+        if (failedSegment && failedSegment.error_message) {
+          setTranscriptionError(failedSegment.error_message);
+        } else {
+          setTranscriptionError('字幕识别失败，请重试');
+        }
+      } else {
+        setTranscriptionError('字幕识别失败，请重试');
+      }
+    } else if (currentStatus !== 'failed') {
+      // 如果状态不是failed，清除错误信息
+      setTranscriptionError(null);
     }
     
     // 更新上一次的状态
@@ -358,19 +380,30 @@ export default function SubtitleList({
   const loadedSegmentIndicesRef = useRef(new Set());
   
   // 滚动触发异步加载逻辑
+  // 根据PRD d.ix：优化滚动加载字幕去重，避免重复加载已加载的segment
   const checkAndLoadNextSegment = useCallback(async () => {
     if (!episodeId || !segments || segments.length === 0) {
       return;
     }
     
-    // 找到已加载字幕对应的最后一个segment
-    const completedSegments = segments.filter(s => s.status === 'completed');
-    const lastCompletedIndex = completedSegments.length > 0
-      ? Math.max(...completedSegments.map(s => s.segment_index))
-      : -1;
+    // 基于当前cues，找到已加载的最后一个segment索引
+    let lastLoadedIndex = -1;
+    if (cues && cues.length > 0) {
+      // 找到cues中的最大时间戳
+      const maxCueTime = Math.max(...cues.map(cue => cue.end_time || 0));
+      
+      // 找到包含这个时间戳的最后一个segment
+      const loadedSegments = segments
+        .filter(s => s.status === 'completed' && maxCueTime >= s.start_time)
+        .sort((a, b) => b.segment_index - a.segment_index);
+      
+      if (loadedSegments.length > 0) {
+        lastLoadedIndex = loadedSegments[0].segment_index;
+      }
+    }
     
     // 检查下一个segment
-    const nextSegmentIndex = lastCompletedIndex + 1;
+    const nextSegmentIndex = lastLoadedIndex + 1;
     const nextSegment = segments.find(s => s.segment_index === nextSegmentIndex);
     
     if (!nextSegment) {
@@ -378,25 +411,31 @@ export default function SubtitleList({
       return;
     }
     
-    // 检查是否已经加载过
+    // 检查是否已经加载过（双重检查，防止重复加载）
     if (loadedSegmentIndicesRef.current.has(nextSegmentIndex)) {
       return;
     }
     
     // 如果下一个segment已完成，加载字幕
     if (nextSegment.status === 'completed') {
-      // 标记为已加载
+      // 标记为已加载（在加载前标记，防止重复触发）
       loadedSegmentIndicesRef.current.add(nextSegmentIndex);
       
       // 重新加载字幕数据（包含新完成的segment）
       try {
         const newCues = await getCuesByEpisodeId(episodeId);
-        setCues(newCues);
+        // 只有当新cues数量大于当前cues数量时，才更新（避免重复加载）
+        if (!cues || newCues.length > cues.length) {
+          setCues(newCues);
+        }
       } catch (error) {
         console.error('[SubtitleList] 加载新segment字幕失败:', error);
+        // 加载失败时，移除标记，允许重试
+        loadedSegmentIndicesRef.current.delete(nextSegmentIndex);
       }
     } else if (nextSegment.status === 'pending' || (nextSegment.status === 'failed' && nextSegment.retry_count < 3)) {
       // 如果下一个segment未开始或失败但可重试，触发识别
+      // 注意：这里不标记为已加载，因为segment还未完成
       try {
         await subtitleService.triggerSegmentTranscription(episodeId, nextSegmentIndex);
         console.log(`[SubtitleList] 已触发 Segment ${nextSegmentIndex} 的识别任务`);
@@ -405,7 +444,7 @@ export default function SubtitleList({
       }
     }
     // 如果status是processing，不处理，等待完成
-  }, [episodeId, segments]);
+  }, [episodeId, segments, cues]);
   
   /**
    * 监听用户滚动事件（仅当使用内部滚动容器时）
@@ -453,6 +492,8 @@ export default function SubtitleList({
     }
     
     const container = scrollContainerRef.current;
+    let scrollTimeout = null;
+    
     const handleExternalScroll = () => {
       // 检查是否滚动到底部
       const scrollTop = container.scrollTop;
@@ -462,31 +503,56 @@ export default function SubtitleList({
       
       if (distanceToBottom < 100) {
         // 滚动到底部，触发检查下一个segment
-        checkAndLoadNextSegment();
+        // 使用防抖，避免频繁触发
+        if (scrollTimeout) {
+          clearTimeout(scrollTimeout);
+        }
+        scrollTimeout = setTimeout(() => {
+          checkAndLoadNextSegment();
+        }, 300); // 300ms防抖
       }
     };
     
     container.addEventListener('scroll', handleExternalScroll);
     return () => {
       container.removeEventListener('scroll', handleExternalScroll);
+      if (scrollTimeout) {
+        clearTimeout(scrollTimeout);
+      }
     };
   }, [scrollContainerRef, checkAndLoadNextSegment]);
   
-  // 当segments变化时，重置已加载集合（重新计算）
+  // 当segments或cues变化时，重新计算已加载的segment索引
+  // 根据PRD d.ix：基于当前已加载的cues对应的segment，计算已加载的segment索引
   useEffect(() => {
     if (!segments || segments.length === 0) {
       loadedSegmentIndicesRef.current.clear();
       return;
     }
     
-    // 重新计算已加载的segment（基于当前cues对应的segment）
-    // 这里简化处理：找到所有completed的segment
-    const completedIndices = segments
-      .filter(s => s.status === 'completed')
-      .map(s => s.segment_index);
+    // 基于当前cues的时间范围，计算已加载的segment索引
+    // 如果cues为空，则没有已加载的segment
+    if (!cues || cues.length === 0) {
+      loadedSegmentIndicesRef.current.clear();
+      return;
+    }
     
-    loadedSegmentIndicesRef.current = new Set(completedIndices);
-  }, [segments]);
+    // 找到cues中的最大时间戳
+    const maxCueTime = Math.max(...cues.map(cue => cue.end_time || 0));
+    
+    // 根据时间戳，找到对应的segment索引
+    // segment的时间范围：start_time <= cueTime < end_time
+    const loadedIndices = new Set();
+    segments.forEach(segment => {
+      // 如果cues的最大时间戳 >= segment的start_time，说明这个segment的字幕已经加载
+      // 并且segment状态为completed
+      if (segment.status === 'completed' && maxCueTime >= segment.start_time) {
+        loadedIndices.add(segment.segment_index);
+      }
+    });
+    
+    loadedSegmentIndicesRef.current = loadedIndices;
+  }, [segments, cues]);
 
   // 清理定时器（仅当使用内部滚动容器时）
   useEffect(() => {
@@ -594,6 +660,57 @@ export default function SubtitleList({
                   setSubtitleLoadingState('error');
                   setSubtitleLoadingError(error.response?.data?.detail || error.message || '字幕加载失败，请重试');
                 });
+              }
+            }}
+            aria-label="重试"
+            sx={{
+              '&:hover': { bgcolor: 'action.hover' },
+              '&:active': { transform: 'scale(0.95)' },
+            }}
+          >
+            <Refresh />
+          </IconButton>
+        </Box>
+      </Box>
+    );
+  }
+
+  // 根据PRD c.ii：字幕识别失败状态：显示错误提示和重试按钮（在英文字幕区域中间显示）
+  if (transcriptionStatus === 'failed' && transcriptionError) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          gap: 2,
+        }}
+      >
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+          }}
+        >
+          <Typography variant="body1" sx={{ color: 'text.primary' }}>
+            识别失败，错误原因：{transcriptionError}，请重试
+          </Typography>
+          <IconButton
+            onClick={async () => {
+              // 根据PRD c.ii：点击重试图标，重新调用API进行字幕识别和说话人识别
+              if (episodeId) {
+                try {
+                  setTranscriptionError(null);
+                  // 调用重新开始识别API
+                  await subtitleService.restartTranscription(episodeId);
+                  // 重新开始识别后，状态会变为processing，错误提示会自动清除
+                } catch (error) {
+                  console.error('[SubtitleList] 重新开始识别失败:', error);
+                  setTranscriptionError(error.response?.data?.detail || error.message || '字幕识别失败，请重试');
+                }
               }
             }}
             aria-label="重试"
@@ -738,17 +855,22 @@ export default function SubtitleList({
  * SubtitleListFooter 组件
  * 
  * 显示字幕列表底部的状态提示
+ * 根据PRD d.x：
  * - 如果下一个segment正在识别中：显示"……请稍等，努力识别字幕中……"
+ * - 如果segment识别失败且可重试，自动触发重试（最多3次）
  * - 如果所有segment已完成：显示"-END-"
  */
 function SubtitleListFooter({ segments, transcriptionStatus, episodeId }) {
   const [nextSegmentStatus, setNextSegmentStatus] = useState(null);
   const [allCompleted, setAllCompleted] = useState(false);
+  const [nextSegment, setNextSegment] = useState(null);
+  const retryTimeoutRef = useRef(null);
   
   useEffect(() => {
     if (!segments || segments.length === 0) {
       setNextSegmentStatus(null);
       setAllCompleted(false);
+      setNextSegment(null);
       return;
     }
     
@@ -760,17 +882,49 @@ function SubtitleListFooter({ segments, transcriptionStatus, episodeId }) {
       : -1;
     
     // 检查下一个segment
-    const nextSegment = segments.find(s => s.segment_index === lastCompletedIndex + 1);
+    const next = segments.find(s => s.segment_index === lastCompletedIndex + 1);
     
-    if (!nextSegment) {
+    if (!next) {
       // 没有下一个segment，说明全部完成
       setAllCompleted(true);
       setNextSegmentStatus(null);
+      setNextSegment(null);
     } else {
       setAllCompleted(false);
-      setNextSegmentStatus(nextSegment.status);
+      setNextSegmentStatus(next.status);
+      setNextSegment(next);
     }
   }, [segments]);
+  
+  // 根据PRD d.x：如果segment识别失败且可重试，自动触发重试（最多3次）
+  useEffect(() => {
+    // 清理之前的重试定时器
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+    
+    // 如果下一个segment失败且可重试（retry_count < 3），自动触发重试
+    if (nextSegment && nextSegment.status === 'failed' && nextSegment.retry_count < 3 && episodeId) {
+      // 延迟1秒后自动重试，避免频繁触发
+      retryTimeoutRef.current = setTimeout(async () => {
+        try {
+          await subtitleService.triggerSegmentTranscription(episodeId, nextSegment.segment_index);
+          console.log(`[SubtitleListFooter] 已自动重试 Segment ${nextSegment.segment_index} 的识别任务（重试次数：${nextSegment.retry_count + 1}）`);
+        } catch (error) {
+          console.error(`[SubtitleListFooter] 自动重试 Segment ${nextSegment.segment_index} 失败:`, error);
+        }
+      }, 1000);
+    }
+    
+    // 清理函数
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+    };
+  }, [nextSegment, episodeId]);
   
   // 如果转录已完成，显示-END-
   if (transcriptionStatus === 'completed' || allCompleted) {
@@ -791,6 +945,7 @@ function SubtitleListFooter({ segments, transcriptionStatus, episodeId }) {
   }
   
   // 如果下一个segment正在识别中，显示提示
+  // 根据PRD d.vi：如果下1个segment在识别过程中，则在屏幕底部居中显示一行字"……请稍等，努力识别字幕中……"
   if (nextSegmentStatus === 'processing' || nextSegmentStatus === 'pending') {
     return (
       <Box

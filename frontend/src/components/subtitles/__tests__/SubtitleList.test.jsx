@@ -15,6 +15,7 @@ vi.mock('../../../services/subtitleService', () => ({
     getCuesByEpisodeId: vi.fn(),
     getEpisodeSegments: vi.fn(),
     triggerSegmentTranscription: vi.fn(),
+    restartTranscription: vi.fn(),
   },
 }));
 
@@ -408,6 +409,116 @@ describe('SubtitleList', () => {
 
       // 验证不再显示加载提示
       expect(screen.queryByText('请稍等，字幕加载中')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('字幕识别失败状态', () => {
+    it('应该在字幕识别失败时显示错误提示和重试按钮', async () => {
+      const mockSegments = [
+        {
+          segment_index: 0,
+          segment_id: 'segment_001',
+          status: 'failed',
+          error_message: '识别过程中发生错误',
+          start_time: 0.0,
+          end_time: 180.0,
+          duration: 180.0,
+        },
+      ];
+
+      render(
+        <SubtitleList
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+          transcriptionStatus="failed"
+          segments={mockSegments}
+        />
+      );
+
+      // 验证显示错误提示
+      await waitFor(() => {
+        expect(screen.getByText(/识别失败，错误原因：/)).toBeInTheDocument();
+        expect(screen.getByText(/识别过程中发生错误/)).toBeInTheDocument();
+      }, { timeout: 1000 });
+
+      // 验证显示重试按钮
+      const retryButton = screen.getByLabelText('重试');
+      expect(retryButton).toBeInTheDocument();
+    });
+
+    it('应该点击重试按钮时重新调用字幕识别API', async () => {
+      const user = userEvent.setup();
+      const mockSegments = [
+        {
+          segment_index: 0,
+          segment_id: 'segment_001',
+          status: 'failed',
+          error_message: '识别过程中发生错误',
+          start_time: 0.0,
+          end_time: 180.0,
+          duration: 180.0,
+        },
+      ];
+
+      // Mock restartTranscription API
+      subtitleService.restartTranscription = vi.fn().mockResolvedValue({
+        status: 'processing',
+        message: '识别任务已重新启动',
+      });
+
+      render(
+        <SubtitleList
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+          transcriptionStatus="failed"
+          segments={mockSegments}
+        />
+      );
+
+      // 等待错误提示显示
+      await waitFor(() => {
+        expect(screen.getByText(/识别失败，错误原因：/)).toBeInTheDocument();
+      }, { timeout: 1000 });
+
+      // 点击重试按钮
+      const retryButton = screen.getByLabelText('重试');
+      await user.click(retryButton);
+
+      // 验证重新开始识别API被调用
+      await waitFor(() => {
+        expect(subtitleService.restartTranscription).toHaveBeenCalledWith(123);
+      }, { timeout: 1000 });
+    });
+
+    it('应该在识别失败但没有错误信息时显示默认错误消息', async () => {
+      const mockSegments = [
+        {
+          segment_index: 0,
+          segment_id: 'segment_001',
+          status: 'failed',
+          error_message: null,
+          start_time: 0.0,
+          end_time: 180.0,
+          duration: 180.0,
+        },
+      ];
+
+      render(
+        <SubtitleList
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+          transcriptionStatus="failed"
+          segments={mockSegments}
+        />
+      );
+
+      // 验证显示默认错误提示
+      await waitFor(() => {
+        expect(screen.getByText(/识别失败，错误原因：字幕识别失败，请重试/)).toBeInTheDocument();
+      }, { timeout: 1000 });
     });
   });
 

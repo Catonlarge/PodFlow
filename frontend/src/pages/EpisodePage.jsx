@@ -350,17 +350,36 @@ export default function EpisodePage() {
       setUploadProgress(100);
       
       // 检查是否为重复文件（秒传/去重逻辑）
+      // 根据PRD d.iii：检测到重复文件时，直接跳转到episode页面
+      // 如果已有字幕，直接加载字幕（不显示识别提示）
+      // 如果字幕正在识别中，显示识别提示
+      // 如果字幕识别失败，显示错误提示和重试按钮
       if (response.is_duplicate) {
-        // 重复文件：立即完成，跳过转录等待
+        // 重复文件：立即完成上传进度
         setUploadProgress(100);
         
         // 保存 episodeId 到 localStorage
         localStorage.setItem(LOCAL_STORAGE_KEY, response.episode_id.toString());
         
-        // 直接跳转（不等待动画）
-        setTimeout(() => {
+        // 检查转录状态，决定是否显示识别提示
+        const transcriptionStatus = response.status || response.transcription_status;
+        
+        // 根据PRD d.iii：如果已有字幕（completed），直接加载字幕（不显示识别提示）
+        if (transcriptionStatus === 'completed') {
+          // 清除上传状态，跳转后直接加载字幕
           setProcessingState(null);
           setUploadProgress(0);
+        } else if (transcriptionStatus === 'processing' || transcriptionStatus === 'pending') {
+          // 如果字幕正在识别中，保持upload状态，跳转后由fetchEpisode根据episode数据设置recognize状态
+          // 这里不设置processingState，让fetchEpisode来处理
+        } else if (transcriptionStatus === 'failed') {
+          // 如果字幕识别失败，清除上传状态，跳转后由SubtitleList显示错误提示和重试按钮
+          setProcessingState(null);
+          setUploadProgress(0);
+        }
+        
+        // 直接跳转（不等待动画）
+        setTimeout(() => {
           navigate(`/episodes/${response.episode_id}`);
         }, 300); // 短暂延迟，让用户看到进度完成
       } else {

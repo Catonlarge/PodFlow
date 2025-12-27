@@ -99,6 +99,13 @@ def run_segment_transcription_task(episode_id: int, segment_index: int):
             )
             return
         
+        # 根据PRD d.vii：如果重试3次仍然不成功，则停止识别
+        if segment.status == "failed" and segment.retry_count >= 3:
+            logger.warning(
+                f"[BackgroundTask] Segment {segment.segment_id} 已重试3次仍失败，停止识别"
+            )
+            return
+        
         # 获取 WhisperService 单例
         whisper_service = WhisperService.get_instance()
         

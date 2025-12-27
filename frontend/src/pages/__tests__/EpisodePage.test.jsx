@@ -694,7 +694,7 @@ describe('EpisodePage', () => {
   });
 
   describe('秒传/去重逻辑', () => {
-    it('应该在 is_duplicate=true 时立即完成并跳过转录等待', async () => {
+    it('应该在 is_duplicate=true 且 status=completed 时直接加载字幕（不显示识别提示）', async () => {
       const user = userEvent.setup();
       localStorage.clear();
 
@@ -706,6 +706,7 @@ describe('EpisodePage', () => {
 
       episodeServiceModule.episodeService.uploadEpisode = vi.fn().mockResolvedValue(mockUploadResponse);
       subtitleServiceModule.subtitleService.getEpisode = vi.fn().mockResolvedValue(mockEpisode);
+      subtitleServiceModule.subtitleService.getEpisodeSegments = vi.fn().mockResolvedValue([]);
 
       render(
         <MemoryRouter initialEntries={['/episodes']}>
@@ -729,19 +730,138 @@ describe('EpisodePage', () => {
         expect(episodeServiceModule.episodeService.uploadEpisode).toHaveBeenCalled();
       });
 
-      // 验证处理进度遮罩显示
+      // 验证上传 API 被调用
       await waitFor(() => {
-        expect(screen.getByTestId('processing-overlay')).toBeInTheDocument();
-      }, { timeout: 100 });
+        expect(episodeServiceModule.episodeService.uploadEpisode).toHaveBeenCalled();
+      }, { timeout: 1000 });
 
-      // 验证进度立即设为 100%
+      // 等待跳转后，验证不再显示识别提示（因为status=completed，直接加载字幕）
       await waitFor(() => {
-        const progressElement = screen.getByTestId('processing-progress');
-        expect(progressElement).toHaveTextContent('100');
-      }, { timeout: 500 });
+        expect(subtitleServiceModule.subtitleService.getEpisode).toHaveBeenCalledWith('789');
+      }, { timeout: 2000 });
+
+      // 验证不再显示识别进度遮罩（因为status=completed，直接加载字幕，不显示识别提示）
+      await waitFor(() => {
+        const overlay = screen.queryByTestId('processing-overlay');
+        const typeElement = screen.queryByTestId('processing-type');
+        // 如果overlay存在，类型不应该是recognize（因为已完成，直接加载字幕）
+        expect(overlay === null || typeElement === null || typeElement.textContent !== 'recognize').toBe(true);
+      }, { timeout: 1000 });
 
       // 验证 localStorage 已保存
       expect(localStorage.getItem('podflow_last_episode_id')).toBe('789');
+    });
+
+    it('应该在 is_duplicate=true 且 status=processing 时显示识别提示', async () => {
+      const user = userEvent.setup();
+      localStorage.clear();
+
+      const mockUploadResponse = {
+        episode_id: 790,
+        status: 'processing',
+        is_duplicate: true,
+      };
+
+      const processingEpisode = {
+        ...mockEpisode,
+        id: 790,
+        transcription_status: 'processing',
+        transcription_progress: 25,
+      };
+
+      episodeServiceModule.episodeService.uploadEpisode = vi.fn().mockResolvedValue(mockUploadResponse);
+      subtitleServiceModule.subtitleService.getEpisode = vi.fn().mockResolvedValue(processingEpisode);
+      subtitleServiceModule.subtitleService.getEpisodeSegments = vi.fn().mockResolvedValue([
+        { segment_index: 0, segment_id: 'segment_001', status: 'processing', start_time: 0.0, end_time: 180.0, duration: 180.0 },
+      ]);
+
+      render(
+        <MemoryRouter initialEntries={['/episodes']}>
+          <Routes>
+            <Route path="/episodes/:episodeId?" element={<EpisodePage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // 等待弹窗显示
+      await waitFor(() => {
+        expect(screen.getByTestId('file-import-modal')).toBeInTheDocument();
+      });
+
+      // 点击确认按钮（触发上传）
+      const confirmButton = screen.getByTestId('modal-confirm');
+      await user.click(confirmButton);
+
+      // 验证上传 API 被调用
+      await waitFor(() => {
+        expect(episodeServiceModule.episodeService.uploadEpisode).toHaveBeenCalled();
+      });
+
+      // 等待跳转后，验证显示识别提示（因为status=processing）
+      await waitFor(() => {
+        expect(subtitleServiceModule.subtitleService.getEpisode).toHaveBeenCalledWith('790');
+      }, { timeout: 2000 });
+
+      // 验证显示识别进度遮罩
+      await waitFor(() => {
+        expect(screen.getByTestId('processing-overlay')).toBeInTheDocument();
+        expect(screen.getByTestId('processing-type')).toHaveTextContent('recognize');
+      }, { timeout: 2000 });
+    });
+
+    it('应该在 is_duplicate=true 且 status=failed 时不显示识别提示（由SubtitleList显示错误）', async () => {
+      const user = userEvent.setup();
+      localStorage.clear();
+
+      const mockUploadResponse = {
+        episode_id: 791,
+        status: 'failed',
+        is_duplicate: true,
+      };
+
+      const failedEpisode = {
+        ...mockEpisode,
+        id: 791,
+        transcription_status: 'failed',
+      };
+
+      episodeServiceModule.episodeService.uploadEpisode = vi.fn().mockResolvedValue(mockUploadResponse);
+      subtitleServiceModule.subtitleService.getEpisode = vi.fn().mockResolvedValue(failedEpisode);
+      subtitleServiceModule.subtitleService.getEpisodeSegments = vi.fn().mockResolvedValue([
+        { segment_index: 0, segment_id: 'segment_001', status: 'failed', error_message: '识别失败', start_time: 0.0, end_time: 180.0, duration: 180.0 },
+      ]);
+
+      render(
+        <MemoryRouter initialEntries={['/episodes']}>
+          <Routes>
+            <Route path="/episodes/:episodeId?" element={<EpisodePage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // 等待弹窗显示
+      await waitFor(() => {
+        expect(screen.getByTestId('file-import-modal')).toBeInTheDocument();
+      });
+
+      // 点击确认按钮（触发上传）
+      const confirmButton = screen.getByTestId('modal-confirm');
+      await user.click(confirmButton);
+
+      // 验证上传 API 被调用
+      await waitFor(() => {
+        expect(episodeServiceModule.episodeService.uploadEpisode).toHaveBeenCalled();
+      });
+
+      // 等待跳转后，验证不显示识别提示（因为status=failed，由SubtitleList显示错误）
+      await waitFor(() => {
+        expect(subtitleServiceModule.subtitleService.getEpisode).toHaveBeenCalledWith('791');
+      }, { timeout: 2000 });
+
+      // 验证不显示识别进度遮罩（因为status=failed）
+      await waitFor(() => {
+        expect(screen.queryByTestId('processing-overlay')).not.toBeInTheDocument();
+      }, { timeout: 2000 });
     });
 
     it('应该在 is_duplicate=false 时正常处理', async () => {
