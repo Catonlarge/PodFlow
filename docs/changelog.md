@@ -4,6 +4,42 @@
 
 ---
 
+## [2025-01-27] [feat] - 实现 Highlight API（后端）（Task 3.4）
+
+**变更内容**：
+- **API 路由实现** (`backend/app/api.py`)：
+  - 实现 `POST /api/highlights` - 创建划线（支持数组接收，单 cue 和跨 cue 划线）
+  - 实现 `GET /api/episodes/{episode_id}/highlights` - 获取某个 Episode 的所有划线
+  - 实现 `DELETE /api/highlights/{id}` - 删除划线（按组删除，支持级联删除）
+  - 使用 Pydantic 模型进行请求验证（`HighlightCreateItem`、`HighlightsCreateRequest`）
+  - 验证 `episode_id` 存在性
+  - 验证所有 `cue_id` 属于同一个 `episode_id`
+  - 验证 `start_offset < end_offset` 和 `highlighted_text` 不为空
+  - 实现按组删除逻辑（跨 cue 划线时删除整组）
+  - 统计级联删除数量（Highlight、Note、AIQueryRecord）
+
+- **测试用例** (`backend/tests/test_highlight_api.py`)：
+  - 编写完整的测试用例（10 个测试，全部通过）
+  - 覆盖单 cue 划线、跨 cue 划线、验证逻辑、级联删除等场景
+  - 遵循 TDD 原则，测试先行
+
+**功能特性**：
+- 支持单 cue 划线（90% 场景）：`highlight_group_id = NULL`
+- 支持跨 cue 划线（10% 场景）：前端自动拆分，后端接收数组，使用 `highlight_group_id` 分组管理
+- 按组删除：删除一个 Highlight 时，如果存在 `highlight_group_id`，删除整组
+- 级联删除验证：删除 Highlight 时自动删除关联的 Note 和 AIQueryRecord（由 SQLAlchemy 关系自动处理）
+- 数据验证：严格验证 `episode_id` 和 `cue_id` 的关联关系，防止数据不一致
+
+**相关 PRD**：
+- PRD 6.2.4.b: 划线操作
+- PRD 6.2.4.c: 已生成笔记划线源交互
+
+**文件变更**：
+- `backend/app/api.py` - 添加 Highlight API 路由（约 250 行）
+- `backend/tests/test_highlight_api.py` - 测试用例（约 550 行）
+
+---
+
 ## [2025-01-27] [feat] - 实现文本选择 Hook（Task 3.1）
 
 **变更内容**：

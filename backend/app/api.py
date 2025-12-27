@@ -10,12 +10,14 @@ import logging
 import re
 from pathlib import Path
 from typing import Optional, List
+from datetime import datetime
 from fastapi import APIRouter, UploadFile, File, Form, Query, HTTPException, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, validator
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.models import get_db, Episode, TranscriptCue, AudioSegment
+from app.models import get_db, Episode, TranscriptCue, AudioSegment, Highlight, Note, AIQueryRecord
 from app.config import AUDIO_STORAGE_PATH, DEFAULT_LANGUAGE
 from app.utils.file_utils import (
     calculate_md5_async,
@@ -944,5 +946,230 @@ def delete_episode(
 
 # ==================== 历史字幕检查 ====================
 # 注意：check-subtitle 路由已移到 /episodes 路由之前，避免被 {episode_id} 路由匹配
+
+
+# ==================== Highlight 管理 ====================
+
+class HighlightCreateItem(BaseModel):
+    """单个划线创建项"""
+    cue_id: int
+    start_offset: int = Field(ge=0, description="在 cue 内的字符起始位置（从 0 开始）")
+    end_offset: int = Field(gt=0, description="在 cue 内的字符结束位置")
+    highlighted_text: str = Field(min_length=1, description="被划线的文本内容")
+    color: str = Field(default="#9C27B0", description="划线颜色（默认紫色）")
+    
+    @validator('end_offset')
+    def validate_offsets(cls, v, values):
+        """验证 end_offset 必须大于 start_offset"""
+        if 'start_offset' in values and v <= values['start_offset']:
+            raise ValueError('end_offset must be greater than start_offset')
+        return v
+
+
+class HighlightsCreateRequest(BaseModel):
+    """创建划线请求"""
+    episode_id: int
+    highlights: List[HighlightCreateItem]
+    highlight_group_id: Optional[str] = Field(None, description="分组 ID（跨 cue 划线时使用）")
+
+
+@router.post("/highlights")
+async def create_highlights(
+    request: HighlightsCreateRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    创建划线（前端已拆分，后端接收数组）
+    
+    支持单 cue 划线和跨 cue 划线（通过分组管理实现）。
+    
+    参数:
+        request: 创建划线请求（包含 episode_id、highlights 数组、可选的 highlight_group_id）
+    
+    返回:
+        {
+            "success": true,
+            "highlight_ids": [1, 2],
+            "highlight_group_id": "uuid-12345",
+            "created_at": "2025-01-01T00:00:00Z"
+        }
+    """
+    # 验证 episode_id 存在
+    episode = db.query(Episode).filter(Episode.id == request.episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {request.episode_id} 不存在")
+    
+    # 验证所有 cue_id 都属于同一个 episode_id
+    cue_ids = [h.cue_id for h in request.highlights]
+    cues = db.query(TranscriptCue).filter(
+        TranscriptCue.id.in_(cue_ids)
+    ).all()
+    
+    if len(cues) != len(cue_ids):
+        raise HTTPException(status_code=400, detail="部分 cue_id 不存在")
+    
+    for cue in cues:
+        if cue.episode_id != request.episode_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cue {cue.id} 不属于 Episode {request.episode_id}"
+            )
+    
+    # 验证 highlight_group_id（如果提供）
+    if request.highlight_group_id:
+        # 如果提供 highlight_group_id，所有 Highlight 必须使用相同的 group_id
+        pass  # 前端已保证，这里只是验证一致性
+    
+    # 创建所有 Highlight 记录
+    created_highlights = []
+    for highlight_data in request.highlights:
+        highlight = Highlight(
+            episode_id=request.episode_id,
+            cue_id=highlight_data.cue_id,
+            start_offset=highlight_data.start_offset,
+            end_offset=highlight_data.end_offset,
+            highlighted_text=highlight_data.highlighted_text,
+            color=highlight_data.color,
+            highlight_group_id=request.highlight_group_id
+        )
+        db.add(highlight)
+        created_highlights.append(highlight)
+    
+    db.commit()
+    
+    # 刷新以获取 ID
+    for highlight in created_highlights:
+        db.refresh(highlight)
+    
+    highlight_ids = [h.id for h in created_highlights]
+    
+    logger.info(
+        f"创建了 {len(highlight_ids)} 个 Highlight "
+        f"(episode_id={request.episode_id}, group_id={request.highlight_group_id})"
+    )
+    
+    return {
+        "success": True,
+        "highlight_ids": highlight_ids,
+        "highlight_group_id": request.highlight_group_id,
+        "created_at": datetime.utcnow().isoformat() + "Z"
+    }
+
+
+@router.get("/episodes/{episode_id}/highlights")
+def get_highlights(
+    episode_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    获取某个 Episode 的所有划线
+    
+    参数:
+        episode_id: Episode ID
+    
+    返回:
+        [
+            {
+                "id": 1,
+                "cue_id": 10,
+                "highlighted_text": "taxonomy",
+                "start_offset": 5,
+                "end_offset": 13,
+                "color": "#9C27B0",
+                "highlight_group_id": null,
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T00:00:00Z"
+            },
+            ...
+        ]
+    """
+    # 验证 Episode 存在
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
+    
+    # 查询所有 Highlight（使用索引优化）
+    highlights = db.query(Highlight).filter(
+        Highlight.episode_id == episode_id
+    ).order_by(Highlight.created_at.asc()).all()
+    
+    # 序列化返回
+    return [
+        {
+            "id": h.id,
+            "cue_id": h.cue_id,
+            "highlighted_text": h.highlighted_text,
+            "start_offset": h.start_offset,
+            "end_offset": h.end_offset,
+            "color": h.color,
+            "highlight_group_id": h.highlight_group_id,
+            "created_at": h.created_at.isoformat() + "Z" if h.created_at else None,
+            "updated_at": h.updated_at.isoformat() + "Z" if h.updated_at else None
+        }
+        for h in highlights
+    ]
+
+
+@router.delete("/highlights/{highlight_id}")
+def delete_highlight(
+    highlight_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    删除划线（按组删除）
+    
+    删除逻辑:
+    - 如果 Highlight 有 highlight_group_id，删除整组（所有共享该 highlight_group_id 的 Highlight）
+    - 如果 Highlight 没有 highlight_group_id（单 cue 划线），只删除当前 Highlight
+    - 级联删除关联的 Note 和 AIQueryRecord（由 SQLAlchemy 关系自动处理）
+    
+    参数:
+        highlight_id: Highlight ID
+    
+    返回:
+        {
+            "success": true,
+            "deleted_highlights_count": 3,
+            "deleted_notes_count": 2,
+            "deleted_ai_queries_count": 1
+        }
+    """
+    # 查找要删除的 Highlight
+    highlight = db.query(Highlight).filter(Highlight.id == highlight_id).first()
+    if not highlight:
+        raise HTTPException(status_code=404, detail=f"Highlight {highlight_id} 不存在")
+    
+    # 判断是否有 highlight_group_id，决定删除策略
+    if highlight.highlight_group_id:
+        # 按组删除：查找所有同组的 Highlight
+        highlights_to_delete = db.query(Highlight).filter(
+            Highlight.highlight_group_id == highlight.highlight_group_id
+        ).all()
+    else:
+        # 单个删除
+        highlights_to_delete = [highlight]
+    
+    # 统计关联的 Note 和 AIQueryRecord（在删除前统计）
+    notes_count = sum(len(h.notes) for h in highlights_to_delete)
+    ai_queries_count = sum(len(h.ai_queries) for h in highlights_to_delete)
+    
+    # 删除（级联删除由 SQLAlchemy 自动处理）
+    for h in highlights_to_delete:
+        db.delete(h)
+    
+    db.commit()
+    
+    logger.info(
+        f"删除了 {len(highlights_to_delete)} 个 Highlight "
+        f"(highlight_id={highlight_id}, group_id={highlight.highlight_group_id}, "
+        f"notes={notes_count}, ai_queries={ai_queries_count})"
+    )
+    
+    return {
+        "success": True,
+        "deleted_highlights_count": len(highlights_to_delete),
+        "deleted_notes_count": notes_count,
+        "deleted_ai_queries_count": ai_queries_count
+    }
 
 
