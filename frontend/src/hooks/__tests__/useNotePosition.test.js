@@ -6,6 +6,7 @@
  * - 滚动事件监听
  * - DOM 变化监听
  */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useNotePosition } from '../useNotePosition';
 
@@ -17,7 +18,7 @@ describe('useNotePosition', () => {
     // 创建模拟的滚动容器
     mockScrollContainer = document.createElement('div');
     mockScrollContainer.scrollTop = 0;
-    mockScrollContainer.getBoundingClientRect = jest.fn(() => ({
+    mockScrollContainer.getBoundingClientRect = vi.fn(() => ({
       top: 100,
       left: 0,
       right: 800,
@@ -29,7 +30,7 @@ describe('useNotePosition', () => {
     // 创建模拟的字幕元素
     mockSubtitleElement = document.createElement('div');
     mockSubtitleElement.setAttribute('data-subtitle-id', '1');
-    mockSubtitleElement.getBoundingClientRect = jest.fn(() => ({
+    mockSubtitleElement.getBoundingClientRect = vi.fn(() => ({
       top: 200,
       left: 0,
       right: 800,
@@ -43,7 +44,11 @@ describe('useNotePosition', () => {
   });
   
   afterEach(() => {
-    document.body.removeChild(mockScrollContainer);
+    // 清理 DOM
+    if (mockScrollContainer && mockScrollContainer.parentNode) {
+      mockScrollContainer.parentNode.removeChild(mockScrollContainer);
+    }
+    vi.clearAllMocks();
   });
   
   it('应该计算单个 Highlight 的位置', async () => {

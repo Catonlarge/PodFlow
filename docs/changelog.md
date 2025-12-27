@@ -4,6 +4,18 @@
 
 ---
 
+## [2025-12-28] [fix] - 修复 useNotePosition 测试文件中的 Vitest API 使用错误
+
+**变更内容**：
+- **测试文件修复** (`frontend/src/hooks/__tests__/useNotePosition.test.js`)：
+  - 将 `jest.fn()` 替换为 `vi.fn()`（使用 Vitest API 而非 Jest）
+  - 添加正确的 Vitest 导入：`import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'`
+  - 修复 DOM 清理逻辑：使用 `parentNode.removeChild()` 并检查元素是否存在，避免 `NotFoundError`
+  - 添加 `vi.clearAllMocks()` 在 `afterEach` 中清理 mock 状态
+
+**影响范围**：
+- 所有 4 个 useNotePosition 测试用例现在可以正常通过
+
 ## [2025-12-27] [feat] - 实现笔记卡片组件（Task 3.7）
 
 **变更内容**：
