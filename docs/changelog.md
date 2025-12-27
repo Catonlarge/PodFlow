@@ -4,6 +4,67 @@
 
 ---
 
+## [2025-12-27] [feat] - 实现纯划线功能（前端）（Task 3.5）
+
+**变更内容**：
+- **服务层实现**：
+  - 创建 `frontend/src/services/highlightService.js`：封装 Highlight 相关 API 调用
+    - `createHighlights()`：创建划线（支持批量创建，用于跨 cue 划线）
+    - `getHighlightsByEpisode()`：获取某个 Episode 的所有划线
+    - `deleteHighlight()`：删除划线（按组删除）
+  - 实现 `frontend/src/services/noteService.js`：封装 Note 相关 API 调用
+    - `createNote()`：创建笔记（支持 underline/thought/ai_card 类型）
+    - `getNotesByEpisode()`：获取某个 Episode 的所有笔记
+    - `updateNote()`：更新笔记内容
+    - `deleteNote()`：删除笔记
+
+- **组件功能实现** (`frontend/src/components/subtitles/SubtitleList.jsx`)：
+  - 实现 `handleUnderline` 回调函数，处理纯划线操作
+    - 支持单 cue 划线（90% 场景）：`highlight_group_id = null`
+    - 支持跨 cue 划线（10% 场景）：自动生成 UUID 作为 `highlight_group_id`
+    - 调用 API 创建 Highlight 和 Note（underline 类型）
+    - 本地状态更新，立即显示下划线样式
+    - 错误处理：使用 MUI Snackbar 显示错误提示
+  - 实现从 API 加载已有 highlights 的逻辑
+    - 当 `episodeId` 变化时自动加载
+    - 过滤出 underline 类型的笔记对应的 highlights
+    - 正确渲染下划线样式（紫色，`#9C27B0`）
+  - 添加 highlights 状态管理（支持 props 传入和内部状态管理）
+
+- **测试用例** (`frontend/src/components/subtitles/__tests__/UnderlineFeature.test.jsx`)：
+  - 编写完整的测试用例（6 个测试，全部通过）
+  - 测试单 cue 划线：验证 API 调用和参数正确性
+  - 测试跨 cue 划线：验证分组 ID 生成和批量创建
+  - 测试下划线样式渲染：验证下划线颜色和样式正确
+  - 测试刷新后下划线保持：验证从 API 加载已有 highlights
+  - 测试错误处理：验证 API 失败时显示错误提示
+  - 测试 Note 创建失败场景：验证本地状态不更新
+
+**功能特性**：
+- 支持单 cue 和跨 cue 划线（用户无感知，自动拆分）
+- 自动生成 UUID 用于跨 cue 划线分组（使用 `crypto.randomUUID()`，不支持时降级）
+- 错误处理完善：使用 MUI Snackbar 显示用户友好的错误提示
+- 数据一致性：使用 `Promise.all` 并行创建 Note，提高性能
+- 状态管理灵活：支持 props 传入和内部状态管理两种方式
+
+**相关 PRD**：
+- PRD 6.2.4.b: 划线操作
+- PRD 6.2.4.d: 用户点击"纯划线"
+- PRD 6.2.4.d.iii: underline 类型的笔记不显示笔记卡片（只显示下划线）
+
+**文件变更**：
+- `frontend/src/services/highlightService.js` - 新建（约 100 行）
+- `frontend/src/services/noteService.js` - 实现（约 100 行）
+- `frontend/src/components/subtitles/SubtitleList.jsx` - 更新（添加 handleUnderline 和加载逻辑，约 150 行）
+- `frontend/src/components/subtitles/__tests__/UnderlineFeature.test.jsx` - 新建（约 550 行）
+
+**测试结果**：
+- ✅ 6/6 个测试用例全部通过
+- ✅ 无 linter 错误
+- ✅ 符合 TDD 工作流（先写测试，后实现）
+
+---
+
 ## [2025-01-27] [feat] - 实现 Highlight API（后端）（Task 3.4）
 
 **变更内容**：
