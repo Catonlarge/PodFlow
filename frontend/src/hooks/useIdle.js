@@ -14,7 +14,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
  */
 export function useIdle({ delay = 3000, enabled = true, isHovering = false } = {}) {
   const [isIdle, setIsIdle] = useState(false);
-  const [lastInteractionTime, setLastInteractionTime] = useState(Date.now());
+  // 使用函数初始化，避免在渲染期间调用不纯函数
+  const [lastInteractionTime, setLastInteractionTime] = useState(() => Date.now());
   const collapseTimerRef = useRef(null);
 
   // 重置空闲定时器

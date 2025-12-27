@@ -7,9 +7,10 @@ import os
 import shutil
 import tempfile
 import logging
+import re
 from pathlib import Path
 from typing import Optional, List
-from fastapi import APIRouter, UploadFile, File, Form, Query, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, UploadFile, File, Form, Query, HTTPException, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -204,6 +205,76 @@ async def upload_episode(
 
 
 # ==================== Episode 查询 ====================
+
+# 注意：check-subtitle 路由必须在 {episode_id} 路由之前，否则会被匹配为 episode_id
+@router.get("/episodes/check-subtitle")
+def check_subtitle_by_hash(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    根据文件 MD5 hash 检查是否存在历史字幕
+    
+    参数:
+        file_hash: 音频文件 MD5 hash（32位十六进制字符串，通过查询参数传递）
+    
+    返回:
+        {
+            "exists": true,
+            "episode_id": 1,
+            "transcript_path": "backend/data/transcripts/abc123.json"
+        }
+        或
+        {
+            "exists": false
+        }
+    """
+    # 直接从查询参数获取 file_hash
+    file_hash = request.query_params.get("file_hash")
+    
+    # 调试日志：记录接收到的参数
+    logger.info(f"[check-subtitle] 接收到 file_hash: {repr(file_hash)}, 类型: {type(file_hash)}, 长度: {len(file_hash) if file_hash else 0}")
+    logger.info(f"[check-subtitle] 所有查询参数: {dict(request.query_params)}")
+    
+    # 临时：先不验证，直接返回 exists: false，用于调试
+    # TODO: 恢复验证逻辑
+    if not file_hash:
+        logger.warning(f"[check-subtitle] file_hash 为空，返回 exists: false")
+        return {"exists": False}
+    
+    # 转换为小写
+    file_hash_lower = file_hash.lower()
+    logger.info(f"[check-subtitle] 转换为小写后: {repr(file_hash_lower)}, 长度: {len(file_hash_lower)}")
+    
+    # 基本验证：只检查长度，不检查格式
+    if len(file_hash_lower) != 32:
+        logger.warning(f"[check-subtitle] file_hash 长度不正确: {len(file_hash_lower)}, 期望: 32，返回 exists: false")
+        return {"exists": False}
+    
+    # 使用小写版本进行查询（数据库中的 hash 通常是小写）
+    file_hash = file_hash_lower
+    episode = db.query(Episode).filter(Episode.file_hash == file_hash).first()
+    if episode and episode.transcription_status == "completed":
+        # 检查是否有字幕数据
+        cues_count = db.query(func.count(TranscriptCue.id)).filter(
+            TranscriptCue.episode_id == episode.id
+        ).scalar() or 0
+        
+        if cues_count > 0:
+            # 构建字幕文件路径（从 audio_path 推导）
+            transcript_path = None
+            if episode.audio_path:
+                # 将 audio_path 中的 "audios" 替换为 "transcripts"，扩展名改为 .json
+                transcript_path = episode.audio_path.replace("audios", "transcripts").replace(".mp3", ".json").replace(".wav", ".json")
+            
+            return {
+                "exists": True,
+                "episode_id": episode.id,
+                "transcript_path": transcript_path
+            }
+    
+    return {"exists": False}
+
 
 @router.get("/episodes")
 def get_episodes(
@@ -546,46 +617,6 @@ def delete_episode(
 
 
 # ==================== 历史字幕检查 ====================
-
-@router.get("/episodes/check-subtitle")
-def check_subtitle_by_hash(
-    file_hash: str = Query(..., description="音频文件 MD5 hash"),
-    db: Session = Depends(get_db)
-):
-    """
-    根据文件 MD5 hash 检查是否存在历史字幕
-    
-    返回:
-        {
-            "exists": true,
-            "episode_id": 1,
-            "transcript_path": "backend/data/transcripts/abc123.json"
-        }
-        或
-        {
-            "exists": false
-        }
-    """
-    episode = db.query(Episode).filter(Episode.file_hash == file_hash).first()
-    if episode and episode.transcription_status == "completed":
-        # 检查是否有字幕数据
-        cues_count = db.query(func.count(TranscriptCue.id)).filter(
-            TranscriptCue.episode_id == episode.id
-        ).scalar() or 0
-        
-        if cues_count > 0:
-            # 构建字幕文件路径（从 audio_path 推导）
-            transcript_path = None
-            if episode.audio_path:
-                # 将 audio_path 中的 "audios" 替换为 "transcripts"，扩展名改为 .json
-                transcript_path = episode.audio_path.replace("audios", "transcripts").replace(".mp3", ".json").replace(".wav", ".json")
-            
-            return {
-                "exists": True,
-                "episode_id": episode.id,
-                "transcript_path": transcript_path
-            }
-    
-    return {"exists": False}
+# 注意：check-subtitle 路由已移到 /episodes 路由之前，避免被 {episode_id} 路由匹配
 
 

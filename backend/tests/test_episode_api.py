@@ -595,3 +595,143 @@ class TestEpisodeCRUD:
             # 这验证了删除逻辑的正确性：它基于 file_hash 而不是 audio_path 来判断是否共享文件
             assert not final_audio_path.exists()
 
+
+@pytest.mark.unit
+class TestCheckSubtitle:
+    """测试历史字幕检查功能"""
+    
+    def test_check_subtitle_exists(self, client, db_session):
+        """测试检查历史字幕：存在已完成的字幕"""
+        # 创建 Episode 和字幕数据
+        file_hash = "4a1063e02c734c06a3b700de61526bd2"
+        episode = Episode(
+            title="Test Episode",
+            file_hash=file_hash,
+            duration=180.0,
+            audio_path="backend/data/audios/test.mp3",
+            transcription_status="completed"
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 创建字幕数据
+        cue1 = TranscriptCue(
+            episode_id=episode.id,
+            start_time=0.0,
+            end_time=5.0,
+            speaker="Speaker1",
+            text="Hello world"
+        )
+        cue2 = TranscriptCue(
+            episode_id=episode.id,
+            start_time=5.0,
+            end_time=10.0,
+            speaker="Speaker2",
+            text="How are you"
+        )
+        db_session.add(cue1)
+        db_session.add(cue2)
+        db_session.commit()
+        
+        # 调用 API
+        response = client.get("/api/episodes/check-subtitle", params={"file_hash": file_hash})
+        
+        # 调试：打印响应详情
+        if response.status_code != 200:
+            print(f"\n[DEBUG] 响应状态码: {response.status_code}")
+            print(f"[DEBUG] 响应内容: {response.text}")
+            try:
+                print(f"[DEBUG] 响应 JSON: {response.json()}")
+            except:
+                pass
+        
+        assert response.status_code == 200, f"API 返回 422 错误，响应: {response.text}"
+        data = response.json()
+        assert data["exists"] is True
+        assert data["episode_id"] == episode.id
+        assert "transcript_path" in data
+    
+    def test_check_subtitle_not_exists(self, client, db_session):
+        """测试检查历史字幕：不存在"""
+        file_hash = "4a1063e02c734c06a3b700de61526bd2"
+        
+        # 调用 API（数据库中不存在该 hash）
+        response = client.get("/api/episodes/check-subtitle", params={"file_hash": file_hash})
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["exists"] is False
+    
+    def test_check_subtitle_not_completed(self, client, db_session):
+        """测试检查历史字幕：Episode 存在但转录未完成"""
+        file_hash = "4a1063e02c734c06a3b700de61526bd2"
+        episode = Episode(
+            title="Test Episode",
+            file_hash=file_hash,
+            duration=180.0,
+            audio_path="backend/data/audios/test.mp3",
+            transcription_status="processing"  # 未完成
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 调用 API
+        response = client.get("/api/episodes/check-subtitle", params={"file_hash": file_hash})
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["exists"] is False  # 转录未完成，返回不存在
+    
+    def test_check_subtitle_no_cues(self, client, db_session):
+        """测试检查历史字幕：Episode 存在且已完成，但没有字幕数据"""
+        file_hash = "4a1063e02c734c06a3b700de61526bd2"
+        episode = Episode(
+            title="Test Episode",
+            file_hash=file_hash,
+            duration=180.0,
+            audio_path="backend/data/audios/test.mp3",
+            transcription_status="completed"
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 调用 API（没有字幕数据）
+        response = client.get("/api/episodes/check-subtitle", params={"file_hash": file_hash})
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["exists"] is False  # 没有字幕数据，返回不存在
+    
+    def test_check_subtitle_hash_case_insensitive(self, client, db_session):
+        """测试检查历史字幕：hash 大小写不敏感"""
+        file_hash_lower = "4a1063e02c734c06a3b700de61526bd2"
+        file_hash_upper = "4A1063E02C734C06A3B700DE61526BD2"
+        
+        episode = Episode(
+            title="Test Episode",
+            file_hash=file_hash_lower,  # 数据库存储小写
+            duration=180.0,
+            audio_path="backend/data/audios/test.mp3",
+            transcription_status="completed"
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 创建字幕数据
+        cue = TranscriptCue(
+            episode_id=episode.id,
+            start_time=0.0,
+            end_time=5.0,
+            speaker="Speaker1",
+            text="Hello world"
+        )
+        db_session.add(cue)
+        db_session.commit()
+        
+        # 使用大写 hash 调用 API
+        response = client.get("/api/episodes/check-subtitle", params={"file_hash": file_hash_upper})
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["exists"] is True  # 应该能找到（大小写不敏感）
+        assert data["episode_id"] == episode.id

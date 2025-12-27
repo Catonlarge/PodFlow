@@ -26,6 +26,8 @@
  * @param {string} [props.showName] - episode 归属的 show/channel 名称，传递给 EpisodeHeader
  * @param {string} [props.audioUrl] - 音频文件 URL，传递给 AudioBarContainer
  * @param {number|string} [props.episodeId] - Episode ID，传递给 SubtitleList 用于加载字幕数据
+ * @param {Function} [props.onFileImportClick] - 文件导入按钮点击回调 () => void
+ * @param {string} [props.transcriptionStatus] - 转录状态（pending/processing/completed/failed），传递给 SubtitleList 用于在识别完成后触发字幕重新加载
  * @param {React.ReactNode} [props.children] - 可选，用于未来扩展
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -40,6 +42,8 @@ export default function MainLayout({
   showName, 
   audioUrl,
   episodeId,
+  onFileImportClick,
+  transcriptionStatus,
   children 
 }) {
   // 定义常量，方便维护
@@ -68,7 +72,7 @@ export default function MainLayout({
   // 用户交互状态（用于 SubtitleList 的自动滚动暂停逻辑）
   // 当用户进行划线、查询卡片展示等操作时，需要暂停自动滚动
   // TODO: 当 SelectionMenu 实现后，需要根据其打开状态更新 isInteracting
-  const [isInteracting, setIsInteracting] = useState(false);
+  const [isInteracting] = useState(false);
 
   // 处理主体区域滚动（用于 SubtitleList 的用户滚动检测）
   const handleMainScroll = useCallback(() => {
@@ -210,6 +214,7 @@ export default function MainLayout({
             scrollContainerRef={mainScrollRef}
             isUserScrollingRef={isUserScrollingRef}
             isInteracting={isInteracting}
+            transcriptionStatus={transcriptionStatus}
           />
         </Box>
 
@@ -243,6 +248,7 @@ export default function MainLayout({
           onDurationChange={handleDurationChange}
           onAudioControlsReady={handleAudioControlsReady}
           onPlayerStateChange={handlePlayerStateChange}
+          onFileImportClick={onFileImportClick}
         />
       )}
 

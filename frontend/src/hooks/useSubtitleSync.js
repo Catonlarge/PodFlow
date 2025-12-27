@@ -78,7 +78,12 @@ export function useSubtitleSync({ currentTime, cues = [] }) {
    */
   useEffect(() => {
     const index = findSubtitleIndex(currentTime, cues);
-    setCurrentSubtitleIndex(index);
+    // 使用 requestAnimationFrame 避免在 effect 中同步调用 setState
+    requestAnimationFrame(() => {
+      setCurrentSubtitleIndex((prevIndex) => {
+        return prevIndex !== index ? index : prevIndex;
+      });
+    });
   }, [currentTime, cues, findSubtitleIndex]);
 
   /**
@@ -96,7 +101,6 @@ export function useSubtitleSync({ currentTime, cues = [] }) {
       // 滚动到屏幕 1/3 处（根据 PRD 6.2.4.1 要求）
       const element = ref.current;
       const elementTop = element.offsetTop;
-      const elementHeight = element.offsetHeight;
       const container = element.closest('[data-subtitle-container]');
       
       if (container) {

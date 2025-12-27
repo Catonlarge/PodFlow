@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import SubtitleList from '../SubtitleList';
-import { getMockCues } from '../../../services/subtitleService';
+import { getMockCues, getCuesByEpisodeId } from '../../../services/subtitleService';
 
 // Mock subtitleService
 vi.mock('../../../services/subtitleService', () => ({
   getMockCues: vi.fn(),
+  getCuesByEpisodeId: vi.fn(),
 }));
 
 // Mock SubtitleRow
@@ -38,6 +39,7 @@ describe('SubtitleList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getMockCues.mockResolvedValue(mockCues);
+    getCuesByEpisodeId.mockResolvedValue(mockCues);
   });
 
   describe('渲染', () => {
@@ -401,6 +403,198 @@ describe('SubtitleList', () => {
         const subtitle3 = screen.getByTestId('subtitle-3');
         expect(subtitle3).toHaveAttribute('data-progress', '0');
       });
+    });
+  });
+
+  describe('transcriptionStatus 监听', () => {
+    it('当 transcriptionStatus 从 processing 变为 completed 时，应该重新加载字幕', async () => {
+      const { rerender } = render(
+        <SubtitleList
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+          transcriptionStatus="processing"
+        />
+      );
+
+      // 等待初始加载完成
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
+      });
+
+      // 清除调用记录
+      getCuesByEpisodeId.mockClear();
+
+      // 更新 transcriptionStatus 为 completed
+      rerender(
+        <SubtitleList
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+          transcriptionStatus="completed"
+        />
+      );
+
+      // 应该再次调用 getCuesByEpisodeId
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
+        expect(getCuesByEpisodeId).toHaveBeenCalledWith(123);
+      });
+    });
+
+    it('当 transcriptionStatus 已经是 completed 时，不应该重复加载', async () => {
+      const { rerender } = render(
+        <SubtitleList
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+          transcriptionStatus="completed"
+        />
+      );
+
+      // 等待初始加载完成
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
+      });
+
+      // 清除调用记录
+      getCuesByEpisodeId.mockClear();
+
+      // 再次更新 transcriptionStatus 为 completed（状态没有变化）
+      rerender(
+        <SubtitleList
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+          transcriptionStatus="completed"
+        />
+      );
+
+      // 等待一段时间，确保没有额外的调用
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).not.toHaveBeenCalled();
+      }, { timeout: 1000 });
+    });
+
+    it('当有 propsCues 时，即使 transcriptionStatus 变为 completed 也不应该重新加载', async () => {
+      const { rerender } = render(
+        <SubtitleList
+          cues={mockCues}
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+          transcriptionStatus="processing"
+        />
+      );
+
+      // 等待组件渲染
+      await waitFor(() => {
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      });
+
+      // 清除调用记录
+      getCuesByEpisodeId.mockClear();
+
+      // 更新 transcriptionStatus 为 completed
+      rerender(
+        <SubtitleList
+          cues={mockCues}
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+          transcriptionStatus="completed"
+        />
+      );
+
+      // 应该不会调用 getCuesByEpisodeId，因为已经有 propsCues
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).not.toHaveBeenCalled();
+      }, { timeout: 1000 });
+    });
+
+    it('当没有 transcriptionStatus 时，应该正常工作', async () => {
+      render(
+        <SubtitleList
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+        />
+      );
+
+      // 应该正常加载字幕（通过 episodeId）
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
+        expect(getCuesByEpisodeId).toHaveBeenCalledWith(123);
+      });
+    });
+
+    it('当 transcriptionStatus 从 pending 变为 completed 时，应该重新加载字幕', async () => {
+      const { rerender } = render(
+        <SubtitleList
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+          transcriptionStatus="pending"
+        />
+      );
+
+      // 等待初始加载完成
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
+      });
+
+      // 清除调用记录
+      getCuesByEpisodeId.mockClear();
+
+      // 更新 transcriptionStatus 为 completed
+      rerender(
+        <SubtitleList
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+          transcriptionStatus="completed"
+        />
+      );
+
+      // 应该再次调用 getCuesByEpisodeId
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
+        expect(getCuesByEpisodeId).toHaveBeenCalledWith(123);
+      });
+    });
+
+    it('当 transcriptionStatus 变为其他状态时，不应该重新加载', async () => {
+      const { rerender } = render(
+        <SubtitleList
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+          transcriptionStatus="processing"
+        />
+      );
+
+      // 等待初始加载完成
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
+      });
+
+      // 清除调用记录
+      getCuesByEpisodeId.mockClear();
+
+      // 更新 transcriptionStatus 为 failed（不是 completed）
+      rerender(
+        <SubtitleList
+          episodeId={123}
+          currentTime={1.0}
+          duration={20.0}
+          transcriptionStatus="failed"
+        />
+      );
+
+      // 应该不会调用 getCuesByEpisodeId
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).not.toHaveBeenCalled();
+      }, { timeout: 1000 });
     });
   });
 });

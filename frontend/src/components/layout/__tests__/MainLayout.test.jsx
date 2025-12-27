@@ -108,7 +108,7 @@ describe('MainLayout', () => {
     });
 
     it('主体区域应该包含字幕和笔记组件', () => {
-      const { container } = render(
+      render(
         <MainLayout 
           episodeTitle="测试"
           showName="测试节目"
@@ -136,7 +136,7 @@ describe('MainLayout', () => {
 
   describe('响应式设计', () => {
     it('应该正确渲染所有区域', () => {
-      const { container } = render(
+      render(
         <MainLayout 
           episodeTitle="测试"
           showName="测试节目"

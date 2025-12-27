@@ -5,6 +5,7 @@ import {
   VolumeUp,
   VolumeOff,
   Replay,
+  UploadFile,
 } from '@mui/icons-material';
 import ProgressBar from './ProgressBar';
 
@@ -20,13 +21,15 @@ import ProgressBar from './ProgressBar';
  * @param {Function} props.onInteraction - 用户交互回调（用于重置收缩定时器）() => void
  * @param {Function} props.onMouseEnter - 鼠标进入回调 () => void
  * @param {Function} props.onMouseLeave - 鼠标离开回调 () => void
+ * @param {Function} [props.onFileImportClick] - 文件导入按钮点击回调 () => void
  */
 export default function FullAudioBar({ 
   audioState, 
   audioControls,
   onInteraction,
   onMouseEnter,
-  onMouseLeave 
+  onMouseLeave,
+  onFileImportClick,
 }) {
   const {
     currentTime,
@@ -206,6 +209,25 @@ export default function FullAudioBar({
               }}
             />
           </Stack>
+
+          {/* 音频和字幕选择按钮（音量调节条右侧） */}
+          {onFileImportClick && (
+            <IconButton
+              aria-label="音频和字幕选择"
+              onClick={onFileImportClick}
+              size="small"
+              sx={{
+                '&:hover': {
+                  bgcolor: 'action.hover',
+                },
+                '&:active': {
+                  transform: 'scale(0.95)',
+                },
+              }}
+            >
+              <UploadFile />
+            </IconButton>
+          )}
         </Stack>
       </Stack>
     </Box>

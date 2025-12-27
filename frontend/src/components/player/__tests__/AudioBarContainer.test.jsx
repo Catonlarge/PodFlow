@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 import AudioBarContainer from '../AudioBarContainer';
 
 // Mock HTML5 Audio API - 在 describe 外部定义，避免测试间状态污染

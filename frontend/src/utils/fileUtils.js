@@ -46,7 +46,7 @@ export function readAudioDuration(file) {
       resolve(audio.duration);
     };
 
-    const onError = (error) => {
+    const onError = () => {
       cleanup();
       reject(new Error('无法读取音频文件时长'));
     };

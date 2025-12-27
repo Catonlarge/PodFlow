@@ -4,6 +4,175 @@
 
 ---
 
+## [2025-12-27] [fix] - 修复字幕识别完成后字幕未自动加载的问题
+
+**变更内容**：
+- **前端组件**：
+  - 更新 `frontend/src/components/subtitles/SubtitleList.jsx`：
+    - 添加 `transcriptionStatus` prop，用于接收转录状态
+    - 添加新的 `useEffect` 监听 `transcriptionStatus` 变化
+    - 当状态从非 `completed` 变为 `completed` 时，自动重新加载字幕数据
+    - 使用 `useRef` 跟踪上一次的转录状态，避免重复加载
+  - 更新 `frontend/src/components/layout/MainLayout.jsx`：
+    - 添加 `transcriptionStatus` prop
+    - 将 `transcriptionStatus` 传递给 `SubtitleList` 组件
+  - 更新 `frontend/src/pages/EpisodePage.jsx`：
+    - 将 `episode.transcription_status` 传递给 `MainLayout` 组件
+
+**问题描述**：
+- 字幕识别完成后，ProcessingOverlay 消失，但字幕数据没有被加载到页面上
+- 页面仍然显示"暂无字幕数据"
+- 原因是 `SubtitleList` 只在 `episodeId` 变化时加载字幕，识别完成后 `episodeId` 没有变化，所以不会重新加载
+
+**技术实现**：
+- 在 `SubtitleList` 中添加了 `transcriptionStatus` prop
+- 使用 `useEffect` 监听 `transcriptionStatus` 的变化
+- 当状态从非 `completed` 变为 `completed` 时，调用 `getCuesByEpisodeId` 重新加载字幕
+- 通过 `useRef` 跟踪上一次的状态，确保只在状态变化时触发重新加载
+
+**测试结果**：
+- ✅ 修复了字幕识别完成后字幕未自动加载的问题
+- ✅ 字幕识别完成后，字幕数据能够自动加载到页面上
+- ✅ 添加了 6 个测试用例验证 transcriptionStatus 功能：
+  - 当 transcriptionStatus 从 processing 变为 completed 时，应该重新加载字幕
+  - 当 transcriptionStatus 已经是 completed 时，不应该重复加载
+  - 当有 propsCues 时，即使 transcriptionStatus 变为 completed 也不应该重新加载
+  - 当没有 transcriptionStatus 时，应该正常工作
+  - 当 transcriptionStatus 从 pending 变为 completed 时，应该重新加载字幕
+  - 当 transcriptionStatus 变为其他状态时，不应该重新加载
+- ✅ 所有测试用例通过（26 个测试用例全部通过）
+
+---
+
+## [2025-01-27] [fix] - 修复上传新文件后字幕识别进度显示问题
+
+**变更内容**：
+- **前端页面**：
+  - 更新 `frontend/src/pages/EpisodePage.jsx`：修复上传新文件后字幕识别进度显示
+    - 上传成功后检查 `response.status`，如果是 'processing' 或 'pending'，设置 `processingState = 'recognize'`
+    - 在 `fetchEpisode` 中更新转录进度：如果 `transcription_status` 是 'processing' 或 'pending'，更新 `uploadProgress`
+    - 在轮询转录状态的 `useEffect` 中，持续更新识别进度
+    - 转录完成后自动清除 ProcessingOverlay
+
+**问题描述**：
+- 在已有 episode 页面中上传新文件后，如果新文件没有历史字幕，应该显示"字幕正在识别中"的 ProcessingOverlay
+- 但实际上只显示了"暂无字幕数据"，没有显示识别进度
+
+**技术实现**：
+- **上传成功后**：检查 `response.status`，如果是 'processing' 或 'pending'，设置 `processingState = 'recognize'`
+- **跳转后**：`fetchEpisode` 加载 episode 数据，根据 `transcription_status` 和 `transcription_progress` 更新进度
+- **轮询过程中**：持续更新识别进度，直到转录完成
+
+**测试结果**：
+- ✅ 修复了字幕识别进度显示问题
+
+---
+
+## [2025-01-27] [fix] - 修复 check-subtitle API 路由匹配问题
+
+**变更内容**：
+- **后端 API**：
+  - 更新 `backend/app/api.py`：修复 `/api/episodes/check-subtitle` 路由匹配问题
+    - **关键修复**：将 `check-subtitle` 路由移到 `/episodes/{episode_id}` 路由之前
+    - 原因：FastAPI 按路由定义顺序匹配，`{episode_id}` 路由会先匹配 `check-subtitle`，导致 422 错误
+    - 改用 `Request` 对象直接获取查询参数，避免 FastAPI Query 参数验证问题
+    - 添加详细的调试日志
+  - 添加测试用例：`backend/tests/test_episode_api.py::TestCheckSubtitle`
+    - 测试历史字幕存在的情况
+    - 测试历史字幕不存在的情况
+    - 测试转录未完成的情况
+    - 测试没有字幕数据的情况
+    - 测试 hash 大小写不敏感
+    - 所有 5 个测试用例全部通过 ✅
+
+**问题描述**：
+- FastAPI 路由匹配顺序问题：`/episodes/{episode_id}` 在 `/episodes/check-subtitle` 之前定义
+- 导致 `/api/episodes/check-subtitle` 被错误匹配为 `/episodes/{episode_id}`，`check-subtitle` 被当作 `episode_id` 解析
+- 返回 422 错误：`"Input should be a valid integer, unable to parse string as an integer","input":"check-subtitle"`
+
+**技术实现**：
+- **路由顺序**：将具体路由（`/episodes/check-subtitle`）放在参数路由（`/episodes/{episode_id}`）之前
+- **参数获取**：使用 `Request.query_params` 直接获取查询参数，避免 FastAPI Query 验证问题
+- **测试覆盖**：编写 5 个测试用例，覆盖所有场景
+
+**测试结果**：
+- ✅ 5/5 个测试用例全部通过
+- ✅ 修复了 422 错误问题
+
+---
+
+## [2025-01-27] [fix] - 修复 check-subtitle API 参数验证问题（已废弃）
+
+**变更内容**：
+- **后端 API**：
+  - 更新 `backend/app/api.py`：`/api/episodes/check-subtitle` 接口
+    - 移除 Query 参数中的 `min_length` 和 `max_length`（FastAPI Query 不支持这些参数）
+    - 在函数内部添加 `file_hash` 参数格式验证（32位十六进制字符串）
+    - 添加长度验证和正则表达式验证（`^[a-f0-9]{32}$`）
+    - 统一使用小写版本进行数据库查询
+    - 将 `import re` 移到文件顶部
+    - 改进错误提示信息
+- **前端组件**：
+  - 更新 `frontend/src/components/upload/FileImportModal.jsx`：`checkHistoricalSubtitle` 函数
+    - 添加 `fileHash` 参数验证和清理逻辑
+    - 移除可能的额外字符（冒号、空格等）
+    - 转换为小写并验证长度
+    - 改进错误处理
+
+**问题描述**：
+- FastAPI 的 Query 参数不支持 `min_length` 和 `max_length`，导致参数验证失败
+- 前端传递的 `file_hash` 参数可能包含额外字符，导致后端返回 422 错误
+- 后端缺少参数格式验证，无法提供清晰的错误提示
+
+**技术实现**：
+- **后端验证**：
+  - 移除 Query 中的长度限制，改为函数内部验证
+  - 先检查长度，再使用正则表达式验证 MD5 hash 格式
+  - 统一转换为小写进行查询，确保与数据库存储格式一致
+- **前端清理**：在发送请求前清理和验证 `fileHash` 值，确保格式正确
+
+**测试结果**：
+- ✅ 修复了 422 错误问题
+- ✅ 改进了错误处理和用户提示
+
+---
+
+## [2025-01-27] [feat] - 集成文件上传功能到 Episode 页面（Task 2.10）
+
+**变更内容**：
+- **前端页面**：
+  - 更新 `frontend/src/pages/EpisodePage.jsx`：集成文件上传功能
+    - 实现首次打开逻辑：无 URL 参数且无 localStorage 时自动弹出文件选择弹窗
+    - 实现已选择逻辑：有 localStorage 中的 episodeId 时自动加载
+    - 实现空状态显示：无音频文件时居中显示提示文字和按钮
+    - 实现文件上传处理：上传、进度显示、跳转逻辑
+    - 实现秒传/去重逻辑：`is_duplicate=true` 时立即完成并跳过转录等待
+    - 修复 ProcessingOverlay 渲染问题：确保在空状态时也能显示进度遮罩
+  - 更新 `frontend/src/pages/__tests__/EpisodePage.test.jsx`：添加文件上传相关测试用例
+    - 首次打开逻辑测试（2个）
+    - 已选择逻辑测试（2个）
+    - 文件上传流程测试（2个）
+    - 秒传/去重逻辑测试（2个）
+    - 空状态显示测试（1个）
+    - 测试通过率：23/23（100%）
+
+**技术实现**：
+- **状态管理**：使用 `useState` 管理 `isModalOpen`、`processingState`、`uploadProgress`、`processingError`
+- **localStorage 管理**：使用 `podflow_last_episode_id` 键存储用户选择的 episodeId
+- **路由跳转**：上传成功后使用 `useNavigate` 跳转到 `/episodes/${episodeId}`
+- **进度显示**：上传过程中显示 ProcessingOverlay，支持进度条和错误状态
+- **秒传优化**：重复文件时立即完成进度并直接跳转，无需等待转录
+
+**PRD 对应**：
+- PRD 6.1.1: 音频和字幕选择弹框
+- PRD 6.1.2: 音频处理逻辑和loading界面
+- PRD 6.2: 英文播客学习界面
+
+**测试结果**：
+- ✅ 23/23 个测试用例全部通过
+
+---
+
 ## [2025-01-27] [feat] - 实现字幕识别进度遮罩组件 ProcessingOverlay（Task 2.9）
 
 **变更内容**：

@@ -14,7 +14,7 @@ describe('SubtitleRow', () => {
 
   describe('渲染', () => {
     it('应该渲染字幕文本和时间标签', () => {
-      const { container } = render(
+      render(
         <SubtitleRow
           cue={mockCue}
           index={0}

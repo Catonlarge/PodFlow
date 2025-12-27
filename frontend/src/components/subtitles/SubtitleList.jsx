@@ -33,13 +33,12 @@ import { getMockCues, getCuesByEpisodeId } from '../../services/subtitleService'
  * @param {Array} [props.highlights] - 划线数据数组，格式为 [{ cue_id, start_offset, end_offset, highlighted_text, color }]
  * @param {Function} [props.onHighlightClick] - 点击划线源的回调函数 (highlight) => void
  * @param {boolean} [props.isLoading] - 是否处于加载状态
+ * @param {string} [props.transcriptionStatus] - 转录状态（pending/processing/completed/failed），用于在识别完成后触发字幕重新加载
  */
 export default function SubtitleList({
   cues: propsCues,
   currentTime = 0,
-  duration = 0,
   onCueClick,
-  audioUrl,
   episodeId,
   scrollContainerRef,
   isUserScrollingRef: externalIsUserScrollingRef,
@@ -47,6 +46,7 @@ export default function SubtitleList({
   highlights = [],
   onHighlightClick,
   isLoading = false,
+  transcriptionStatus,
 }) {
   const [cues, setCues] = useState(propsCues || []);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -54,16 +54,14 @@ export default function SubtitleList({
   const internalUserScrollTimeoutRef = useRef(null);
   const internalIsUserScrollingRef = useRef(false);
   const subtitleRefs = useRef({});
+  const previousTranscriptionStatusRef = useRef(transcriptionStatus || null);
 
   // 使用外部滚动容器或内部滚动容器
   // 当使用外部滚动容器时，containerRef 指向外部容器；否则使用内部容器
   const containerRef = scrollContainerRef || internalContainerRef;
-  
-  // 使用外部用户滚动状态或内部状态
-  const isUserScrollingRef = externalIsUserScrollingRef || internalIsUserScrollingRef;
 
   // 使用 useSubtitleSync hook 获取当前高亮字幕索引
-  const { currentSubtitleIndex, scrollToSubtitle, registerSubtitleRef } = useSubtitleSync({
+  const { currentSubtitleIndex, registerSubtitleRef } = useSubtitleSync({
     currentTime,
     cues,
   });
@@ -73,7 +71,10 @@ export default function SubtitleList({
   useEffect(() => {
     if (propsCues) {
       // 如果传入了 cues prop，直接使用
-      setCues(propsCues);
+      // 使用 requestAnimationFrame 避免在 effect 中同步调用 setState
+      requestAnimationFrame(() => {
+        setCues(propsCues);
+      });
     } else if (episodeId) {
       // 如果有 episodeId，从 API 加载字幕数据
       getCuesByEpisodeId(episodeId).then((cues) => {
@@ -92,6 +93,39 @@ export default function SubtitleList({
       });
     }
   }, [propsCues, episodeId]);
+
+  // 监听转录状态变化：当状态变为 completed 时，重新加载字幕
+  useEffect(() => {
+    // 如果没有 transcriptionStatus，跳过
+    if (!transcriptionStatus) {
+      // 仍然需要更新 ref，以便后续比较
+      previousTranscriptionStatusRef.current = transcriptionStatus || null;
+      return;
+    }
+    
+    // 如果转录状态从非 completed 变为 completed，且没有传入 propsCues，则重新加载字幕
+    const previousStatus = previousTranscriptionStatusRef.current;
+    const currentStatus = transcriptionStatus;
+    
+    if (
+      previousStatus !== 'completed' 
+      && currentStatus === 'completed' 
+      && !propsCues 
+      && episodeId
+    ) {
+      console.log('[SubtitleList] 转录已完成，重新加载字幕数据');
+      getCuesByEpisodeId(episodeId).then((cues) => {
+        if (cues && cues.length > 0) {
+          setCues(cues);
+        }
+      }).catch((error) => {
+        console.error('[SubtitleList] 转录完成后加载字幕失败:', error);
+      });
+    }
+    
+    // 更新上一次的状态
+    previousTranscriptionStatusRef.current = currentStatus;
+  }, [transcriptionStatus, propsCues, episodeId]);
 
   /**
    * 处理 speaker 分组，为每个新的 speaker 添加 speaker 标签
@@ -153,7 +187,8 @@ export default function SubtitleList({
    */
   useEffect(() => {
     // 如果用户正在滚动，不执行自动滚动
-    if (isUserScrollingRef.current) {
+    const scrollingRef = externalIsUserScrollingRef || internalIsUserScrollingRef;
+    if (scrollingRef.current) {
       return;
     }
 
@@ -183,9 +218,10 @@ export default function SubtitleList({
         const elementTopRelativeToContainer = elementRect.top - containerRect.top + containerScrollTop;
         const elementHeight = elementRect.height;
         
+        const scrollingRef = externalIsUserScrollingRef || internalIsUserScrollingRef;
         console.log('[SubtitleList Auto-Scroll Debug]', {
           currentSubtitleIndex,
-          isUserScrolling: isUserScrollingRef.current,
+          isUserScrolling: scrollingRef.current,
           isInteracting,
           isInViewport,
           containerInfo: {
@@ -254,7 +290,7 @@ export default function SubtitleList({
         }
       }
     }
-      }, [currentSubtitleIndex, containerRef, isUserScrollingRef, isInteracting]);
+      }, [currentSubtitleIndex, containerRef, externalIsUserScrollingRef, isInteracting]);
 
   /**
    * 监听用户滚动事件（仅当使用内部滚动容器时）
@@ -266,7 +302,8 @@ export default function SubtitleList({
       return;
     }
     
-    isUserScrollingRef.current = true;
+    // 只使用内部 ref，避免修改外部传入的 ref
+    internalIsUserScrollingRef.current = true;
 
     // 清除之前的定时器
     if (internalUserScrollTimeoutRef.current) {
@@ -275,9 +312,9 @@ export default function SubtitleList({
 
     // 5秒后恢复自动滚动
     internalUserScrollTimeoutRef.current = setTimeout(() => {
-      isUserScrollingRef.current = false;
+      internalIsUserScrollingRef.current = false;
     }, 5000);
-  }, [scrollContainerRef, isUserScrollingRef]);
+  }, [scrollContainerRef]);
 
   // 清理定时器（仅当使用内部滚动容器时）
   useEffect(() => {
@@ -372,7 +409,7 @@ export default function SubtitleList({
           boxSizing: 'border-box',
         }}
       >
-        {processedItems.map((item, itemIndex) => {
+        {processedItems.map((item) => {
           if (item.type === 'speaker') {
             // 渲染 speaker 标签行
             return (

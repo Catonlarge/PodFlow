@@ -5,7 +5,6 @@ import ProcessingOverlay from '../ProcessingOverlay';
 
 describe('ProcessingOverlay', () => {
   const mockOnRetry = vi.fn();
-  const mockOnCancel = vi.fn();
   const mockOnTogglePause = vi.fn();
 
   beforeEach(() => {

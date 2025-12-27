@@ -1,4 +1,4 @@
-import React, { memo, forwardRef, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { memo, forwardRef, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Box, Typography } from '@mui/material';
 import { formatTime } from '../../utils/timeUtils';
 
@@ -37,7 +37,6 @@ const SubtitleRow = forwardRef(function SubtitleRow({
   cue,
   index,
   isHighlighted,
-  isPast,
   onClick,
   showSpeaker = false,
   showTranslation = false,
@@ -48,17 +47,24 @@ const SubtitleRow = forwardRef(function SubtitleRow({
   const [isHovered, setIsHovered] = useState(false);
 
   // 当字幕失去高亮时，清除 hover 状态，避免灰色背景残留
+  // 使用 ref 来避免在 effect 中同步调用 setState
+  const prevIsHighlightedRef = useRef(isHighlighted);
+  
   useEffect(() => {
-    if (!isHighlighted && isHovered) {
-      setIsHovered(false);
+    if (!isHighlighted && prevIsHighlightedRef.current && isHovered) {
+      // 使用 setTimeout 将 setState 调用推迟到下一个事件循环
+      setTimeout(() => {
+        setIsHovered(false);
+      }, 0);
     }
+    prevIsHighlightedRef.current = isHighlighted;
   }, [isHighlighted, isHovered]);
 
   // 将句子拆分为单词数组（使用 useMemo 避免每次渲染都 split）
   const words = useMemo(() => {
     if (!cue || !cue.text) return [];
     return cue.text.split(' ');
-  }, [cue?.text]);
+  }, [cue]);
 
   // 计算当前应该高亮到第几个单词
   // 假设匀速：总单词数 * 进度百分比 = 当前高亮单词的索引
@@ -145,7 +151,7 @@ const SubtitleRow = forwardRef(function SubtitleRow({
     }
 
     return parts;
-  }, [cue?.text, highlights]);
+  }, [cue, highlights]);
 
   /**
    * 计算文本片段在整个句子中的单词范围
@@ -163,7 +169,7 @@ const SubtitleRow = forwardRef(function SubtitleRow({
     const endWordIndex = startWordIndex + wordsInPart.length;
     
     return { startWordIndex, endWordIndex };
-  }, [cue?.text]);
+  }, [cue]);
 
   if (!cue) {
     return null;
@@ -279,7 +285,7 @@ const SubtitleRow = forwardRef(function SubtitleRow({
           {renderTextParts.map((part, partIndex) => {
             if (part.type === 'highlight') {
               // 划线文本：显示下划线，同时支持单词级高亮
-              const { startWordIndex, endWordIndex } = getWordRangeForTextPart(part);
+              const { startWordIndex } = getWordRangeForTextPart(part);
               const highlightWords = part.content.split(' ').filter(w => w.length > 0);
               
               return (
@@ -327,7 +333,7 @@ const SubtitleRow = forwardRef(function SubtitleRow({
               );
             } else {
               // 普通文本：只支持单词级高亮
-              const { startWordIndex, endWordIndex } = getWordRangeForTextPart(part);
+              const { startWordIndex } = getWordRangeForTextPart(part);
               const textWords = part.content.split(' ').filter(w => w.length > 0);
               
               return (

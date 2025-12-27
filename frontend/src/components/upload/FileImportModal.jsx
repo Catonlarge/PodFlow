@@ -100,7 +100,7 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
         errors.audio = '选择音频文件不得超过3个小时';
         return errors;
       }
-    } catch (error) {
+    } catch {
       errors.audio = '无法读取音频文件时长';
       return errors;
     }
@@ -126,15 +126,38 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
 
   /**
    * 检查历史字幕
+   * 
+   * 注意：此函数失败时静默返回 { exists: false }，不影响文件选择流程
    */
   const checkHistoricalSubtitle = async (fileHash) => {
     try {
+      // 确保 fileHash 是有效的 MD5 格式（32位十六进制字符串）
+      if (!fileHash || typeof fileHash !== 'string') {
+        return { exists: false };
+      }
+      
+      // 清理可能的额外字符（如冒号、空格等）
+      const cleanHash = fileHash.trim().toLowerCase().replace(/[^a-f0-9]/g, '');
+      
+      // 验证长度（MD5 应该是32位）
+      if (cleanHash.length !== 32) {
+        return { exists: false };
+      }
+      
+      // 调用 API 检查历史字幕
       const response = await api.get('/api/episodes/check-subtitle', {
-        params: { file_hash: fileHash },
+        params: { file_hash: cleanHash },
       });
       return response;
     } catch (error) {
-      console.error('检查历史字幕失败:', error);
+      // 静默处理错误：历史字幕检查失败不影响文件选择
+      // 只在开发环境下输出详细错误信息
+      if (import.meta.env.DEV) {
+        console.warn('[checkHistoricalSubtitle] 检查历史字幕失败（不影响文件选择）:', {
+          message: error.message,
+          status: error.response?.status,
+        });
+      }
       return { exists: false };
     }
   };
@@ -168,7 +191,15 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
     // 计算 MD5 并检查历史字幕
     setIsCalculatingMD5(true);
     try {
+      // 计算 MD5 hash
       const fileHash = await calculateFileMD5(file);
+      
+      // 验证 MD5 hash 格式
+      if (!fileHash || typeof fileHash !== 'string' || fileHash.length !== 32) {
+        throw new Error('MD5 计算结果格式错误');
+      }
+      
+      // 检查历史字幕（失败不影响文件选择）
       const historicalData = await checkHistoricalSubtitle(fileHash);
       
       if (historicalData.exists) {
@@ -181,7 +212,8 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
         setUseHistoricalSubtitle(false);
       }
     } catch (error) {
-      console.error('MD5 计算失败:', error);
+      // 只有 MD5 计算失败才显示错误（历史字幕检查失败不影响文件选择）
+      console.error('[handleAudioFileSelect] MD5 计算失败:', error);
       setErrors({ audio: 'MD5 计算失败，请重试', subtitle: '' });
       setAudioFile(null);
       setAudioPath('');

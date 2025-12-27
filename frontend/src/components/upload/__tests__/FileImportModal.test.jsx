@@ -667,10 +667,6 @@ describe('FileImportModal', () => {
         />
       );
 
-      // 模拟点击 Dialog 外部（backdrop）
-      // 通过直接调用 handleClose 来测试逻辑
-      const dialog = screen.getByRole('dialog');
-      
       // 由于 MUI Dialog 的 backdrop 点击处理比较复杂，这里测试组件内部的 handleClose 逻辑
       // 实际实现中，handleClose 会检查是否有音频文件，如果没有则闪烁提示
       expect(mockOnClose).not.toHaveBeenCalled();

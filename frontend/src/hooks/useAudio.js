@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
 /**
  * useAudio Hook
@@ -28,7 +28,8 @@ export function useAudio({ audioUrl, onTimeUpdate, onDurationChange, initialVolu
   const handlePlayPauseRef = useRef(null);
 
   // 播放速度选项（循环顺序：1X → 1.25X → 1.5X → 0.75X → 1X）
-  const playbackRates = [1, 1.25, 1.5, 0.75];
+  // 使用 useMemo 避免每次渲染都创建新数组
+  const playbackRates = useMemo(() => [1, 1.25, 1.5, 0.75], []);
 
   // 触发交互回调
   const triggerInteraction = useCallback(() => {
@@ -151,17 +152,10 @@ export function useAudio({ audioUrl, onTimeUpdate, onDurationChange, initialVolu
       audio.removeEventListener('volumechange', handleVolumeChange);
       audio.removeEventListener('error', handleError);
     };
-  }, [audioUrl, onTimeUpdate, initialVolume, triggerInteraction]);
+  }, [audioUrl, onTimeUpdate, onDurationChange, initialVolume, triggerInteraction]);
 
   // 单独处理播放速度变化，避免影响音量
   // 这个useEffect会在组件挂载时执行一次（设置初始值），也会在playbackRate改变时执行
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.playbackRate = playbackRate;
-  }, [playbackRate]);
-
-  // 单独处理播放速度变化，避免影响音量
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -185,7 +179,7 @@ export function useAudio({ audioUrl, onTimeUpdate, onDurationChange, initialVolu
             audio.load();
             // 等待音频可以播放，但设置较短的超时时间
             try {
-              await new Promise((resolve, reject) => {
+              await new Promise((resolve) => {
                 const timeout = setTimeout(() => {
                   // 超时后仍然尝试播放，不阻止用户操作
                   resolve();

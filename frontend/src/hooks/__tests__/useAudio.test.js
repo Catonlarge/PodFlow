@@ -38,8 +38,6 @@ global.HTMLAudioElement = vi.fn().mockImplementation(() => {
 
 describe('useAudio', () => {
   const mockAudioUrl = 'http://localhost:8000/static/audio/test.mp3';
-  const mockOnTimeUpdate = vi.fn();
-  const mockOnInteraction = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();

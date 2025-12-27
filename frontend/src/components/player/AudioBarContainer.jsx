@@ -17,8 +17,9 @@ import MiniAudioBar from './MiniAudioBar';
  * @param {Function} [props.onAudioControlsReady] - 音频控制方法就绪回调 (controls) => void
  * @param {Function} [props.onPlayerStateChange] - 播放器状态变化回调 (isIdle) => void，用于通知父组件展开/收缩状态
  * @param {number} [props.initialVolume=0.8] - 初始音量（0-1，默认 0.8）
+ * @param {Function} [props.onFileImportClick] - 文件导入按钮点击回调 () => void
  */
-export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationChange, onAudioControlsReady, onPlayerStateChange, initialVolume = 0.8 }) {
+export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationChange, onAudioControlsReady, onPlayerStateChange, initialVolume = 0.8, onFileImportClick }) {
   const [isHovering, setIsHovering] = useState(false);
   const resetIdleTimerRef = useRef(null);
 
@@ -38,10 +39,30 @@ export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationCh
     onInteraction: handleInteraction,
   });
 
+  // 解构状态值，避免 ESLint 认为在渲染期间访问 ref
+  const {
+    audioRef,
+    currentTime,
+    duration,
+    isPlaying,
+    volume,
+    isMuted,
+    playbackRate,
+    togglePlay,
+    rewind,
+    forward,
+    setPlaybackRate,
+    setVolume,
+    toggleMute,
+    setProgress,
+    onProgressChangeCommitted,
+    onVolumeChangeCommitted,
+  } = audio;
+
   // 使用useIdle hook检测无操作状态
   const { isIdle, resetIdleTimer } = useIdle({
     delay: 3000,
-    enabled: audio.isPlaying, // 只在播放中时启用检测
+    enabled: isPlaying, // 只在播放中时启用检测
     isHovering: isHovering,
   });
 
@@ -61,12 +82,12 @@ export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationCh
   useEffect(() => {
     if (onAudioControlsReady) {
       onAudioControlsReady({
-        setProgress: audio.setProgress,
-        togglePlay: audio.togglePlay,
-        isPlaying: audio.isPlaying,
+        setProgress,
+        togglePlay,
+        isPlaying,
       });
     }
-  }, [audio.setProgress, audio.togglePlay, audio.isPlaying, onAudioControlsReady]);
+  }, [setProgress, togglePlay, isPlaying, onAudioControlsReady]);
 
   // 处理鼠标进入播放器
   const handleMouseEnter = useCallback(() => {
@@ -86,8 +107,8 @@ export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationCh
   }, [resetIdleTimer]);
 
   // 计算进度百分比（用于收缩状态显示）
-  const progressPercent = audio.duration > 0 
-    ? (audio.currentTime / audio.duration) * 100 
+  const progressPercent = duration > 0 
+    ? (currentTime / duration) * 100 
     : 0;
 
   // 根据isIdle状态决定渲染Full还是Mini
@@ -95,7 +116,7 @@ export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationCh
     return (
       <>
         <audio 
-          ref={audio.audioRef} 
+          ref={audioRef} 
           src={audioUrl || ''} 
           preload="metadata"
           crossOrigin="anonymous"
@@ -112,34 +133,35 @@ export default function AudioBarContainer({ audioUrl, onTimeUpdate, onDurationCh
   return (
     <>
       <audio 
-        ref={audio.audioRef} 
+        ref={audioRef} 
         src={audioUrl || ''} 
         preload="metadata"
         crossOrigin="anonymous"
       />
       <FullAudioBar
         audioState={{
-          currentTime: audio.currentTime,
-          duration: audio.duration,
-          isPlaying: audio.isPlaying,
-          volume: audio.volume,
-          isMuted: audio.isMuted,
-          playbackRate: audio.playbackRate,
+          currentTime,
+          duration,
+          isPlaying,
+          volume,
+          isMuted,
+          playbackRate,
         }}
         audioControls={{
-          togglePlay: audio.togglePlay,
-          rewind: audio.rewind,
-          forward: audio.forward,
-          setPlaybackRate: audio.setPlaybackRate,
-          setVolume: audio.setVolume,
-          toggleMute: audio.toggleMute,
-          setProgress: audio.setProgress,
-          onProgressChangeCommitted: audio.onProgressChangeCommitted,
-          onVolumeChangeCommitted: audio.onVolumeChangeCommitted,
+          togglePlay,
+          rewind,
+          forward,
+          setPlaybackRate,
+          setVolume,
+          toggleMute,
+          setProgress,
+          onProgressChangeCommitted,
+          onVolumeChangeCommitted,
         }}
         onInteraction={handleInteraction}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        onFileImportClick={onFileImportClick}
       />
     </>
   );

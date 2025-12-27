@@ -34,10 +34,8 @@ export default function ProcessingOverlay({
   type,
   progress,
   error = null,
-  audioDuration = null,
   isPaused = false,
   onRetry = null,
-  onCancel = null,
   onTogglePause = null,
 }) {
   // 根据类型获取提示文字

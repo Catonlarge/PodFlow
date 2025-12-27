@@ -66,7 +66,6 @@ describe('ProgressBar', () => {
 
   describe('进度条交互', () => {
     it('应该调用 onChange 当进度条变化时', async () => {
-      const user = userEvent.setup();
       render(
         <ProgressBar
           currentTime={30}
@@ -88,7 +87,6 @@ describe('ProgressBar', () => {
     });
 
     it('应该调用 onChangeCommitted 当进度条拖拽结束时', async () => {
-      const user = userEvent.setup();
       render(
         <ProgressBar
           currentTime={30}
@@ -147,9 +145,6 @@ describe('ProgressBar', () => {
         bubbles: true,
         cancelable: true,
       });
-
-      const preventDefaultSpy = vi.spyOn(spaceKeyEvent, 'preventDefault');
-      const stopPropagationSpy = vi.spyOn(spaceKeyEvent, 'stopPropagation');
 
       fireEvent(progressSlider, spaceKeyEvent);
 
