@@ -4,6 +4,170 @@
 
 ---
 
+## [2025-12-27] [fix] - 修复选择同一个episode时弹框闪烁和页面空白的问题
+
+**变更内容**：
+- **前端页面** (`frontend/src/pages/EpisodePage.jsx`)：
+  - 在 `handleFileConfirm` 函数开始时立即关闭弹窗，避免后续状态变化导致弹窗闪烁
+  - 对于同一个episode的重复文件，立即清除upload状态，避免显示上传遮罩
+  - 保持episode、audioUrl等数据不被清空，确保页面状态正常显示
+  - 避免选择重复文件时出现不必要的上传提示和页面闪烁
+
+**问题描述**：
+- 当在episode 6页面选择同一个episode 6时，点击确认后弹框会闪烁，页面会变空白
+- 根本原因：设置了upload状态导致显示上传遮罩，即使后续清除状态，也会导致页面闪烁
+
+**技术实现**：
+- 在函数开始时立即关闭弹窗（`setIsModalOpen(false)`），避免后续状态变化导致闪烁
+- 对于同一个episode的重复文件，在检测到后立即清除upload状态（`setProcessingState(null)`）
+- 不清空episode、audioUrl等数据，保持当前页面状态
+- 提前返回，不执行后续逻辑
+
+**测试结果**：
+- ✅ 修复了选择同一个episode时弹框闪烁的问题
+- ✅ 修复了页面空白的问题
+- ✅ 字幕数据保持正常显示
+
+---
+
+## [2025-12-27] [fix] - 修复切换episode时先回到当前页面再跳转的闪烁问题（最终版）
+
+**变更内容**：
+- **前端页面**：
+  - 优化 `frontend/src/pages/EpisodePage.jsx` 中的 `handleFileConfirm` 函数：
+    - 移除了函数开始处的 `setIsModalOpen(false)`，避免在跳转前关闭弹窗导致页面闪烁
+    - 在所有跳转分支中，只执行 `navigate`，不再手动关闭弹窗
+    - 在 `useEffect` 中监听 URL 变化，当 URL 变化且弹窗打开时，自动关闭弹窗
+    - 这样确保先执行跳转（URL 变化），然后再关闭弹窗，避免先回到当前页面
+
+**问题描述**：
+- 当在episode 2页面选择切换到episode 4时，点击确认后会先回到episode 2页面闪烁一下，然后再跳到episode 4
+- 根本原因：`handleFileConfirm` 中先关闭弹窗（`setIsModalOpen(false)`），然后才执行 `navigate` 跳转，导致弹窗关闭后页面先渲染当前episode，然后才跳转
+
+**技术实现**：
+- 在跳转前保持遮罩层（设置为 `load` 状态），而不是清除遮罩层
+- 在跳转前立即清空旧的 `episode` 数据（`setEpisode(null)`），防止页面显示旧内容
+- 对于已完成的情况，保持 `load` 状态，直到 `fetchEpisode` 加载完数据后自动清除
+- 在 `useEffect` 中，当检测到 URL 变化且与当前 `episodeId` 不同时，先清空旧数据再加载新数据
+- 这样确保遮罩层一直挡在前面，直到新页面数据加载完成，避免页面闪烁
+
+**测试结果**：
+- ✅ 修复了切换episode时的页面闪烁问题
+- ✅ 点击确认后直接跳转到新episode，用户体验更流畅
+
+---
+
+## [2025-01-XX] [feat] - 优化转录失败错误提示和重试按钮
+
+**变更内容**：
+- **后端API** (`backend/app/api.py`)：
+  - 新增测试端点 `POST /api/episodes/{episode_id}/transcribe/test-fail`
+    - 用于模拟转录失败场景，方便测试错误提示和重试按钮功能
+    - 支持多种错误类型：network（网络错误）、model（模型错误）、file（文件错误）、memory（内存错误）
+  - 新增测试脚本 `test-transcription-fail.ps1`，方便快速测试
+  
+- **前端组件** (`frontend/src/components/subtitles/SubtitleList.jsx`)：
+  - 新增 `formatUserFriendlyError` 函数，将技术性错误信息转换为用户友好的提示
+    - 网络相关错误：显示"网络问题，请检查网络连接后重试"
+    - 模型相关错误：显示"模型处理失败，请重试"
+    - 文件相关错误：显示"音频处理失败，请重试"
+    - 内存相关错误：显示"内存不足，请稍后重试"
+  - 优化转录失败状态的显示逻辑
+    - 移除显示条件中对 `transcriptionError` 的依赖，确保即使没有具体错误信息也能显示重试按钮
+    - 错误提示不再显示完整的技术性错误信息，仅显示用户友好的提示
+  - 优化重试按钮的UI设计
+    - 将 `IconButton` 改为 `Button`，使用 `variant="contained"` 使其更明显
+    - 添加 `startIcon={<Refresh />}` 图标
+    - 优化按钮的 hover 和 active 状态样式，添加过渡动画
+    - 改进布局，使用 `gap: 3` 和 `px: 3` 增加间距
+
+**问题描述**：
+- 转录失败时，错误提示显示完整的技术性错误信息（如异常堆栈），对用户不友好
+- 重试按钮可能因为条件判断问题而不显示
+
+**技术实现**：
+- 创建错误信息转换函数，通过关键词匹配将技术性错误转换为用户友好的提示
+- 修改显示条件，从 `transcriptionStatus === 'failed' && transcriptionError` 改为仅检查 `transcriptionStatus === 'failed'`
+- 将重试按钮从图标按钮改为包含文字的按钮，提升可见性
+
+**测试结果**：
+- ✅ 转录失败时显示用户友好的错误提示
+- ✅ 重试按钮能正常显示和工作
+
+---
+
+## [2025-12-27] [fix] - 修复切换episode时先回到当前页面再跳转的闪烁问题
+
+**变更内容**：
+- **前端页面**：
+  - 优化 `frontend/src/pages/EpisodePage.jsx` 中的 `handleFileConfirm` 函数：
+    - 对于重复文件的所有情况（completed/processing/pending/failed），移除 `setTimeout` 延迟，立即执行 `navigate` 跳转
+    - 对于非重复文件，在 completed/processing/pending 情况下也立即执行跳转，不再使用 `setTimeout` 延迟
+    - 所有跳转都使用 `replace: true` 选项，避免在浏览器历史中留下中间状态
+
+**问题描述**：
+- 当在episode 2页面选择切换到episode 4时，点击确认后会先回到episode 2页面闪烁一下，然后再跳到episode 4
+- 根本原因：`handleFileConfirm` 中先关闭弹窗，然后使用 `setTimeout` 延迟执行跳转，导致中间状态可见
+
+**技术实现**：
+- 移除所有 `setTimeout` 延迟，在处理完状态后立即执行 `navigate`
+- 使用 `replace: true` 选项，确保浏览器历史记录中不会保留中间状态
+- 这样用户点击确认后，会直接跳转到新的episode页面，不会有闪烁
+
+**测试结果**：
+- ✅ 修复了切换episode时的页面闪烁问题
+- ✅ 点击确认后直接跳转到新episode，用户体验更流畅
+
+---
+
+## [2025-12-27] [fix] - 修复新上传音频文件时先显示字幕加载再显示识别的问题
+
+**变更内容**：
+- **前端页面**：
+  - 优化 `frontend/src/pages/EpisodePage.jsx` 中的 `handleFileConfirm` 函数逻辑：
+    - 对于非重复文件，如果上传后转录状态为'processing'或'pending'，直接设置为'recognize'状态，避免先出现'load'状态
+    - 对于重复文件，如果转录状态为'processing'或'pending'，也直接设置为'recognize'状态
+    - 优化 `fetchEpisode` 中的进度条启动逻辑，确保状态正确时启动进度条
+
+**问题描述**：
+- 选择完全没有字幕的音频文件上传后，点击确认会先显示"请稍等，字幕加载中"的提示框，然后再显示"请稍等，努力识别字幕中"的提示框
+- 期望行为：点击确认后直接切换到episode页面，显示"请稍等，努力识别字幕中"的提示框
+
+**技术实现**：
+- 在上传响应处理中，如果转录状态为'processing'或'pending'，直接设置为'recognize'状态，而不是保持'upload'状态
+- 这样在跳转到episode页面后，fetchEpisode会检测到processingState已经是'recognize'，不会再次设置状态
+- 避免了先显示'load'状态再切换到'recognize'状态的闪烁问题
+
+**测试结果**：
+- ✅ 修复了新上传音频文件时先显示字幕加载再显示识别的问题
+- ✅ 上传后直接显示识别状态，符合预期行为
+
+---
+
+## [2025-12-27] [fix] - 修复切换到已有字幕的episode时字幕加载提示框出现两遍的问题
+
+**变更内容**：
+- **前端页面**：
+  - 优化 `frontend/src/pages/EpisodePage.jsx` 中的 `fetchEpisode` 函数逻辑：
+    - 在获取segment状态之前，优先检查是否已有字幕数据，如果有则立即清除processingState
+    - 优化segment检查逻辑，避免已有字幕数据时重复处理状态
+    - 优化轮询useEffect中的逻辑，确保已有字幕数据时不会重复设置load状态
+
+**问题描述**：
+- 当在一个episode页面切换到另一个已有字幕的音频时，字幕加载提示框会出现两遍
+- 根本原因：fetchEpisode中的逻辑会在检查segment状态时可能设置load状态，即使已有字幕数据
+
+**技术实现**：
+- 在获取segment状态之前就检查是否有字幕数据，如果有则优先清除processingState
+- 在segment检查逻辑中，如果已有字幕数据则跳过后续处理，避免重复设置状态
+- 在轮询useEffect中，增加对字幕数据的检查，确保已有字幕时不会重复处理状态
+
+**测试结果**：
+- ✅ 修复了字幕加载提示框重复出现的问题
+- ✅ 切换到已有字幕的episode时，提示框只出现一次或不出现
+
+---
+
 ## [2024-12-19] [fix] - 修复 useSubtitleSync 测试失败问题
 
 **变更内容**：
