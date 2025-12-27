@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import SubtitleList from '../SubtitleList';
 import { getMockCues, getCuesByEpisodeId, subtitleService } from '../../../services/subtitleService';
 
@@ -297,6 +298,116 @@ describe('SubtitleList', () => {
       await waitFor(() => {
         expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('字幕加载状态', () => {
+    it('应该在字幕加载过程中显示"请稍等，字幕加载中"和进度条', async () => {
+      // Mock getCuesByEpisodeId 延迟返回，模拟加载过程
+      getCuesByEpisodeId.mockImplementation(() => {
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            resolve(mockCues);
+          }, 1000);
+        });
+      });
+
+      render(
+        <SubtitleList
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+        />
+      );
+
+      // 验证显示加载提示
+      await waitFor(() => {
+        expect(screen.getByText('请稍等，字幕加载中')).toBeInTheDocument();
+      }, { timeout: 500 });
+
+      // 验证显示进度条
+      const progressBars = screen.getAllByRole('progressbar');
+      expect(progressBars.length).toBeGreaterThan(0);
+
+      // 等待加载完成
+      await waitFor(() => {
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      }, { timeout: 2000 });
+    });
+
+    it('应该在字幕加载失败时显示错误提示和重试按钮', async () => {
+      const mockError = new Error('加载失败');
+      getCuesByEpisodeId.mockRejectedValue(mockError);
+
+      render(
+        <SubtitleList
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+        />
+      );
+
+      // 验证显示错误提示
+      await waitFor(() => {
+        expect(screen.getByText(/字幕加载失败，错误原因：/)).toBeInTheDocument();
+      }, { timeout: 2000 });
+
+      // 验证显示重试按钮
+      const retryButton = screen.getByLabelText('重试');
+      expect(retryButton).toBeInTheDocument();
+    });
+
+    it('应该点击重试按钮时重新加载字幕', async () => {
+      const user = userEvent.setup();
+      const mockError = new Error('加载失败');
+      
+      // 第一次失败，第二次成功
+      getCuesByEpisodeId
+        .mockRejectedValueOnce(mockError)
+        .mockResolvedValueOnce(mockCues);
+
+      render(
+        <SubtitleList
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+        />
+      );
+
+      // 等待错误提示显示
+      await waitFor(() => {
+        expect(screen.getByText(/字幕加载失败，错误原因：/)).toBeInTheDocument();
+      }, { timeout: 2000 });
+
+      // 点击重试按钮
+      const retryButton = screen.getByLabelText('重试');
+      await user.click(retryButton);
+
+      // 验证重新加载字幕
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(2);
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      }, { timeout: 2000 });
+    });
+
+    it('应该在字幕加载完成后显示字幕列表', async () => {
+      getCuesByEpisodeId.mockResolvedValue(mockCues);
+
+      render(
+        <SubtitleList
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+        />
+      );
+
+      // 等待字幕加载完成
+      await waitFor(() => {
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      }, { timeout: 2000 });
+
+      // 验证不再显示加载提示
+      expect(screen.queryByText('请稍等，字幕加载中')).not.toBeInTheDocument();
     });
   });
 

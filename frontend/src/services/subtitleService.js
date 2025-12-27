@@ -444,6 +444,48 @@ export async function recoverIncompleteSegments(episodeId) {
   }
 }
 
+/**
+ * 取消字幕识别任务
+ * 
+ * 根据PRD c.i：点击暂停按钮，字幕识别被取消（注意这是取消，意味着通知后端删除任务）
+ * 
+ * @param {number} episodeId - Episode ID
+ * @returns {Promise<Object>} 取消状态信息
+ */
+export async function cancelTranscription(episodeId) {
+  try {
+    const response = await api.post(`/api/episodes/${episodeId}/transcribe/cancel`);
+    return response;
+  } catch (error) {
+    console.error(
+      `[subtitleService] 取消识别任务失败 (episodeId: ${episodeId}):`,
+      error
+    );
+    throw error;
+  }
+}
+
+/**
+ * 重新开始字幕识别任务
+ * 
+ * 根据PRD c.i：再次点击一下，字幕识别重新开始（意味着重新向后端发布识别字幕的任务）
+ * 
+ * @param {number} episodeId - Episode ID
+ * @returns {Promise<Object>} 任务状态信息
+ */
+export async function restartTranscription(episodeId) {
+  try {
+    const response = await api.post(`/api/episodes/${episodeId}/transcribe`);
+    return response;
+  } catch (error) {
+    console.error(
+      `[subtitleService] 重新开始识别任务失败 (episodeId: ${episodeId}):`,
+      error
+    );
+    throw error;
+  }
+}
+
 export const subtitleService = {
   getMockCues,
   getCuesByEpisodeId,
@@ -451,4 +493,6 @@ export const subtitleService = {
   getEpisodeSegments,
   triggerSegmentTranscription,
   recoverIncompleteSegments,
+  cancelTranscription,
+  restartTranscription,
 };

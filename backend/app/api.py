@@ -752,6 +752,52 @@ async def start_transcription(
     }
 
 
+@router.post("/episodes/{episode_id}/transcribe/cancel")
+async def cancel_transcription(
+    episode_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    取消转录任务
+    
+    根据PRD c.i：点击暂停按钮，字幕识别被取消（注意这是取消，意味着通知后端删除任务）
+    
+    参数:
+        episode_id: Episode ID
+        
+    返回:
+        dict: 取消状态信息
+        
+    注意：
+        - 此接口将转录状态设置为 'pending'，停止正在进行的转录
+        - 由于 BackgroundTasks 无法直接取消，这里通过设置状态来标记取消
+        - 后续的转录任务会检查状态，如果为 'pending' 则不会继续
+    """
+    # 验证 Episode 是否存在
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
+    
+    # 如果正在转录，将状态设置为 pending（标记为取消）
+    if episode.transcription_status == "processing":
+        episode.transcription_status = "pending"
+        db.commit()
+        logger.info(f"[API] 已取消 Episode {episode_id} 的转录任务")
+        
+        return {
+            "status": "cancelled",
+            "message": f"Episode {episode_id} 转录任务已取消",
+            "episode_id": episode_id
+        }
+    
+    # 如果不在转录中，返回当前状态
+    return {
+        "status": episode.transcription_status,
+        "message": f"Episode {episode_id} 当前状态为 {episode.transcription_status}",
+        "episode_id": episode_id
+    }
+
+
 # ==================== Episode 删除 ====================
 
 @router.delete("/episodes/{episode_id}")

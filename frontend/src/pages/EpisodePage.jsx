@@ -30,6 +30,7 @@ import MainLayout from '../components/layout/MainLayout';
 import FileImportModal from '../components/upload/FileImportModal';
 import ProcessingOverlay from '../components/upload/ProcessingOverlay';
 import api from '../api';
+import { readAudioDuration } from '../utils/fileUtils';
 
 const LOCAL_STORAGE_KEY = 'podflow_last_episode_id';
 
@@ -49,6 +50,7 @@ export default function EpisodePage() {
   const [processingState, setProcessingState] = useState(null); // 'upload' | 'load' | 'recognize' | null
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processingError, setProcessingError] = useState(null);
+  const [isTranscriptionPaused, setIsTranscriptionPaused] = useState(false); // 字幕识别是否暂停
   
   // Segment 状态（用于检查第一段是否完成）
   const [segments, setSegments] = useState([]);
@@ -79,6 +81,21 @@ export default function EpisodePage() {
         setAudioUrl(url);
       }
       
+      // 根据PRD：音频上传成功->加载字幕
+      // 如果音频已上传完成且字幕已完成，触发字幕加载状态
+      // 注意：只有在从上传流程跳转过来时才触发（通过检查是否有audioUrl但还没有cues来判断）
+      if (data.transcription_status === 'completed' && data.cues && data.cues.length > 0) {
+        // 如果已经有字幕数据，不需要显示加载状态，直接显示字幕
+        // SubtitleList会自动加载字幕
+      } else if (data.transcription_status === 'completed' && (!data.cues || data.cues.length === 0)) {
+        // 如果转录完成但没有字幕数据，触发字幕加载状态
+        // 这种情况可能是字幕数据还在加载中
+        if (!processingState || processingState === 'upload') {
+          setProcessingState('load');
+          setUploadProgress(0);
+        }
+      }
+      
       // 获取 segment 状态（用于检查第一段是否完成）
       try {
         const segmentsData = await subtitleService.getEpisodeSegments(targetEpisodeId);
@@ -90,11 +107,18 @@ export default function EpisodePage() {
           // 第一段已完成，隐藏 ProcessingOverlay
           setProcessingState(null);
           setUploadProgress(0);
+          setIsTranscriptionPaused(false);
           if (progressInterval) {
             clearInterval(progressInterval);
             setProgressInterval(null);
           }
         } else if (data.transcription_status === 'processing' || data.transcription_status === 'pending') {
+          // 根据转录状态更新暂停状态
+          if (data.transcription_status === 'processing') {
+            setIsTranscriptionPaused(false); // 正在识别，未暂停
+          } else if (data.transcription_status === 'pending') {
+            setIsTranscriptionPaused(true); // 待处理，视为暂停
+          }
           // 第一段未完成，显示 ProcessingOverlay
           // 进度条由前端模拟，不从后端获取
           if (!processingState || processingState !== 'recognize') {
@@ -102,22 +126,24 @@ export default function EpisodePage() {
             setUploadProgress(0);
             
             // 启动前端模拟进度条（如果还没有启动）
+            // 根据PRD c.i：字幕识别进度条计算方式：基于segment001时长，识别时间0.1X（X为segment001时长）
             if (!progressInterval && data.duration) {
-              // 计算第一段的进度上限：第一段时长 * 0.4 / 总时长 * 100
+              // 获取第一段（segment001）的时长
               const segmentDuration = firstSegment ? firstSegment.duration : 180; // 默认180秒
-              const maxProgress = (segmentDuration * 0.4 / data.duration) * 100;
               
-              // 模拟进度条：从0%到maxProgress，匀速增长
+              // 识别时间 = segment001时长 * 0.1
+              const recognitionDuration = segmentDuration * 0.1 * 1000; // 转换为毫秒
+              
+              // 模拟进度条：从0%到100%，匀速增长
               const startTime = Date.now();
-              const duration = segmentDuration * 0.4 * 1000; // 转换为毫秒
               
               const interval = setInterval(() => {
                 const elapsed = Date.now() - startTime;
-                const progress = Math.min((elapsed / duration) * maxProgress, maxProgress);
+                const progress = Math.min((elapsed / recognitionDuration) * 100, 99); // 最多到99%，等待后端完成
                 setUploadProgress(progress);
                 
-                // 如果达到上限，停止增长（等待后端完成）
-                if (progress >= maxProgress) {
+                // 如果达到99%，停止增长（等待后端完成）
+                if (progress >= 99) {
                   clearInterval(interval);
                 }
               }, 100); // 每100ms更新一次
@@ -142,6 +168,7 @@ export default function EpisodePage() {
       if (data.transcription_status === 'completed') {
         setProcessingState(null);
         setUploadProgress(0);
+        setIsTranscriptionPaused(false);
         if (progressInterval) {
           clearInterval(progressInterval);
           setProgressInterval(null);
@@ -283,25 +310,44 @@ export default function EpisodePage() {
       // 使用音频文件名作为标题（如果后续需要，可以从 metadata 获取）
       const title = audioFile.name.replace(/\.[^/.]+$/, ''); // 移除文件扩展名
       
-      // 模拟上传进度（实际可以使用真实的 upload progress event）
+      // 读取音频时长，用于计算上传进度
+      let audioDuration = 0;
+      try {
+        audioDuration = await readAudioDuration(audioFile);
+      } catch (error) {
+        console.warn('[EpisodePage] 无法读取音频时长，使用默认值:', error);
+        audioDuration = 180; // 默认3分钟
+      }
+      
+      // 根据PRD：如果音频文件时长为X，上传速度为0.1X，按照音频上传为匀速进行显示进度
+      // 上传时间 = 音频时长 * 0.1
+      const uploadDuration = audioDuration * 0.1 * 1000; // 转换为毫秒
+      const startTime = Date.now();
+      
+      // 模拟上传进度：匀速增长
       progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) {
-            if (progressInterval) {
-              clearInterval(progressInterval);
-            }
-            return 90;
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min((elapsed / uploadDuration) * 100, 99); // 最多到99%，等待实际上传完成
+        setUploadProgress(progress);
+        
+        // 如果达到99%，停止增长（等待实际上传完成）
+        if (progress >= 99) {
+          if (progressInterval) {
+            clearInterval(progressInterval);
+            progressInterval = null;
           }
-          return prev + 10;
-        });
-      }, 200);
+        }
+      }, 100); // 每100ms更新一次
 
       // 调用上传 API
       const response = await episodeService.uploadEpisode(audioFile, title, null);
       
+      // 上传完成后，进度条直接走到100%
       if (progressInterval) {
         clearInterval(progressInterval);
+        progressInterval = null;
       }
+      setUploadProgress(100);
       
       // 检查是否为重复文件（秒传/去重逻辑）
       if (response.is_duplicate) {
@@ -327,8 +373,10 @@ export default function EpisodePage() {
         // 检查转录状态（上传响应中的 status 字段）
         const transcriptionStatus = response.status || response.transcription_status;
         
-        // 如果已完成，跳转前清除状态；否则保持 upload 状态，跳转后由 fetchEpisode 根据 episode 数据设置 recognize 状态
+        // 根据PRD：音频上传成功->加载字幕
+        // 如果已完成，跳转后触发字幕加载状态；否则保持 upload 状态，跳转后由 fetchEpisode 根据 episode 数据设置 recognize 状态
         if (transcriptionStatus === 'completed') {
+          // 上传完成，清除上传状态，跳转后触发字幕加载
           setProcessingState(null);
           setUploadProgress(0);
         }
@@ -362,6 +410,56 @@ export default function EpisodePage() {
     setUploadProgress(0);
     setIsModalOpen(true);
   }, []);
+
+  // 处理字幕识别暂停/继续切换
+  // 根据PRD c.i：方形（Stop图标）= 识别中，点击暂停（取消识别任务）；三角形（PlayArrow图标）= 已暂停，点击继续（重新开始识别）
+  const handleToggleTranscriptionPause = useCallback(async () => {
+    if (!episodeId) {
+      return;
+    }
+
+    try {
+      if (isTranscriptionPaused) {
+        // 当前已暂停，点击继续（重新开始识别）
+        await subtitleService.restartTranscription(episodeId);
+        setIsTranscriptionPaused(false);
+        // 重新开始识别后，进度条重置为0
+        setUploadProgress(0);
+        // 重新启动进度条模拟
+        if (episode && episode.duration) {
+          const segmentsData = await subtitleService.getEpisodeSegments(episodeId);
+          const firstSegment = Array.isArray(segmentsData) ? segmentsData.find(s => s.segment_index === 0) : null;
+          const segmentDuration = firstSegment ? firstSegment.duration : 180;
+          const recognitionDuration = segmentDuration * 0.1 * 1000;
+          const startTime = Date.now();
+          
+          const interval = setInterval(() => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min((elapsed / recognitionDuration) * 100, 99);
+            setUploadProgress(progress);
+            
+            if (progress >= 99) {
+              clearInterval(interval);
+            }
+          }, 100);
+          
+          setProgressInterval(interval);
+        }
+      } else {
+        // 当前正在识别，点击暂停（取消识别任务）
+        await subtitleService.cancelTranscription(episodeId);
+        setIsTranscriptionPaused(true);
+        // 暂停时，停止进度条增长
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          setProgressInterval(null);
+        }
+      }
+    } catch (error) {
+      console.error('[EpisodePage] 切换识别暂停/继续状态失败:', error);
+      setProcessingError(error.response?.data?.detail || error.message || '操作失败，请重试');
+    }
+  }, [episodeId, isTranscriptionPaused, episode, progressInterval]);
 
   // 错误处理
   if (error && episodeId) {
@@ -488,7 +586,9 @@ export default function EpisodePage() {
           type={processingState}
           progress={uploadProgress}
           error={processingError}
+          isPaused={isTranscriptionPaused}
           onRetry={processingError ? handleUploadRetry : null}
+          onTogglePause={processingState === 'recognize' ? handleToggleTranscriptionPause : null}
         />
       )}
     </>

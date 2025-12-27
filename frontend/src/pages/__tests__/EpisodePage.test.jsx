@@ -23,6 +23,7 @@ import { BrowserRouter, Routes, Route, MemoryRouter } from 'react-router-dom';
 import EpisodePage from '../EpisodePage';
 import * as subtitleServiceModule from '../../services/subtitleService';
 import * as episodeServiceModule from '../../services/episodeService';
+import * as fileUtilsModule from '../../utils/fileUtils';
 
 // Mock 依赖
 vi.mock('../../services/subtitleService', () => ({
@@ -84,6 +85,10 @@ vi.mock('../../api', () => ({
       baseURL: 'http://localhost:8000',
     },
   },
+}));
+
+vi.mock('../../utils/fileUtils', () => ({
+  readAudioDuration: vi.fn(),
 }));
 
 // Mock MainLayout 和 SubtitleList 以避免复杂的子组件测试
@@ -171,6 +176,8 @@ describe('EpisodePage', () => {
     mockAudioControls = null;
     // 清除 localStorage
     localStorage.clear();
+    // 默认mock readAudioDuration（返回180秒，即3分钟）
+    fileUtilsModule.readAudioDuration = vi.fn().mockResolvedValue(180);
   });
 
   afterEach(() => {
@@ -552,6 +559,66 @@ describe('EpisodePage', () => {
   });
 
   describe('文件上传流程', () => {
+    it('应该基于音频时长计算上传进度条（上传速度0.1X，匀速增长）', async () => {
+      const user = userEvent.setup();
+      localStorage.clear();
+
+      // Mock 音频时长为 300 秒（5分钟）
+      // 上传时间 = 300 * 0.1 = 30 秒
+      const audioDuration = 300;
+      fileUtilsModule.readAudioDuration = vi.fn().mockResolvedValue(audioDuration);
+
+      const mockUploadResponse = {
+        episode_id: 456,
+        status: 'processing',
+        is_duplicate: false,
+      };
+
+      // 模拟上传立即完成
+      episodeServiceModule.episodeService.uploadEpisode = vi.fn().mockResolvedValue(mockUploadResponse);
+      subtitleServiceModule.subtitleService.getEpisode = vi.fn().mockResolvedValue(mockEpisode);
+
+      render(
+        <MemoryRouter initialEntries={['/episodes']}>
+          <Routes>
+            <Route path="/episodes/:episodeId?" element={<EpisodePage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      // 等待弹窗显示
+      await waitFor(() => {
+        expect(screen.getByTestId('file-import-modal')).toBeInTheDocument();
+      });
+
+      // 点击确认按钮（触发上传）
+      const confirmButton = screen.getByTestId('modal-confirm');
+      await user.click(confirmButton);
+
+      // 验证 readAudioDuration 被调用（用于计算上传进度）
+      await waitFor(() => {
+        expect(fileUtilsModule.readAudioDuration).toHaveBeenCalled();
+      }, { timeout: 2000 });
+
+      // 验证处理进度遮罩显示
+      await waitFor(() => {
+        expect(screen.getByTestId('processing-overlay')).toBeInTheDocument();
+        expect(screen.getByTestId('processing-type')).toHaveTextContent('upload');
+        expect(screen.getByTestId('processing-progress')).toBeInTheDocument();
+      }, { timeout: 2000 });
+
+      // 验证上传API被调用
+      await waitFor(() => {
+        expect(episodeServiceModule.episodeService.uploadEpisode).toHaveBeenCalled();
+      }, { timeout: 2000 });
+
+      // 验证上传完成后进度条直接走到100%
+      await waitFor(() => {
+        const progressElement = screen.getByTestId('processing-progress');
+        expect(progressElement).toHaveTextContent('100');
+      }, { timeout: 2000 });
+    });
+
     it('应该处理文件上传成功', async () => {
       const user = userEvent.setup();
       localStorage.clear();
@@ -969,6 +1036,78 @@ describe('EpisodePage', () => {
         const progressElement = screen.getByTestId('processing-progress');
         expect(progressElement).toBeInTheDocument();
       }, { timeout: 2000 });
+    });
+  });
+
+  describe('字幕识别进度条计算', () => {
+    it('应该基于segment001时长计算识别进度条（识别时间0.1X，匀速增长）', async () => {
+      const user = userEvent.setup();
+      localStorage.clear();
+
+      const mockUploadResponse = {
+        episode_id: 2001,
+        status: 'processing',
+        is_duplicate: false,
+      };
+
+      const processingEpisode = {
+        ...mockEpisode,
+        id: 2001,
+        transcription_status: 'processing',
+        transcription_progress: 0,
+        duration: 600.0, // 600秒，需要分段
+      };
+
+      // segment001时长为180秒
+      // 识别时间 = 180 * 0.1 = 18秒
+      const segmentsWithFirstProcessing = [
+        { segment_index: 0, segment_id: 'segment_001', status: 'processing', start_time: 0.0, end_time: 180.0, duration: 180.0 },
+        { segment_index: 1, segment_id: 'segment_002', status: 'pending', start_time: 180.0, end_time: 360.0, duration: 180.0 },
+      ];
+
+      episodeServiceModule.episodeService.uploadEpisode = vi.fn().mockResolvedValue(mockUploadResponse);
+      subtitleServiceModule.subtitleService.getEpisode = vi.fn().mockResolvedValue(processingEpisode);
+      subtitleServiceModule.subtitleService.getEpisodeSegments = vi.fn().mockResolvedValue(segmentsWithFirstProcessing);
+
+      render(
+        <MemoryRouter initialEntries={['/episodes']}>
+          <Routes>
+            <Route path="/episodes/:episodeId?" element={<EpisodePage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('file-import-modal')).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByTestId('modal-confirm');
+      await user.click(confirmButton);
+
+      await waitFor(() => {
+        expect(subtitleServiceModule.subtitleService.getEpisode).toHaveBeenCalledWith('2001');
+      }, { timeout: 2000 });
+
+      await waitFor(() => {
+        expect(subtitleServiceModule.subtitleService.getEpisodeSegments).toHaveBeenCalledWith('2001');
+      }, { timeout: 2000 });
+
+      // 验证显示字幕识别进度遮罩
+      await waitFor(() => {
+        expect(screen.getByTestId('processing-overlay')).toBeInTheDocument();
+        expect(screen.getByTestId('processing-type')).toHaveTextContent('recognize');
+      }, { timeout: 2000 });
+
+      // 等待一小段时间，验证进度条在增长
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // 验证进度条有所增长（基于segment001时长180秒，识别时间18秒，500ms后进度约为 0.5/18 * 100 ≈ 2.78%）
+      await waitFor(() => {
+        const progressElement = screen.getByTestId('processing-progress');
+        const progress = parseFloat(progressElement.textContent);
+        expect(progress).toBeGreaterThan(0);
+        expect(progress).toBeLessThan(100);
+      }, { timeout: 1000 });
     });
   });
 

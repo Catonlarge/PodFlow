@@ -285,6 +285,12 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
    * 处理确认操作
    */
   const handleConfirm = () => {
+    // 根据PRD b.i：如果勾选了"字幕识别勾选框"，但是没有选择音频文件，点击确认，此时弹框提示"请选择需要识别字幕的音频文件"
+    if (enableTranscription && !audioFile) {
+      setErrors({ audio: '请选择需要识别字幕的音频文件', subtitle: errors.subtitle });
+      return;
+    }
+
     // 验证音频文件
     if (!audioFile) {
       setErrors({ audio: '请选择音频文件', subtitle: errors.subtitle });
@@ -314,10 +320,21 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
    * 判断确认按钮是否可用
    */
   const isConfirmDisabled = () => {
+    // 根据PRD b.i：如果勾选了"字幕识别"，即使没有选择音频文件，也应该允许点击确认（以便显示错误提示）
+    if (enableTranscription) {
+      // 如果启用转录，允许点击（即使没有音频文件，也会在handleConfirm中显示错误提示）
+      return false;
+    }
+    
+    // 如果没有音频文件，禁用
     if (!audioFile) return true;
-    if (enableTranscription) return false; // 如果启用转录，不需要字幕文件
-    if (useHistoricalSubtitle) return false; // 如果使用历史字幕，不需要字幕文件
-    if (!subtitleFile) return true; // 如果没有字幕文件，禁用
+    
+    // 如果使用历史字幕，不需要字幕文件
+    if (useHistoricalSubtitle) return false;
+    
+    // 如果没有字幕文件，禁用
+    if (!subtitleFile) return true;
+    
     return false;
   };
 

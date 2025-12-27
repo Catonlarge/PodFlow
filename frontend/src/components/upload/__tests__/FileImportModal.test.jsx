@@ -845,6 +845,37 @@ describe('FileImportModal', () => {
       expect(confirmButton).not.toBeDisabled();
     });
 
+    it('勾选"字幕识别"但未选择音频文件时，点击确认应显示提示"请选择需要识别字幕的音频文件"', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <FileImportModal
+          open={true}
+          onClose={mockOnClose}
+          onConfirm={mockOnConfirm}
+        />
+      );
+
+      // 勾选"字幕识别"勾选框
+      const transcriptionCheckbox = screen.getByLabelText('字幕识别');
+      await user.click(transcriptionCheckbox);
+
+      // 确认按钮应该被启用（因为启用了字幕识别）
+      const confirmButton = screen.getByRole('button', { name: /确认/i });
+      expect(confirmButton).not.toBeDisabled();
+
+      // 点击确认按钮（此时未选择音频文件）
+      await user.click(confirmButton);
+
+      // 验证显示错误提示
+      await waitFor(() => {
+        expect(screen.getByText('请选择需要识别字幕的音频文件')).toBeInTheDocument();
+      });
+
+      // 验证 onConfirm 未被调用
+      expect(mockOnConfirm).not.toHaveBeenCalled();
+    });
+
     it('确认按钮在启用字幕识别时启用（不需要字幕文件）', async () => {
       const user = userEvent.setup();
       const audioFile = new File(['audio content'], 'test.mp3', { type: 'audio/mpeg' });

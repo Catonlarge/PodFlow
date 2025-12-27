@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Box, IconButton, Skeleton, Typography } from '@mui/material';
-import { Translate as TranslateIcon } from '@mui/icons-material';
+import { Box, IconButton, Skeleton, Typography, LinearProgress, Stack } from '@mui/material';
+import { Translate as TranslateIcon, Refresh } from '@mui/icons-material';
 import SubtitleRow from './SubtitleRow';
 import { useSubtitleSync } from '../../hooks/useSubtitleSync';
 import { getMockCues, getCuesByEpisodeId, subtitleService } from '../../services/subtitleService';
@@ -52,11 +52,15 @@ export default function SubtitleList({
 }) {
   const [cues, setCues] = useState(propsCues || []);
   const [showTranslation, setShowTranslation] = useState(false);
+  const [subtitleLoadingState, setSubtitleLoadingState] = useState(null); // 'loading' | 'error' | null
+  const [subtitleLoadingProgress, setSubtitleLoadingProgress] = useState(0);
+  const [subtitleLoadingError, setSubtitleLoadingError] = useState(null);
   const internalContainerRef = useRef(null);
   const internalUserScrollTimeoutRef = useRef(null);
   const internalIsUserScrollingRef = useRef(false);
   const subtitleRefs = useRef({});
   const previousTranscriptionStatusRef = useRef(transcriptionStatus || null);
+  const loadingProgressIntervalRef = useRef(null);
 
   // 使用外部滚动容器或内部滚动容器
   // 当使用外部滚动容器时，containerRef 指向外部容器；否则使用内部容器
@@ -71,29 +75,85 @@ export default function SubtitleList({
   // 加载字幕数据
   // 优先级：propsCues > episodeId > mock 数据
   useEffect(() => {
+    // 清理之前的加载进度定时器
+    if (loadingProgressIntervalRef.current) {
+      clearInterval(loadingProgressIntervalRef.current);
+      loadingProgressIntervalRef.current = null;
+    }
+    
     if (propsCues) {
       // 如果传入了 cues prop，直接使用
       // 使用 requestAnimationFrame 避免在 effect 中同步调用 setState
       requestAnimationFrame(() => {
         setCues(propsCues);
+        setSubtitleLoadingState(null);
+        setSubtitleLoadingProgress(0);
+        setSubtitleLoadingError(null);
       });
     } else if (episodeId) {
+      // 根据PRD：字幕加载过程中，在英文字幕区域中间显示提示"请稍等，字幕加载中"和进度条
+      setSubtitleLoadingState('loading');
+      setSubtitleLoadingProgress(0);
+      setSubtitleLoadingError(null);
+      
+      // 模拟字幕加载进度条（前端模拟，匀速增长）
+      const startTime = Date.now();
+      const loadDuration = 2000; // 假设加载需要2秒
+      
+      loadingProgressIntervalRef.current = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min((elapsed / loadDuration) * 100, 99);
+        setSubtitleLoadingProgress(progress);
+      }, 100);
+      
       // 如果有 episodeId，从 API 加载字幕数据
       getCuesByEpisodeId(episodeId).then((cues) => {
-        setCues(cues);
+        // 清理进度定时器
+        if (loadingProgressIntervalRef.current) {
+          clearInterval(loadingProgressIntervalRef.current);
+          loadingProgressIntervalRef.current = null;
+        }
+        
+        // 加载完成，进度条直接走到100%
+        setSubtitleLoadingProgress(100);
+        
+        // 短暂延迟后清除加载状态
+        setTimeout(() => {
+          setCues(cues);
+          setSubtitleLoadingState(null);
+          setSubtitleLoadingProgress(0);
+        }, 300);
       }).catch((error) => {
-        console.error('[SubtitleList] 加载字幕失败，使用 mock 数据:', error);
-        // 如果 API 失败，降级到 mock 数据
-        getMockCues().then((mockCues) => {
-          setCues(mockCues);
-        });
+        // 清理进度定时器
+        if (loadingProgressIntervalRef.current) {
+          clearInterval(loadingProgressIntervalRef.current);
+          loadingProgressIntervalRef.current = null;
+        }
+        
+        console.error('[SubtitleList] 加载字幕失败:', error);
+        setSubtitleLoadingState('error');
+        setSubtitleLoadingProgress(0);
+        setSubtitleLoadingError(error.response?.data?.detail || error.message || '字幕加载失败，请重试');
+        
+        // 如果 API 失败，不降级到 mock 数据（根据PRD，应该显示错误提示）
       });
     } else {
       // 既没有 cues 也没有 episodeId，使用 mock 数据
       getMockCues().then((mockCues) => {
         setCues(mockCues);
+        setSubtitleLoadingState(null);
+        setSubtitleLoadingProgress(0);
+        setSubtitleLoadingError(null);
       });
     }
+    
+    // 清理函数
+    return () => {
+      if (loadingProgressIntervalRef.current) {
+        clearInterval(loadingProgressIntervalRef.current);
+        loadingProgressIntervalRef.current = null;
+      }
+    };
   }, [propsCues, episodeId]);
 
   // 监听转录状态变化：当状态变为 completed 时，重新加载字幕
@@ -457,6 +517,94 @@ export default function SubtitleList({
         <Skeleton variant="text" height={60} sx={{ mb: 1 }} />
         <Skeleton variant="text" height={60} sx={{ mb: 1 }} />
         <Skeleton variant="text" height={60} />
+      </Box>
+    );
+  }
+
+  // 字幕加载状态：显示加载提示和进度条（根据PRD：在英文字幕区域中间显示）
+  if (subtitleLoadingState === 'loading') {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          gap: 2,
+        }}
+      >
+        <Typography variant="body1" sx={{ color: 'text.primary' }}>
+          请稍等，字幕加载中
+        </Typography>
+        <Box sx={{ width: '60%', maxWidth: 400 }}>
+          <LinearProgress
+            variant="determinate"
+            value={subtitleLoadingProgress}
+            sx={{
+              height: 8,
+              borderRadius: 4,
+              '& .MuiLinearProgress-bar': {
+                backgroundColor: 'primary.main',
+              },
+            }}
+          />
+        </Box>
+      </Box>
+    );
+  }
+
+  // 字幕加载失败状态：显示错误提示和重试按钮（根据PRD：在英文字幕区域中间显示）
+  if (subtitleLoadingState === 'error') {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          gap: 2,
+        }}
+      >
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+          }}
+        >
+          <Typography variant="body1" sx={{ color: 'text.primary' }}>
+            字幕加载失败，错误原因：{subtitleLoadingError}，请重试
+          </Typography>
+          <IconButton
+            onClick={() => {
+              // 重新加载字幕
+              setSubtitleLoadingState('loading');
+              setSubtitleLoadingProgress(0);
+              setSubtitleLoadingError(null);
+              
+              if (episodeId) {
+                // 重新触发加载
+                getCuesByEpisodeId(episodeId).then((cues) => {
+                  setCues(cues);
+                  setSubtitleLoadingState(null);
+                  setSubtitleLoadingProgress(0);
+                }).catch((error) => {
+                  setSubtitleLoadingState('error');
+                  setSubtitleLoadingError(error.response?.data?.detail || error.message || '字幕加载失败，请重试');
+                });
+              }
+            }}
+            aria-label="重试"
+            sx={{
+              '&:hover': { bgcolor: 'action.hover' },
+              '&:active': { transform: 'scale(0.95)' },
+            }}
+          >
+            <Refresh />
+          </IconButton>
+        </Box>
       </Box>
     );
   }
