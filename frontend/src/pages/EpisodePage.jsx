@@ -61,6 +61,14 @@ export default function EpisodePage() {
 
   // 获取 Episode 数据
   const fetchEpisode = useCallback(async (targetEpisodeId, isInitialLoad = false) => {
+    console.log('[DEBUG fetchEpisode] 开始执行', {
+      targetEpisodeId,
+      isInitialLoad,
+      currentProcessingState: processingState,
+      timestamp: new Date().toISOString(),
+      stack: new Error().stack?.split('\n').slice(1, 4).join('\n'),
+    });
+    
     try {
       // 如果有 processingState（如 upload 或 recognize），不要显示 Loading 状态
       if (isInitialLoad) {
@@ -69,6 +77,13 @@ export default function EpisodePage() {
       setError(null);
       
       const data = await subtitleService.getEpisode(targetEpisodeId);
+      console.log('[DEBUG fetchEpisode] 获取到episode数据', {
+        episodeId: data.id,
+        transcription_status: data.transcription_status,
+        cuesLength: data.cues?.length || 0,
+        hasCues: !!(data.cues && data.cues.length > 0),
+        currentProcessingState: processingState,
+      });
       setEpisode(data);
       
       // 处理音频 URL
@@ -81,18 +96,20 @@ export default function EpisodePage() {
         setAudioUrl(url);
       }
       
-      // 根据PRD：音频上传成功->加载字幕
-      // 如果音频已上传完成且字幕已完成，触发字幕加载状态
-      // 注意：只有在从上传流程跳转过来时才触发（通过检查是否有audioUrl但还没有cues来判断）
+      // 如果转录已完成且有字幕数据，优先清除 ProcessingOverlay，不显示加载状态
+      // 这样可以在后续的segment检查之前就确保不会设置load状态
       if (data.transcription_status === 'completed' && data.cues && data.cues.length > 0) {
-        // 如果已经有字幕数据，不需要显示加载状态，直接显示字幕
-        // SubtitleList会自动加载字幕
-      } else if (data.transcription_status === 'completed' && (!data.cues || data.cues.length === 0)) {
-        // 如果转录完成但没有字幕数据，触发字幕加载状态
-        // 这种情况可能是字幕数据还在加载中
-        if (!processingState || processingState === 'upload') {
-          setProcessingState('load');
-          setUploadProgress(0);
+        console.log('[DEBUG fetchEpisode] 检测到已完成且有字幕，清除processingState', {
+          transcription_status: data.transcription_status,
+          cuesLength: data.cues.length,
+          currentProcessingState: processingState,
+        });
+        setProcessingState(null);
+        setUploadProgress(0);
+        setIsTranscriptionPaused(false);
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          setProgressInterval(null);
         }
       }
       
@@ -103,14 +120,41 @@ export default function EpisodePage() {
         
         // 检查第一段（segment_index=0）是否完成
         const firstSegment = Array.isArray(segmentsData) ? segmentsData.find(s => s.segment_index === 0) : null;
-        if (firstSegment && firstSegment.status === 'completed') {
-          // 第一段已完成，隐藏 ProcessingOverlay
-          setProcessingState(null);
-          setUploadProgress(0);
-          setIsTranscriptionPaused(false);
-          if (progressInterval) {
-            clearInterval(progressInterval);
-            setProgressInterval(null);
+        
+        // 如果转录已完成，处理 ProcessingOverlay 状态
+        // 注意：如果已有字幕数据，已经在上面清除了，这里不再重复处理
+        if (data.transcription_status === 'completed') {
+          // 如果已有字幕数据，已经在上面清除了，跳过
+          if (!(data.cues && data.cues.length > 0)) {
+            // 如果没有字幕数据，检查segment状态
+            if (firstSegment && firstSegment.status === 'completed') {
+              // 第一段已完成，隐藏 ProcessingOverlay
+              setProcessingState(null);
+              setUploadProgress(0);
+              setIsTranscriptionPaused(false);
+              if (progressInterval) {
+                clearInterval(progressInterval);
+                setProgressInterval(null);
+              }
+            } else {
+              // 如果转录完成但没有字幕数据且第一段未完成，触发字幕加载状态
+              // 这种情况可能是字幕数据还在加载中
+              if (!processingState || processingState === 'upload') {
+                console.log('[DEBUG fetchEpisode] 设置load状态（已完成但无字幕且第一段未完成）', {
+                  transcription_status: data.transcription_status,
+                  cuesLength: data.cues?.length || 0,
+                  firstSegmentStatus: firstSegment?.status,
+                  currentProcessingState: processingState,
+                  stack: new Error().stack?.split('\n').slice(1, 4).join('\n'),
+                });
+                setProcessingState('load');
+                setUploadProgress(0);
+              } else {
+                console.log('[DEBUG fetchEpisode] 跳过设置load状态（已有其他状态）', {
+                  currentProcessingState: processingState,
+                });
+              }
+            }
           }
         } else if (data.transcription_status === 'processing' || data.transcription_status === 'pending') {
           // 根据转录状态更新暂停状态
@@ -124,32 +168,32 @@ export default function EpisodePage() {
           if (!processingState || processingState !== 'recognize') {
             setProcessingState('recognize');
             setUploadProgress(0);
+          }
+          
+          // 启动前端模拟进度条（如果还没有启动）
+          // 根据PRD c.i：字幕识别进度条计算方式：基于segment001时长，识别时间0.1X（X为segment001时长）
+          if (!progressInterval && data.duration) {
+            // 获取第一段（segment001）的时长
+            const segmentDuration = firstSegment ? firstSegment.duration : 180; // 默认180秒
             
-            // 启动前端模拟进度条（如果还没有启动）
-            // 根据PRD c.i：字幕识别进度条计算方式：基于segment001时长，识别时间0.1X（X为segment001时长）
-            if (!progressInterval && data.duration) {
-              // 获取第一段（segment001）的时长
-              const segmentDuration = firstSegment ? firstSegment.duration : 180; // 默认180秒
+            // 识别时间 = segment001时长 * 0.1
+            const recognitionDuration = segmentDuration * 0.1 * 1000; // 转换为毫秒
+            
+            // 模拟进度条：从0%到100%，匀速增长
+            const startTime = Date.now();
+            
+            const interval = setInterval(() => {
+              const elapsed = Date.now() - startTime;
+              const progress = Math.min((elapsed / recognitionDuration) * 100, 99); // 最多到99%，等待后端完成
+              setUploadProgress(progress);
               
-              // 识别时间 = segment001时长 * 0.1
-              const recognitionDuration = segmentDuration * 0.1 * 1000; // 转换为毫秒
-              
-              // 模拟进度条：从0%到100%，匀速增长
-              const startTime = Date.now();
-              
-              const interval = setInterval(() => {
-                const elapsed = Date.now() - startTime;
-                const progress = Math.min((elapsed / recognitionDuration) * 100, 99); // 最多到99%，等待后端完成
-                setUploadProgress(progress);
-                
-                // 如果达到99%，停止增长（等待后端完成）
-                if (progress >= 99) {
-                  clearInterval(interval);
-                }
-              }, 100); // 每100ms更新一次
-              
-              setProgressInterval(interval);
-            }
+              // 如果达到99%，停止增长（等待后端完成）
+              if (progress >= 99) {
+                clearInterval(interval);
+              }
+            }, 100); // 每100ms更新一次
+            
+            setProgressInterval(interval);
           }
         }
       } catch (segmentsError) {
@@ -159,19 +203,36 @@ export default function EpisodePage() {
           setProcessingState('recognize');
           setUploadProgress(data.transcription_progress || 0);
         } else if (data.transcription_status === 'completed') {
-          setProcessingState(null);
-          setUploadProgress(0);
-        }
-      }
-      
-      // 如果转录完成，清除 ProcessingOverlay
-      if (data.transcription_status === 'completed') {
-        setProcessingState(null);
-        setUploadProgress(0);
-        setIsTranscriptionPaused(false);
-        if (progressInterval) {
-          clearInterval(progressInterval);
-          setProgressInterval(null);
+          // 如果转录完成，清除 ProcessingOverlay
+          // 如果已有字幕数据，直接清除；如果没有字幕数据，可能需要加载
+          if (data.cues && data.cues.length > 0) {
+            setProcessingState(null);
+            setUploadProgress(0);
+            setIsTranscriptionPaused(false);
+            if (progressInterval) {
+              clearInterval(progressInterval);
+              setProgressInterval(null);
+            }
+          } else if (!processingState || processingState === 'upload') {
+            // 如果没有字幕数据，触发字幕加载状态
+            console.log('[DEBUG fetchEpisode] 设置load状态（catch块：已完成但无字幕）', {
+              transcription_status: data.transcription_status,
+              cuesLength: data.cues?.length || 0,
+              currentProcessingState: processingState,
+              stack: new Error().stack?.split('\n').slice(1, 4).join('\n'),
+            });
+            setProcessingState('load');
+            setUploadProgress(0);
+          } else {
+            // 已经有其他状态，保持当前状态或清除
+            setProcessingState(null);
+            setUploadProgress(0);
+            setIsTranscriptionPaused(false);
+            if (progressInterval) {
+              clearInterval(progressInterval);
+              setProgressInterval(null);
+            }
+          }
         }
       }
     } catch (err) {
@@ -185,9 +246,21 @@ export default function EpisodePage() {
 
   // 首次打开逻辑：检查 localStorage 或 URL 参数
   useEffect(() => {
+    console.log('[DEBUG useEffect-首次打开] 检查URL参数和localStorage', {
+      urlEpisodeId,
+      timestamp: new Date().toISOString(),
+    });
+    
     // 如果有 URL 参数，使用 URL 参数
     if (urlEpisodeId) {
-      setEpisodeId(urlEpisodeId);
+      console.log('[DEBUG useEffect-首次打开] 使用URL参数，调用fetchEpisode', { urlEpisodeId });
+      // 如果episodeId已经更新（在handleFileConfirm中），不需要再次设置
+      if (urlEpisodeId !== episodeId) {
+        setEpisode(null);
+        setAudioUrl(null); // 同时清空音频URL
+        setLoading(true);
+        setEpisodeId(urlEpisodeId);
+      }
       fetchEpisode(urlEpisodeId, true);
     } 
     // 如果没有 URL 参数，检查 localStorage
@@ -207,7 +280,7 @@ export default function EpisodePage() {
         setIsModalOpen(true);
       }
     }
-  }, [urlEpisodeId, navigate, fetchEpisode]);
+  }, [urlEpisodeId, navigate, fetchEpisode, episodeId]);
 
   // 轮询转录状态（仅用于轮询，状态由 fetchEpisode 管理）
   useEffect(() => {
@@ -215,13 +288,39 @@ export default function EpisodePage() {
       return;
     }
 
+    console.log('[DEBUG useEffect-轮询] episode状态变化', {
+      episodeId: episode.id,
+      transcription_status: episode.transcription_status,
+      cuesLength: episode.cues?.length || 0,
+      currentProcessingState: processingState,
+      timestamp: new Date().toISOString(),
+    });
+
     // 如果转录完成，清除 ProcessingOverlay（fetchEpisode 中已处理，这里再次确认）
+    // 注意：如果已有字幕数据，fetchEpisode中已经清除，这里不需要再次处理
     if (episode.transcription_status === 'completed') {
-      setProcessingState(null);
-      setUploadProgress(0);
-      if (progressInterval) {
-        clearInterval(progressInterval);
-        setProgressInterval(null);
+      // 如果已有字幕数据，确保清除 ProcessingOverlay（避免重复设置load状态）
+      if (episode.cues && episode.cues.length > 0) {
+        console.log('[DEBUG useEffect-轮询] 已完成且有字幕，清除processingState', {
+          cuesLength: episode.cues.length,
+          currentProcessingState: processingState,
+        });
+        setProcessingState(null);
+        setUploadProgress(0);
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          setProgressInterval(null);
+        }
+      } else {
+        // 如果没有字幕数据，fetchEpisode中应该已经处理，这里只清除其他状态
+        if (processingState && processingState !== 'load') {
+          setProcessingState(null);
+          setUploadProgress(0);
+          if (progressInterval) {
+            clearInterval(progressInterval);
+            setProgressInterval(null);
+          }
+        }
       }
       return;
     }
@@ -296,10 +395,18 @@ export default function EpisodePage() {
   const handleFileConfirm = useCallback(async (files) => {
     const { audioFile } = files;
     
-    // 关闭弹窗
+    console.log('[DEBUG handleFileConfirm] 开始处理文件确认', {
+      fileName: audioFile.name,
+      currentProcessingState: processingState,
+      currentEpisodeId: episodeId,
+      timestamp: new Date().toISOString(),
+    });
+    
+    // 先关闭弹窗，避免后续状态变化导致弹窗闪烁
     setIsModalOpen(false);
     
     // 设置上传状态
+    console.log('[DEBUG handleFileConfirm] 设置upload状态');
     setProcessingState('upload');
     setUploadProgress(0);
     setProcessingError(null);
@@ -355,33 +462,88 @@ export default function EpisodePage() {
       // 如果字幕正在识别中，显示识别提示
       // 如果字幕识别失败，显示错误提示和重试按钮
       if (response.is_duplicate) {
-        // 重复文件：立即完成上传进度
-        setUploadProgress(100);
+        // 检查转录状态，决定是否显示识别提示
+        const transcriptionStatus = response.status || response.transcription_status;
+        
+        // 检查是否是同一个episode
+        if (response.episode_id.toString() === episodeId) {
+          // 同一个episode，立即清除upload状态，避免显示上传遮罩
+          console.log('[DEBUG handleFileConfirm] 重复文件且是同一个episode，立即清除upload状态', {
+            transcriptionStatus,
+            episodeId: response.episode_id,
+          });
+          setProcessingState(null);
+          setUploadProgress(0);
+          // 不清空episode、audioUrl等数据，保持当前页面状态
+          return; // 提前返回，不执行后续逻辑
+        }
+        
+        // 不同episode的重复文件，清除upload状态（不显示"音频上传中"遮罩，因为文件已经在数据库中）
+        setProcessingState(null);
+        setUploadProgress(0);
         
         // 保存 episodeId 到 localStorage
         localStorage.setItem(LOCAL_STORAGE_KEY, response.episode_id.toString());
         
-        // 检查转录状态，决定是否显示识别提示
-        const transcriptionStatus = response.status || response.transcription_status;
-        
         // 根据PRD d.iii：如果已有字幕（completed），直接加载字幕（不显示识别提示）
         if (transcriptionStatus === 'completed') {
-          // 清除上传状态，跳转后直接加载字幕
-          setProcessingState(null);
-          setUploadProgress(0);
+          
+          // 不同episode，在navigate前同步完成所有状态更新
+          // 注意：不设置load状态，因为如果已有字幕，fetchEpisode会清除状态；如果没有字幕，fetchEpisode会设置load状态
+          console.log('[DEBUG handleFileConfirm] 重复文件且已完成，清除状态并跳转（不设置load，让fetchEpisode根据字幕数据决定）', {
+            transcriptionStatus,
+            episodeId: response.episode_id,
+          });
+          // 弹窗已经在函数开始时关闭了
+          setEpisode(null);             // 立即清空数据
+          setAudioUrl(null);            // 立即清空音频URL
+          // processingState已经在上面清除了
+          setEpisodeId(response.episode_id.toString()); // 提前更新episodeId
+          navigate(`/episodes/${response.episode_id}`, { replace: true });
         } else if (transcriptionStatus === 'processing' || transcriptionStatus === 'pending') {
-          // 如果字幕正在识别中，保持upload状态，跳转后由fetchEpisode根据episode数据设置recognize状态
-          // 这里不设置processingState，让fetchEpisode来处理
-        } else if (transcriptionStatus === 'failed') {
-          // 如果字幕识别失败，清除上传状态，跳转后由SubtitleList显示错误提示和重试按钮
-          setProcessingState(null);
+          // 检查是否是同一个episode
+          if (response.episode_id.toString() === episodeId) {
+            // 同一个episode，已经关闭了弹窗，保持当前状态，不执行navigate
+            console.log('[DEBUG handleFileConfirm] 重复文件且正在识别，同一个episode，已关闭弹窗', {
+              transcriptionStatus,
+              episodeId: response.episode_id,
+            });
+            // 保持recognize状态（如果当前已经是recognize状态），不清空数据
+            return;
+          }
+          
+          // 如果字幕正在识别中，直接设置为recognize状态，避免出现load状态
+          console.log('[DEBUG handleFileConfirm] 重复文件且正在识别，设置recognize状态', {
+            transcriptionStatus,
+            episodeId: response.episode_id,
+          });
+          // 弹窗已经在函数开始时关闭了
+          setEpisode(null);
+          setAudioUrl(null);
+          setProcessingState('recognize');
           setUploadProgress(0);
+          setEpisodeId(response.episode_id.toString());
+          navigate(`/episodes/${response.episode_id}`, { replace: true });
+        } else if (transcriptionStatus === 'failed') {
+          // 检查是否是同一个episode
+          if (response.episode_id.toString() === episodeId) {
+            // 同一个episode，已经关闭了弹窗，保持当前状态，不执行navigate
+            console.log('[DEBUG handleFileConfirm] 重复文件且失败，同一个episode，已关闭弹窗', {
+              transcriptionStatus,
+              episodeId: response.episode_id,
+            });
+            // 不清空数据，保持当前页面状态
+            return;
+          }
+          
+          // 如果字幕识别失败，清除上传状态，跳转后由SubtitleList显示错误提示和重试按钮
+          // 弹窗已经在函数开始时关闭了
+          setEpisode(null);
+          setAudioUrl(null);
+          // processingState已经在上面清除了
+          setEpisodeId(response.episode_id.toString());
+          navigate(`/episodes/${response.episode_id}`, { replace: true });
         }
-        
-        // 直接跳转（不等待动画）
-        setTimeout(() => {
-          navigate(`/episodes/${response.episode_id}`);
-        }, 300); // 短暂延迟，让用户看到进度完成
       } else {
         // 非重复文件：正常流程
         setUploadProgress(100);
@@ -393,18 +555,42 @@ export default function EpisodePage() {
         const transcriptionStatus = response.status || response.transcription_status;
         
         // 根据PRD：音频上传成功->加载字幕
-        // 如果已完成，跳转后触发字幕加载状态；否则保持 upload 状态，跳转后由 fetchEpisode 根据 episode 数据设置 recognize 状态
+        // 如果已完成，跳转后触发字幕加载状态
+        // 如果正在识别中（processing/pending），直接设置recognize状态，跳转后由fetchEpisode继续处理
         if (transcriptionStatus === 'completed') {
-          // 上传完成，清除上传状态，跳转后触发字幕加载
-          setProcessingState(null);
+          // 上传完成，不设置load状态，让fetchEpisode根据是否有字幕数据来决定
+          console.log('[DEBUG handleFileConfirm] 非重复文件且已完成，清除状态并跳转（不设置load，让fetchEpisode根据字幕数据决定）', {
+            transcriptionStatus,
+            episodeId: response.episode_id,
+          });
+          // 弹窗已经在函数开始时关闭了
+          setEpisode(null);             // 立即清空数据
+          setAudioUrl(null);            // 立即清空音频URL
+          setProcessingState(null);     // 不设置load状态，让fetchEpisode根据是否有字幕数据来决定
           setUploadProgress(0);
+          setEpisodeId(response.episode_id.toString()); // 提前更新episodeId
+          navigate(`/episodes/${response.episode_id}`, { replace: true });
+        } else if (transcriptionStatus === 'processing' || transcriptionStatus === 'pending') {
+          // 如果正在识别中，直接设置为recognize状态，避免出现load状态
+          console.log('[DEBUG handleFileConfirm] 非重复文件且正在识别，设置recognize状态', {
+            transcriptionStatus,
+            episodeId: response.episode_id,
+          });
+          // 弹窗已经在函数开始时关闭了
+          setEpisode(null);
+          setAudioUrl(null);
+          setProcessingState('recognize');
+          setUploadProgress(0);
+          setEpisodeId(response.episode_id.toString());
+          navigate(`/episodes/${response.episode_id}`, { replace: true });
+        } else {
+          // 其他情况（如failed）保持upload状态，跳转后由fetchEpisode处理
+          // 弹窗已经在函数开始时关闭了
+          setEpisode(null);
+          setAudioUrl(null);
+          setEpisodeId(response.episode_id.toString());
+          navigate(`/episodes/${response.episode_id}`, { replace: true });
         }
-        // 其他情况（如 processing）保持 upload 状态，跳转后由 fetchEpisode 处理
-        
-        // 跳转到 Episode 页面
-        setTimeout(() => {
-          navigate(`/episodes/${response.episode_id}`);
-        }, 500);
       }
     } catch (err) {
       if (progressInterval) {
@@ -412,8 +598,10 @@ export default function EpisodePage() {
       }
       setProcessingError(err.response?.data?.detail || err.message || '上传失败，请重试');
       setProcessingState('upload');
+      // 出错时也要关闭弹窗
+      setIsModalOpen(false);
     }
-  }, [navigate]);
+  }, [navigate, episodeId]);
 
   // 处理文件导入弹窗关闭
   const handleModalClose = useCallback(() => {
@@ -589,6 +777,7 @@ export default function EpisodePage() {
           onFileImportClick={handleFileImportClick}
           transcriptionStatus={episode?.transcription_status}
           segments={segments}
+          cues={episode?.cues || null}
         />
       )}
       
