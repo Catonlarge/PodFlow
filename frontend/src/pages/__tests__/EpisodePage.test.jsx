@@ -842,8 +842,9 @@ describe('EpisodePage', () => {
       episodeServiceModule.episodeService.uploadEpisode = vi.fn().mockResolvedValue(mockUploadResponse);
       subtitleServiceModule.subtitleService.getEpisode = vi.fn()
         .mockResolvedValueOnce(processingEpisode)
-        .mockResolvedValueOnce(completedEpisode)
-        .mockResolvedValue(completedEpisode); // 后续调用都返回 completed
+        .mockResolvedValueOnce(processingEpisode) // 新增：应对状态变更引起的立即重取
+        .mockResolvedValueOnce(completedEpisode)  // 轮询时返回完成
+        .mockResolvedValue(completedEpisode);     // 后续调用都返回 completed
       // 让 getEpisodeSegments 抛出错误，进入 catch 块，使用 transcription_progress
       subtitleServiceModule.subtitleService.getEpisodeSegments = vi.fn().mockRejectedValue(new Error('No segments'));
 
@@ -878,17 +879,18 @@ describe('EpisodePage', () => {
       // 等待轮询更新（3秒后），轮询时会返回 completed 状态
       await waitFor(() => {
         // 轮询时应该再次调用 getEpisode，返回 completed 状态
-        // 可能有 2-3 次调用：初始加载、轮询、checkAndRecover
+        // 至少调用3次：初始加载、立即重取、轮询
         expect(subtitleServiceModule.subtitleService.getEpisode).toHaveBeenCalled();
         const callCount = subtitleServiceModule.subtitleService.getEpisode.mock.calls.length;
-        expect(callCount).toBeGreaterThanOrEqual(2);
+        expect(callCount).toBeGreaterThanOrEqual(3);
       }, { timeout: 4000 });
 
       // 验证 ProcessingOverlay 已清除（转录完成后）
       // 注意：由于 transcription_status 变为 'completed'，ProcessingOverlay 应该被清除
+      // 修改：增加 timeout 到 4000ms，确保覆盖轮询间隔
       await waitFor(() => {
         expect(screen.queryByTestId('processing-overlay')).not.toBeInTheDocument();
-      }, { timeout: 2000 });
+      }, { timeout: 4000 });
     });
 
     it('应该在已有 episode 页面中上传新文件后显示识别进度', async () => {
@@ -996,13 +998,20 @@ describe('EpisodePage', () => {
       episodeServiceModule.episodeService.uploadEpisode = vi.fn().mockResolvedValue(mockUploadResponse);
       subtitleServiceModule.subtitleService.getEpisode = vi.fn()
         .mockResolvedValueOnce(processingEpisode)
+        .mockResolvedValueOnce(processingEpisode) // 新增：应对 setProcessingState 引起的立即重取
         .mockResolvedValueOnce(processingEpisode) // 轮询时也返回 processing
         .mockResolvedValue(processingEpisode); // 后续调用都返回 processing
       subtitleServiceModule.subtitleService.getEpisodeSegments = vi.fn()
         .mockResolvedValueOnce([
           { segment_index: 0, segment_id: 'segment_001', status: 'processing', start_time: 0.0, end_time: 180.0, duration: 180.0 },
         ])
-        .mockResolvedValueOnce(segmentsWithFirstCompleted) // 第二次返回第一段已完成
+        .mockResolvedValueOnce([ // 新增：应对 setProcessingState 引起的立即重取，保持 Overlay 显示
+          { segment_index: 0, segment_id: 'segment_001', status: 'processing', start_time: 0.0, end_time: 180.0, duration: 180.0 },
+        ])
+        .mockResolvedValueOnce([ // 新增：应对 checkAndRecover 的调用，保持 Overlay 显示
+          { segment_index: 0, segment_id: 'segment_001', status: 'processing', start_time: 0.0, end_time: 180.0, duration: 180.0 },
+        ])
+        .mockResolvedValueOnce(segmentsWithFirstCompleted) // 原来的第二次（现在是第四次），用于轮询返回完成
         .mockResolvedValue(segmentsWithFirstCompleted); // 后续调用都返回第一段已完成
 
       render(
