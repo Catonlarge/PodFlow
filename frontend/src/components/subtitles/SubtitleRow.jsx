@@ -369,36 +369,46 @@ const SubtitleRow = forwardRef(function SubtitleRow({
           }}
         >
           {renderTextParts.map((part, partIndex) => {
-            // 直接使用原始文本内容，保留原始空格
-            // 通过检查原始文本中 part 前后的字符来判断是否需要添加空格
-            const prevPartEndIndex = partIndex > 0 
-              ? renderTextParts[partIndex - 1].endCharIndex 
-              : 0;
-            const currentPartStartIndex = part.startCharIndex;
-            
-            // 检查 part 之前是否有空格（在原始文本中）
-            // 如果前一个 part 的结束位置和当前 part 的开始位置之间有空格，则保留
-            const textBetweenParts = cue.text.substring(prevPartEndIndex, currentPartStartIndex);
-            const hasLeadingSpaceInOriginal = textBetweenParts.trim() === '' && textBetweenParts.includes(' ');
-            
-            // 检查 part 之后是否有空格（在原始文本中）
-            const nextPartStartIndex = partIndex < renderTextParts.length - 1
-              ? renderTextParts[partIndex + 1].startCharIndex
-              : cue.text.length;
-            const textAfterPart = cue.text.substring(part.endCharIndex, nextPartStartIndex);
-            const hasTrailingSpaceInOriginal = textAfterPart.trim() === '' && textAfterPart.includes(' ');
-            
-            // 移除 part.content 的首尾空格用于单词拆分，但保留原始文本中的空格位置
-            const trimmedContent = part.content.trim();
             
             if (part.type === 'highlight') {
               // 划线文本：显示下划线，同时支持单词级高亮
+              // 关键：保留所有空格，同时支持单词级高亮
+              const originalContent = part.content;
               const { startWordIndex } = getWordRangeForTextPart(part);
-              const highlightWords = trimmedContent.split(/\s+/).filter(w => w.length > 0);
+              
+              // 将文本按单词和空格拆分，保留所有空格
+              // 使用正则表达式匹配单词和空格，保留所有字符
+              const tokens = [];
+              let currentIndex = 0;
+              const wordRegex = /\S+/g; // 匹配非空白字符（单词）
+              let match;
+              
+              while ((match = wordRegex.exec(originalContent)) !== null) {
+                // 添加单词前的空格
+                if (match.index > currentIndex) {
+                  tokens.push({
+                    type: 'space',
+                    content: originalContent.substring(currentIndex, match.index),
+                  });
+                }
+                // 添加单词
+                tokens.push({
+                  type: 'word',
+                  content: match[0],
+                  wordIndex: tokens.filter(t => t.type === 'word').length,
+                });
+                currentIndex = match.index + match[0].length;
+              }
+              // 添加最后的空格
+              if (currentIndex < originalContent.length) {
+                tokens.push({
+                  type: 'space',
+                  content: originalContent.substring(currentIndex),
+                });
+              }
               
               return (
                 <React.Fragment key={`highlight-${part.highlightId}-${partIndex}`}>
-                  {hasLeadingSpaceInOriginal && ' '}
                   <Box
                     component="span"
                     onClick={(e) => {
@@ -418,16 +428,25 @@ const SubtitleRow = forwardRef(function SubtitleRow({
                         backgroundColor: 'action.hover',
                       } : {},
                       display: 'inline',
+                      whiteSpace: 'pre-wrap', // 保留空格和换行
                     }}
                   >
-                    {highlightWords.map((word, wordIndex) => {
-                      const globalWordIndex = startWordIndex + wordIndex;
-                      const isWordActive = globalWordIndex < activeWordIndex || progress === 1;
-                      const isLastWord = wordIndex === highlightWords.length - 1;
-                      
-                      return (
-                        <React.Fragment key={`highlight-word-${partIndex}-${wordIndex}`}>
+                    {tokens.map((token, tokenIndex) => {
+                      if (token.type === 'space') {
+                        // 空格：直接渲染，保留所有空格
+                        return (
+                          <React.Fragment key={`space-${partIndex}-${tokenIndex}`}>
+                            {token.content}
+                          </React.Fragment>
+                        );
+                      } else {
+                        // 单词：支持单词级高亮
+                        const globalWordIndex = startWordIndex + token.wordIndex;
+                        const isWordActive = globalWordIndex < activeWordIndex || progress === 1;
+                        
+                        return (
                           <Box
+                            key={`word-${partIndex}-${tokenIndex}`}
                             component="span"
                             sx={{
                               color: isWordActive ? part.color : `${part.color}80`, // 未播放时降低透明度
@@ -435,26 +454,21 @@ const SubtitleRow = forwardRef(function SubtitleRow({
                               display: 'inline',
                             }}
                           >
-                            {word}
+                            {token.content}
                           </Box>
-                          {!isLastWord && ' '}
-                        </React.Fragment>
-                      );
+                        );
+                      }
                     })}
                   </Box>
-                  {hasTrailingSpaceInOriginal && ' '}
                 </React.Fragment>
               );
             } else if (part.type === 'selection') {
               // 选中文本：显示背景色高亮（用于文本选择视觉反馈）
-              // 直接使用原始文本内容，不拆分单词，完全保留所有空格
-              // 为了支持单词级高亮，我们需要按字符渲染，但这样性能可能不好
-              // 更好的方法是：直接渲染文本，不进行单词级高亮（选择状态下）
+              // 直接使用原始文本内容，完全保留所有空格（包括多个连续空格）
               const originalContent = part.content;
               
               return (
                 <React.Fragment key={`selection-${partIndex}`}>
-                  {hasLeadingSpaceInOriginal && ' '}
                   <Box
                     component="span"
                     sx={{
@@ -466,7 +480,6 @@ const SubtitleRow = forwardRef(function SubtitleRow({
                   >
                     {originalContent}
                   </Box>
-                  {hasTrailingSpaceInOriginal && ' '}
                 </React.Fragment>
               );
             } else {

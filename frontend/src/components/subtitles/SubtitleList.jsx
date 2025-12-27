@@ -226,11 +226,17 @@ export default function SubtitleList({
       }
 
       // 2. 为每个 Highlight 创建 Note（underline 类型）
-      const notePromises = highlightResponse.highlight_ids.map((highlightId) =>
-        noteService.createNote(episodeId, highlightId, 'underline', null, null)
-      );
-
-      await Promise.all(notePromises);
+      // 注意：如果后端 Note API 还未实现（Task 3.9），这里会失败，但不影响下划线显示
+      try {
+        const notePromises = highlightResponse.highlight_ids.map((highlightId) =>
+          noteService.createNote(episodeId, highlightId, 'underline', null, null)
+        );
+        await Promise.all(notePromises);
+      } catch (noteError) {
+        // Note API 可能还未实现，只记录警告，不影响下划线显示
+        console.warn('[SubtitleList] 创建 Note 失败（可能是后端 API 未实现）:', noteError);
+        // 不抛出错误，继续执行，让下划线能够显示
+      }
 
       // 3. 更新本地状态（添加新创建的 highlights）
       const newHighlights = highlightsToCreate.map((h, index) => ({
