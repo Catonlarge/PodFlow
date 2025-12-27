@@ -38,11 +38,13 @@ const mockGetFileExtension = vi.mocked(getFileExtension);
 describe('FileImportModal', () => {
   const mockOnClose = vi.fn();
   const mockOnConfirm = vi.fn();
+  // 使用32字符的MD5 hash（符合MD5格式要求）
+  const MOCK_MD5_HASH = 'a1b2c3d4e5f6789012345678901234ab';
 
   beforeEach(() => {
     vi.clearAllMocks();
     api.get.mockResolvedValue({ exists: false });
-    calculateFileMD5.mockResolvedValue('test-md5-hash');
+    calculateFileMD5.mockResolvedValue(MOCK_MD5_HASH);
     readAudioDuration.mockResolvedValue(1800); // 30分钟
     // 重置 getFileExtension mock，确保它正确工作
     mockGetFileExtension.mockImplementation((filename) => {
@@ -254,7 +256,7 @@ describe('FileImportModal', () => {
 
       // 延迟 MD5 计算，模拟异步过程
       calculateFileMD5.mockImplementation(
-        () => new Promise((resolve) => setTimeout(() => resolve('test-md5'), 100))
+        () => new Promise((resolve) => setTimeout(() => resolve(MOCK_MD5_HASH), 100))
       );
 
       render(
@@ -288,7 +290,7 @@ describe('FileImportModal', () => {
 
       await waitFor(() => {
         expect(api.get).toHaveBeenCalledWith('/api/episodes/check-subtitle', {
-          params: { file_hash: 'test-md5-hash' },
+          params: { file_hash: MOCK_MD5_HASH },
         });
       });
     });

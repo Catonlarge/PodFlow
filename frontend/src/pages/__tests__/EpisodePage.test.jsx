@@ -877,20 +877,21 @@ describe('EpisodePage', () => {
       }, { timeout: 2000 });
 
       // 等待轮询更新（3秒后），轮询时会返回 completed 状态
+      // 注意：轮询间隔是3秒，需要等待至少3秒让轮询触发
       await waitFor(() => {
         // 轮询时应该再次调用 getEpisode，返回 completed 状态
         // 至少调用3次：初始加载、立即重取、轮询
         expect(subtitleServiceModule.subtitleService.getEpisode).toHaveBeenCalled();
         const callCount = subtitleServiceModule.subtitleService.getEpisode.mock.calls.length;
         expect(callCount).toBeGreaterThanOrEqual(3);
-      }, { timeout: 4000 });
+      }, { timeout: 5000 });
 
       // 验证 ProcessingOverlay 已清除（转录完成后）
       // 注意：由于 transcription_status 变为 'completed'，ProcessingOverlay 应该被清除
-      // 修改：增加 timeout 到 4000ms，确保覆盖轮询间隔
+      // 需要等待足够的时间让轮询触发并更新状态（轮询间隔3秒 + 状态更新时间）
       await waitFor(() => {
         expect(screen.queryByTestId('processing-overlay')).not.toBeInTheDocument();
-      }, { timeout: 4000 });
+      }, { timeout: 6000 });
     });
 
     it('应该在已有 episode 页面中上传新文件后显示识别进度', async () => {
@@ -1050,18 +1051,20 @@ describe('EpisodePage', () => {
       }, { timeout: 3000 });
 
       // 等待轮询触发（3秒后），轮询时会再次调用 getEpisodeSegments，返回第一段已完成
+      // 注意：轮询间隔是3秒，需要等待至少3秒让轮询触发
       await waitFor(() => {
         // 可能被调用 2-3 次：fetchEpisode 中调用、轮询时调用、checkAndRecover 中调用
         expect(subtitleServiceModule.subtitleService.getEpisodeSegments).toHaveBeenCalled();
         const callCount = subtitleServiceModule.subtitleService.getEpisodeSegments.mock.calls.length;
         expect(callCount).toBeGreaterThanOrEqual(2);
-      }, { timeout: 4000 });
+      }, { timeout: 5000 });
 
       // 验证 ProcessingOverlay 已隐藏（第一段完成后）
       // 注意：当第一段完成时，ProcessingOverlay 应该被隐藏
+      // 需要等待足够的时间让轮询触发并更新状态（轮询间隔3秒 + 状态更新时间）
       await waitFor(() => {
         expect(screen.queryByTestId('processing-overlay')).not.toBeInTheDocument();
-      }, { timeout: 3000 });
+      }, { timeout: 6000 });
     });
 
     it('当第一段未完成时，应该显示 ProcessingOverlay', async () => {

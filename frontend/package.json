@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest",
+    "test": "powershell -ExecutionPolicy Bypass -File ./test.ps1",
+    "test:raw": "vitest",
     "test:ui": "vitest --ui"
   },
   "dependencies": {
