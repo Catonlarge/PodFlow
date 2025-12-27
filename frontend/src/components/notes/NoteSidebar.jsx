@@ -15,11 +15,12 @@
  * @module components/notes/NoteSidebar
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Box, Stack, IconButton, Skeleton, Alert, Typography } from '@mui/material';
 import { ArrowForward, StickyNote2 } from '@mui/icons-material';
 import { noteService } from '../../services/noteService';
 import { highlightService } from '../../services/highlightService';
+import { useNotePosition } from '../../hooks/useNotePosition';
 import NoteCard from './NoteCard';
 
 // Mock数据（用于开发调试，展示效果）
@@ -92,8 +93,18 @@ const mockHighlights = [
  * @param {Function} [props.onNoteDelete] - 删除笔记回调（用于刷新列表）
  * @param {boolean} [props.isExpanded] - 外部控制的展开/收缩状态（可选，如果不提供则内部管理）
  * @param {Function} [props.onExpandedChange] - 展开/收缩状态变化回调 (isExpanded: boolean) => void
+ * @param {React.RefObject} [props.scrollContainerRef] - 左侧字幕滚动容器引用（用于位置同步）
+ * @param {Array} [props.cues] - TranscriptCue 数组（用于位置计算）
  */
-export default function NoteSidebar({ episodeId, onNoteClick, onNoteDelete, isExpanded: externalIsExpanded, onExpandedChange }) {
+const NoteSidebar = forwardRef(function NoteSidebar({ 
+  episodeId, 
+  onNoteClick, 
+  onNoteDelete, 
+  isExpanded: externalIsExpanded, 
+  onExpandedChange,
+  scrollContainerRef,
+  cues = []
+}, ref) {
   // 笔记数据和划线数据
   const [notes, setNotes] = useState([]);
   const [highlights, setHighlights] = useState(new Map());
@@ -123,6 +134,22 @@ export default function NoteSidebar({ episodeId, onNoteClick, onNoteDelete, isEx
   
   // 记录已加载的 episodeId，避免重复加载
   const loadedEpisodeIdRef = useRef(null);
+  
+  // 笔记侧边栏容器引用（用于位置计算）
+  const noteSidebarRef = useRef(null);
+  
+  // 将 highlights Map 转换为数组（用于 useNotePosition）
+  const highlightsArray = useMemo(() => {
+    return Array.from(highlights.values());
+  }, [highlights]);
+  
+  // 使用 useNotePosition Hook 计算笔记位置
+  const notePositions = useNotePosition({
+    highlights: highlightsArray,
+    cues: cues,
+    scrollContainerRef: scrollContainerRef,
+    noteSidebarRef: noteSidebarRef
+  });
 
   // 数据加载逻辑
   useEffect(() => {
@@ -397,8 +424,15 @@ export default function NoteSidebar({ episodeId, onNoteClick, onNoteDelete, isEx
     );
   }
   
+  // 暴露 ref 给父组件（用于双向链接）
+  useImperativeHandle(ref, () => ({
+    // 返回容器引用，用于 DOM 查询
+    getContainer: () => noteSidebarRef.current,
+  }), []);
+  
   return (
     <Box
+      ref={noteSidebarRef}
       sx={{
         width: '100%',
         height: '100%',
@@ -494,6 +528,7 @@ export default function NoteSidebar({ episodeId, onNoteClick, onNoteDelete, isEx
             py: 2,
             overflowY: 'auto',
             overflowX: 'hidden',
+            position: 'relative', // 为绝对定位的笔记卡片提供定位上下文
           }}
         >
           {sortedNotes.length === 0 ? (
@@ -515,31 +550,54 @@ export default function NoteSidebar({ episodeId, onNoteClick, onNoteDelete, isEx
               </Typography>
             </Box>
           ) : (
-            // 笔记列表（PRD 382-384行）
-            <Stack
+            // 笔记列表（使用绝对定位，跟随划线源位置）
+            <Box
               data-testid="note-sidebar-list"
-              spacing={2}
               sx={{
                 width: '100%',
+                position: 'relative',
+                minHeight: '100%', // 确保容器至少占满高度
               }}
             >
               {sortedNotes.map((note) => {
                 const highlight = highlights.get(note.highlight_id);
+                const position = highlight ? notePositions[highlight.id] : null;
+                
+                // 如果位置未计算出来，使用默认位置（按创建时间排序）
+                const topValue = position !== null && position !== undefined
+                  ? `${position - 24}px` // PRD 390行：笔记卡片的顶部在划线源顶部上面24px
+                  : 'auto';
+                
                 return (
-                  <NoteCard
+                  <Box
                     key={note.id}
-                    note={note}
-                    highlight={highlight}
-                    onClick={() => onNoteClick?.(note, highlight)}
-                    onUpdate={handleUpdateNote}
-                    onDelete={() => handleDeleteNote(note.id)}
-                  />
+                    data-note-highlight-id={highlight?.id}
+                    sx={{
+                      position: 'absolute',
+                      top: topValue,
+                      left: 0,
+                      right: 0,
+                      width: '100%',
+                      mb: 2, // 笔记卡片之间的间距
+                      transition: 'top 0.1s ease-out', // 平滑的位置更新
+                    }}
+                  >
+                    <NoteCard
+                      note={note}
+                      highlight={highlight}
+                      onClick={() => onNoteClick?.(note, highlight)}
+                      onUpdate={handleUpdateNote}
+                      onDelete={() => handleDeleteNote(note.id)}
+                    />
+                  </Box>
                 );
               })}
-            </Stack>
+            </Box>
           )}
         </Box>
       )}
     </Box>
   );
-}
+});
+
+export default NoteSidebar;

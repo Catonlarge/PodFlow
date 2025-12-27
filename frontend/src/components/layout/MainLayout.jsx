@@ -160,14 +160,103 @@ export default function MainLayout({
     }
   }, []);
 
-  // 处理笔记点击（双向链接逻辑，Task 3.8 实现完整逻辑）
+  // 笔记侧边栏引用（用于双向链接：点击划线时滚动到对应笔记）
+  const noteSidebarRef = useRef(null);
+  
+  // 处理笔记点击（双向链接逻辑：点击笔记 → 左侧字幕滚动到对应划线位置）
   const handleNoteClick = useCallback((note, highlight) => {
-    // TODO: Task 3.8 实现双向链接逻辑
-    // 点击笔记 → 左侧字幕滚动到对应划线位置
+    if (!highlight || !cues || !mainScrollRef.current) {
+      console.warn('[MainLayout] 笔记点击：缺少必要数据', { note, highlight, cues });
+      return;
+    }
+    
     // 1. 根据 highlight.cue_id 找到对应的 TranscriptCue
-    // 2. 滚动到该 cue 的位置
-    // 3. 高亮显示该划线
-    console.log('[MainLayout] 笔记点击:', { note, highlight });
+    const targetCue = cues.find(c => c.id === highlight.cue_id);
+    if (!targetCue) {
+      console.warn('[MainLayout] 笔记点击：找不到对应的 cue', { highlight });
+      return;
+    }
+    
+    // 2. 找到对应的 SubtitleRow DOM 元素
+    const subtitleElement = mainScrollRef.current.querySelector(
+      `[data-subtitle-id="${targetCue.id}"]`
+    );
+    
+    if (!subtitleElement) {
+      console.warn('[MainLayout] 笔记点击：找不到对应的字幕元素', { targetCue });
+      return;
+    }
+    
+    // 3. 滚动到该元素位置（使用 scrollIntoView）
+    subtitleElement.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center', // 滚动到屏幕中央
+    });
+    
+    // 4. 高亮显示该划线（添加临时高亮样式，1秒后移除）
+    const originalBgColor = subtitleElement.style.backgroundColor;
+    subtitleElement.style.backgroundColor = 'rgba(156, 39, 176, 0.2)'; // 紫色半透明
+    subtitleElement.style.transition = 'background-color 0.3s ease-in-out';
+    
+    setTimeout(() => {
+      subtitleElement.style.backgroundColor = originalBgColor || '';
+      setTimeout(() => {
+        subtitleElement.style.transition = '';
+      }, 300);
+    }, 1000);
+  }, [cues]);
+  
+  // 处理划线点击（双向链接逻辑：点击划线 → 右侧笔记滚动到对应位置）
+  const handleHighlightClick = useCallback((highlight) => {
+    if (!highlight || !noteSidebarRef.current) {
+      console.warn('[MainLayout] 划线点击：缺少必要数据', { highlight });
+      return;
+    }
+    
+    // 获取 NoteSidebar 容器（通过 ref 暴露的方法）
+    const noteSidebarContainer = noteSidebarRef.current.getContainer 
+      ? noteSidebarRef.current.getContainer() 
+      : noteSidebarRef.current;
+    
+    if (!noteSidebarContainer) {
+      console.warn('[MainLayout] 划线点击：找不到笔记侧边栏容器', { highlight });
+      return;
+    }
+    
+    // 1. 找到对应的 Note（通过 highlight_id）
+    // 注意：NoteSidebar 内部管理 notes 数据，我们需要通过 DOM 查找对应的 NoteCard
+    const noteCardElement = noteSidebarContainer.querySelector(
+      `[data-note-highlight-id="${highlight.id}"]`
+    );
+    
+    if (!noteCardElement) {
+      console.warn('[MainLayout] 划线点击：找不到对应的笔记卡片', { highlight });
+      return;
+    }
+    
+    // 2. 滚动右侧笔记区域到该 Note 位置
+    const noteSidebarContent = noteSidebarContainer.querySelector(
+      '[data-testid="note-sidebar-content"]'
+    );
+    
+    if (noteSidebarContent) {
+      // 计算 NoteCard 相对于滚动容器的位置
+      const cardRect = noteCardElement.getBoundingClientRect();
+      const containerRect = noteSidebarContent.getBoundingClientRect();
+      const scrollTop = noteSidebarContent.scrollTop;
+      const targetScrollTop = scrollTop + (cardRect.top - containerRect.top) - 100; // 留出 100px 的顶部空间
+      
+      noteSidebarContent.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior: 'smooth',
+      });
+      
+      // 3. 触发笔记卡片闪烁效果（通过添加 class）
+      noteCardElement.classList.add('note-card-flash');
+      setTimeout(() => {
+        noteCardElement.classList.remove('note-card-flash');
+      }, 600);
+    }
   }, []);
 
   // 处理笔记删除
@@ -360,6 +449,7 @@ export default function MainLayout({
             isInteracting={isInteracting}
             transcriptionStatus={transcriptionStatus}
             segments={segments}
+            onHighlightClick={handleHighlightClick}
           />
         </Box>
 
@@ -387,6 +477,7 @@ export default function MainLayout({
           }}
         >
           <NoteSidebar 
+            ref={noteSidebarRef}
             episodeId={episodeId}
             onNoteClick={handleNoteClick}
             onNoteDelete={handleNoteDelete}
@@ -395,6 +486,8 @@ export default function MainLayout({
               console.log('[MainLayout] NoteSidebar onExpandedChange 回调，新状态:', expanded);
               setIsNoteSidebarExpanded(expanded);
             }}
+            scrollContainerRef={mainScrollRef}
+            cues={cues}
           />
         </Box>
       </Box>

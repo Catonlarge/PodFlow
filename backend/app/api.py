@@ -1173,3 +1173,229 @@ def delete_highlight(
     }
 
 
+# ==================== Note API ====================
+
+class NoteCreateRequest(BaseModel):
+    """创建笔记请求"""
+    episode_id: int
+    highlight_id: int
+    content: Optional[str] = Field(None, description="笔记内容（underline 类型时为空）")
+    note_type: str = Field(..., description="笔记类型（underline/thought/ai_card）")
+    origin_ai_query_id: Optional[int] = Field(None, description="AI 查询记录 ID（可选，AI 查询转笔记时提供）")
+
+
+class NoteUpdateRequest(BaseModel):
+    """更新笔记请求"""
+    content: str = Field(..., description="新的笔记内容")
+
+
+@router.post("/notes")
+async def create_note(
+    note_data: NoteCreateRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    创建笔记
+    
+    支持三种笔记类型：
+    - underline：纯划线（只有下划线样式，不显示笔记卡片，content 为空）
+    - thought：用户想法（显示笔记卡片，用户手动输入）
+    - ai_card：保存的 AI 查询结果（显示笔记卡片，来自 AI）
+    
+    参数:
+        note_data: 创建笔记请求
+    
+    返回:
+        {
+            "id": 1,
+            "created_at": "2025-01-01T00:00:00Z"
+        }
+    """
+    # 验证 note_type 有效
+    valid_note_types = ["underline", "thought", "ai_card"]
+    if note_data.note_type not in valid_note_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的 note_type: {note_data.note_type}，必须是 {valid_note_types} 之一"
+        )
+    
+    # 验证 highlight_id 存在且属于该 episode_id
+    highlight = db.query(Highlight).filter(Highlight.id == note_data.highlight_id).first()
+    if not highlight:
+        raise HTTPException(status_code=404, detail=f"Highlight {note_data.highlight_id} 不存在")
+    
+    if highlight.episode_id != note_data.episode_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Highlight {note_data.highlight_id} 不属于 Episode {note_data.episode_id}"
+        )
+    
+    # 验证 episode_id 存在
+    episode = db.query(Episode).filter(Episode.id == note_data.episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {note_data.episode_id} 不存在")
+    
+    # 如果 origin_ai_query_id 提供，验证其存在
+    if note_data.origin_ai_query_id is not None:
+        ai_query = db.query(AIQueryRecord).filter(AIQueryRecord.id == note_data.origin_ai_query_id).first()
+        if not ai_query:
+            raise HTTPException(
+                status_code=404,
+                detail=f"AIQueryRecord {note_data.origin_ai_query_id} 不存在"
+            )
+        # 验证 AIQueryRecord 属于同一个 highlight
+        if ai_query.highlight_id != note_data.highlight_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"AIQueryRecord {note_data.origin_ai_query_id} 不属于 Highlight {note_data.highlight_id}"
+            )
+    
+    # 创建 Note 记录
+    note = Note(
+        episode_id=note_data.episode_id,
+        highlight_id=note_data.highlight_id,
+        content=note_data.content,
+        note_type=note_data.note_type,
+        origin_ai_query_id=note_data.origin_ai_query_id
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    
+    logger.info(
+        f"创建了 Note (id={note.id}, type={note.note_type}, "
+        f"episode_id={note.episode_id}, highlight_id={note.highlight_id})"
+    )
+    
+    return {
+        "id": note.id,
+        "created_at": note.created_at.isoformat() + "Z" if note.created_at else None
+    }
+
+
+@router.put("/notes/{note_id}")
+async def update_note(
+    note_id: int,
+    note_data: NoteUpdateRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    更新笔记内容
+    
+    参数:
+        note_id: Note ID
+        note_data: 更新笔记请求
+    
+    返回:
+        {
+            "success": true
+        }
+    """
+    # 查找 Note
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail=f"Note {note_id} 不存在")
+    
+    # 更新 content 和 updated_at
+    note.content = note_data.content
+    note.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(note)
+    
+    logger.info(f"更新了 Note (id={note_id})")
+    
+    return {
+        "success": True
+    }
+
+
+@router.delete("/notes/{note_id}")
+async def delete_note(
+    note_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    删除笔记
+    
+    说明:
+    - 删除 Note 不会删除 AIQueryRecord（反向关联）
+    - 删除 Note 会级联删除关联的 Highlight（如果 Highlight 没有其他 Note）
+    
+    参数:
+        note_id: Note ID
+    
+    返回:
+        {
+            "success": true
+        }
+    """
+    # 查找 Note
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail=f"Note {note_id} 不存在")
+    
+    # 删除 Note（级联删除由数据库处理）
+    db.delete(note)
+    db.commit()
+    
+    logger.info(f"删除了 Note (id={note_id})")
+    
+    return {
+        "success": True
+    }
+
+
+@router.get("/episodes/{episode_id}/notes")
+async def get_notes_by_episode(
+    episode_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    获取某个 Episode 的所有笔记
+    
+    说明:
+    - 包含所有类型的笔记（underline/thought/ai_card）
+    - 前端负责过滤 underline 类型（不显示笔记卡片）
+    
+    参数:
+        episode_id: Episode ID
+    
+    返回:
+        [
+            {
+                "id": 1,
+                "highlight_id": 5,
+                "content": "...",
+                "note_type": "thought",
+                "origin_ai_query_id": null,
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T00:00:00Z"
+            },
+            ...
+        ]
+    """
+    # 验证 episode_id 存在
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
+    
+    # 查询所有 Note（按 created_at 排序）
+    notes = db.query(Note).filter(
+        Note.episode_id == episode_id
+    ).order_by(Note.created_at.asc()).all()
+    
+    # 序列化返回
+    return [
+        {
+            "id": n.id,
+            "highlight_id": n.highlight_id,
+            "content": n.content,
+            "note_type": n.note_type,
+            "origin_ai_query_id": n.origin_ai_query_id,
+            "created_at": n.created_at.isoformat() + "Z" if n.created_at else None,
+            "updated_at": n.updated_at.isoformat() + "Z" if n.updated_at else None
+        }
+        for n in notes
+    ]
+
+
