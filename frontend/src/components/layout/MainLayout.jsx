@@ -33,7 +33,8 @@
  * @param {React.ReactNode} [props.children] - 可选，用于未来扩展
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Box } from '@mui/material';
+import { Box, IconButton } from '@mui/material';
+import { ArrowForward, StickyNote2 } from '@mui/icons-material';
 import EpisodeHeader from './EpisodeHeader';
 import SubtitleList from '../subtitles/SubtitleList';
 import NoteSidebar from '../notes/NoteSidebar';
@@ -77,6 +78,28 @@ export default function MainLayout({
   // 当用户进行划线、查询卡片展示等操作时，需要暂停自动滚动
   // TODO: 当 SelectionMenu 实现后，需要根据其打开状态更新 isInteracting
   const [isInteracting] = useState(false);
+  
+  // 笔记侧边栏展开/收缩状态（用于控制收缩/展开按钮显示）
+  const [isNoteSidebarExpanded, setIsNoteSidebarExpanded] = useState(false);
+  
+  // 调试：监听状态变化
+  useEffect(() => {
+    console.log('[MainLayout] isNoteSidebarExpanded 状态变化:', isNoteSidebarExpanded);
+  }, [isNoteSidebarExpanded]);
+  
+  // 处理收缩按钮点击（添加调试信息）
+  const handleCollapseSidebar = useCallback(() => {
+    console.log('[MainLayout] 收缩按钮被点击，当前状态:', isNoteSidebarExpanded);
+    setIsNoteSidebarExpanded(false);
+    console.log('[MainLayout] 收缩按钮点击后，新状态:', false);
+  }, [isNoteSidebarExpanded]);
+  
+  // 处理展开按钮点击（添加调试信息）
+  const handleExpandSidebar = useCallback(() => {
+    console.log('[MainLayout] 展开按钮被点击，当前状态:', isNoteSidebarExpanded);
+    setIsNoteSidebarExpanded(true);
+    console.log('[MainLayout] 展开按钮点击后，新状态:', true);
+  }, [isNoteSidebarExpanded]);
 
   // 处理主体区域滚动（用于 SubtitleList 的用户滚动检测）
   const handleMainScroll = useCallback(() => {
@@ -137,6 +160,23 @@ export default function MainLayout({
     }
   }, []);
 
+  // 处理笔记点击（双向链接逻辑，Task 3.8 实现完整逻辑）
+  const handleNoteClick = useCallback((note, highlight) => {
+    // TODO: Task 3.8 实现双向链接逻辑
+    // 点击笔记 → 左侧字幕滚动到对应划线位置
+    // 1. 根据 highlight.cue_id 找到对应的 TranscriptCue
+    // 2. 滚动到该 cue 的位置
+    // 3. 高亮显示该划线
+    console.log('[MainLayout] 笔记点击:', { note, highlight });
+  }, []);
+
+  // 处理笔记删除
+  const handleNoteDelete = useCallback((noteId) => {
+    // 删除笔记后，NoteSidebar 内部会自动刷新列表
+    // 这里可以添加额外的清理逻辑（如清除缓存）
+    console.log('[MainLayout] 笔记删除:', noteId);
+  }, []);
+
   return (
     <Box
       sx={{
@@ -154,6 +194,7 @@ export default function MainLayout({
       />
 
       {/* 分界线（固定在视口中，不受滚动影响） */}
+      {/* 只有当笔记边栏展开时才显示分界线 */}
       <Box
         sx={{
           position: 'fixed',
@@ -163,11 +204,107 @@ export default function MainLayout({
           width: '1.5px',
           backgroundColor: '#e0e0e0',
           pointerEvents: 'none',
-          display: { xs: 'none', md: 'block' },
+          display: { xs: 'none', md: isNoteSidebarExpanded ? 'block' : 'none' }, // 使用 display 而不是条件渲染，避免闪烁
           zIndex: 1000,
-          transition: 'bottom 0.3s ease-in-out',
+          transition: 'bottom 0.2s ease-in-out, opacity 0.15s ease-in-out', // 使用更快的过渡
+          opacity: isNoteSidebarExpanded ? 1 : 0,
+          willChange: 'opacity', // 优化性能
         }}
       />
+
+      {/* 笔记侧边栏收缩按钮（向右箭头图标，PRD 377行） */}
+      {/* 按钮使用 fixed 定位，紧贴分界线（70%位置），避免被主容器的 overflowX: hidden 裁剪 */}
+      {/* 只有当笔记边栏展开时才显示收缩按钮 */}
+      {isNoteSidebarExpanded && (
+        <IconButton
+          data-testid="note-sidebar-collapse-button"
+          onClick={handleCollapseSidebar}
+          sx={{
+            position: 'fixed',
+            left: { xs: 'calc(70% - 12px)', md: 'calc(70% - 12px)' }, // 分界线位置 (70%) - 按钮宽度的一半 (24px/2)
+            transition: 'left 0.3s ease-in-out, opacity 0.3s ease-in-out', // 添加过渡动画
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: '24px',
+            height: '24px',
+            minWidth: '24px',
+            padding: 0,
+            zIndex: 1002, // 确保在分界线之上（分界线 zIndex 1000）
+            border: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'background.paper',
+            borderRadius: '4px',
+            boxShadow: 3, // 增加阴影，提高可见性
+            display: { xs: 'none', md: 'flex' },
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            '&:hover': {
+              borderColor: 'text.primary', // PRD 377行：箭头灰色边框变深
+              bgcolor: 'action.hover',
+              boxShadow: 4,
+            },
+            '&:active': {
+              transform: 'translateY(-50%) scale(0.95)',
+              borderColor: 'text.primary',
+            },
+          }}
+        >
+          <ArrowForward 
+            sx={{ 
+              fontSize: '16px',
+              width: '9px',
+              height: '16px',
+              color: 'text.primary', // 确保图标颜色可见
+            }} 
+          />
+        </IconButton>
+      )}
+
+      {/* 笔记侧边栏展开按钮（笔记图标气泡，PRD 379行） */}
+      {/* 只有当笔记边栏收缩时才显示展开按钮，位置在屏幕右侧边缘 */}
+      {!isNoteSidebarExpanded && (
+        <IconButton
+          data-testid="note-sidebar-expand-button"
+          onClick={handleExpandSidebar}
+          sx={{
+            position: 'fixed',
+            right: { xs: '24px', md: '24px' }, // 收缩时，按钮显示在右侧边缘（距离右边缘24px）
+            transition: 'right 0.3s ease-in-out, opacity 0.3s ease-in-out', // 添加过渡动画
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: '24px', // 与收缩按钮相同大小
+            height: '24px', // 与收缩按钮相同大小
+            minWidth: '24px', // 与收缩按钮相同大小
+            padding: 0,
+            zIndex: 1002, // 确保在分界线之上
+            bgcolor: 'background.paper',
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: '50%',
+            boxShadow: 3, // 增加阴影，提高可见性
+            display: { xs: 'none', md: 'flex' },
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            '&:hover': {
+              bgcolor: 'action.hover', // PRD 379行：背景颜色变成加深的灰色
+              borderColor: 'text.primary',
+              boxShadow: 4,
+            },
+            '&:active': {
+              transform: 'translateY(-50%) scale(0.95)',
+            },
+          }}
+        >
+          <StickyNote2 
+            sx={{ 
+              fontSize: '16px', // 调整图标大小，与收缩按钮的箭头图标大小相近
+              color: 'text.primary', // 确保图标颜色可见
+            }} 
+          />
+        </IconButton>
+      )}
 
       {/* 主体区域：左右分栏（统一滚动容器） */}
       {/* 
@@ -193,12 +330,12 @@ export default function MainLayout({
         }}
         data-subtitle-container
       >
-        {/* 左侧：英文字幕区域（70%） */}
+        {/* 左侧：英文字幕区域（根据笔记边栏展开状态调整：展开时70%，收缩时100%） */}
         <Box
           sx={{
-            flex: { xs: '1 1 100%', md: '0 0 70%' },
-            width: { xs: '100%', md: '70%' },
-            maxWidth: { xs: '100%', md: '70%' },
+            flex: { xs: '1 1 100%', md: isNoteSidebarExpanded ? '0 0 70%' : '1 1 100%' },
+            width: { xs: '100%', md: isNoteSidebarExpanded ? '70%' : '100%' },
+            maxWidth: { xs: '100%', md: isNoteSidebarExpanded ? '70%' : '100%' },
             px: 2,
             pt: 2,
             pb: 2,
@@ -207,6 +344,8 @@ export default function MainLayout({
             overflow: 'visible',
             position: 'relative',
             boxSizing: 'border-box',
+            transition: 'flex 0.2s ease-in-out, width 0.2s ease-in-out, max-width 0.2s ease-in-out', // 使用更快的过渡，只过渡相关属性
+            willChange: 'flex, width, max-width', // 优化性能
           }}
         >
           <SubtitleList 
@@ -226,23 +365,37 @@ export default function MainLayout({
 
 
         {/* 右侧：笔记区域（30%） */}
+        {/* 根据 isNoteSidebarExpanded 状态控制显示：展开时30%，收缩时0 */}
         <Box
           sx={{
-            flex: { xs: '0 0 0', md: '0 0 30%' },
-            width: { xs: 0, md: '30%' },
-            maxWidth: { xs: 0, md: '30%' },
+            flex: { xs: '0 0 0', md: isNoteSidebarExpanded ? '0 0 30%' : '0 0 0' },
+            width: { xs: 0, md: isNoteSidebarExpanded ? '30%' : 0 },
+            maxWidth: { xs: 0, md: isNoteSidebarExpanded ? '30%' : 0 },
             px: 2,
             pt: 2,
             pb: 2,
-            display: { xs: 'none', md: 'flex' },
+            display: { xs: 'none', md: isNoteSidebarExpanded ? 'flex' : 'none' }, // 收缩时完全隐藏
             flexDirection: 'column',
             bgcolor: 'background.paper',
             overflow: 'visible',
             position: 'relative',
             boxSizing: 'border-box',
+            transition: 'flex 0.2s ease-in-out, width 0.2s ease-in-out, max-width 0.2s ease-in-out, opacity 0.15s ease-in-out', // 使用更快的过渡，opacity 更快
+            opacity: isNoteSidebarExpanded ? 1 : 0, // 收缩时透明度为0
+            pointerEvents: isNoteSidebarExpanded ? 'auto' : 'none', // 收缩时禁用交互
+            willChange: 'flex, width, max-width, opacity', // 优化性能
           }}
         >
-          <NoteSidebar />
+          <NoteSidebar 
+            episodeId={episodeId}
+            onNoteClick={handleNoteClick}
+            onNoteDelete={handleNoteDelete}
+            isExpanded={isNoteSidebarExpanded}
+            onExpandedChange={(expanded) => {
+              console.log('[MainLayout] NoteSidebar onExpandedChange 回调，新状态:', expanded);
+              setIsNoteSidebarExpanded(expanded);
+            }}
+          />
         </Box>
       </Box>
 

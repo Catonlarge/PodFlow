@@ -326,10 +326,12 @@ const SubtitleRow = forwardRef(function SubtitleRow({
         border: isHighlighted ? '2px solid' : '2px solid transparent',
         borderColor: isHighlighted ? 'primary.main' : 'transparent',
         borderRadius: 1,
-        transition: 'all 0.2s ease-in-out',
+        transition: 'background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, width 0.2s ease-in-out, max-width 0.2s ease-in-out', // 精确控制过渡属性，包括宽度
         boxSizing: 'border-box',
         maxWidth: '100%',
         width: '100%',
+        overflow: 'hidden', // 防止内容超出容器
+        willChange: 'width, max-width', // 优化性能
       }}
       data-subtitle-id={cue.id}
       data-subtitle-index={index}
@@ -353,9 +355,13 @@ const SubtitleRow = forwardRef(function SubtitleRow({
       <Box
         sx={{
           flex: 1,
+          minWidth: 0, // 关键：防止 flex 子元素超出容器（flex 布局的常见问题）
           display: 'flex',
           flexDirection: 'column',
           gap: showTranslation && cue.translation ? 1 : 0, // 8px gap when translation is shown
+          overflow: 'hidden', // 防止内容超出
+          transition: 'flex 0.2s ease-in-out', // 添加过渡动画
+          willChange: 'flex', // 优化性能
         }}
       >
         {/* 英文字幕文本（支持单词级高亮和下划线） */}
@@ -366,6 +372,9 @@ const SubtitleRow = forwardRef(function SubtitleRow({
             fontSize: '15px',
             fontWeight: isHighlighted ? 500 : 400,
             lineHeight: 1.5,
+            wordWrap: 'break-word', // 确保长单词可以换行
+            overflowWrap: 'break-word', // 现代浏览器的换行属性
+            maxWidth: '100%', // 确保不超出容器
           }}
         >
           {renderTextParts.map((part, partIndex) => {
