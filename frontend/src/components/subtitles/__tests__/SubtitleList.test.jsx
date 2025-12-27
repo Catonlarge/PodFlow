@@ -436,14 +436,13 @@ describe('SubtitleList', () => {
         />
       );
 
-      // 验证显示错误提示
+      // 验证显示错误提示（formatUserFriendlyError 会将包含"识别"的错误转换为"模型处理失败，请重试"）
       await waitFor(() => {
-        expect(screen.getByText(/识别失败，错误原因：/)).toBeInTheDocument();
-        expect(screen.getByText(/识别过程中发生错误/)).toBeInTheDocument();
+        expect(screen.getByText('模型处理失败，请重试')).toBeInTheDocument();
       }, { timeout: 1000 });
 
       // 验证显示重试按钮
-      const retryButton = screen.getByLabelText('重试');
+      const retryButton = screen.getByRole('button', { name: /请重试/ });
       expect(retryButton).toBeInTheDocument();
     });
 
@@ -479,11 +478,11 @@ describe('SubtitleList', () => {
 
       // 等待错误提示显示
       await waitFor(() => {
-        expect(screen.getByText(/识别失败，错误原因：/)).toBeInTheDocument();
+        expect(screen.getByText('模型处理失败，请重试')).toBeInTheDocument();
       }, { timeout: 1000 });
 
       // 点击重试按钮
-      const retryButton = screen.getByLabelText('重试');
+      const retryButton = screen.getByRole('button', { name: /请重试/ });
       await user.click(retryButton);
 
       // 验证重新开始识别API被调用
@@ -515,9 +514,9 @@ describe('SubtitleList', () => {
         />
       );
 
-      // 验证显示默认错误提示
+      // 验证显示默认错误提示（formatUserFriendlyError(null) 返回"模型处理失败，请重试"）
       await waitFor(() => {
-        expect(screen.getByText(/识别失败，错误原因：字幕识别失败，请重试/)).toBeInTheDocument();
+        expect(screen.getByText('模型处理失败，请重试')).toBeInTheDocument();
       }, { timeout: 1000 });
     });
   });
