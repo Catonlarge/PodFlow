@@ -452,7 +452,9 @@ class TestEpisodeCRUD:
         assert data["transcription_status"] == "processing"
     
     def test_get_episode_segments(self, client, db_session):
-        """测试获取虚拟分段信息：用于调试"""
+        """测试获取虚拟分段信息：用于前端滚动触发异步加载"""
+        from app.models import AudioSegment
+        
         # 创建 Episode
         episode = Episode(
             title="Test Episode",
@@ -462,17 +464,174 @@ class TestEpisodeCRUD:
         db_session.add(episode)
         db_session.commit()
         
+        # 创建测试分段
+        segment1 = AudioSegment(
+            episode_id=episode.id,
+            segment_index=0,
+            segment_id="segment_001",
+            start_time=0.0,
+            end_time=180.0,
+            status="completed"
+        )
+        segment2 = AudioSegment(
+            episode_id=episode.id,
+            segment_index=1,
+            segment_id="segment_002",
+            start_time=180.0,
+            end_time=360.0,
+            status="processing"
+        )
+        db_session.add(segment1)
+        db_session.add(segment2)
+        db_session.commit()
+        
         # 查询分段信息
         response = client.get(f"/api/episodes/{episode.id}/segments")
         assert response.status_code == 200
         data = response.json()
         
-        assert isinstance(data, list)
-        # 如果已创建分段，验证结构
-        if len(data) > 0:
-            assert "segment_id" in data[0]
-            assert "status" in data[0]
-            assert "cue_count" in data[0]
+        # 验证返回格式：{"segments": [...]}
+        assert isinstance(data, dict)
+        assert "segments" in data
+        assert isinstance(data["segments"], list)
+        assert len(data["segments"]) == 2
+        
+        # 验证分段数据结构
+        seg1 = data["segments"][0]
+        assert seg1["segment_index"] == 0
+        assert seg1["segment_id"] == "segment_001"
+        assert seg1["status"] == "completed"
+        assert seg1["start_time"] == 0.0
+        assert seg1["end_time"] == 180.0
+        assert seg1["duration"] == 180.0
+        assert "retry_count" in seg1
+        assert "error_message" in seg1
+    
+    def test_trigger_segment_transcription(self, client, db_session):
+        """测试触发指定 segment 的识别任务"""
+        from app.models import AudioSegment
+        
+        # 创建 Episode
+        episode = Episode(
+            title="Test Episode",
+            file_hash="test_hash_005",
+            duration=600.0,
+            audio_path="/tmp/test_audio.mp3"
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 创建测试分段（pending状态）
+        segment = AudioSegment(
+            episode_id=episode.id,
+            segment_index=1,
+            segment_id="segment_002",
+            start_time=180.0,
+            end_time=360.0,
+            status="pending"
+        )
+        db_session.add(segment)
+        db_session.commit()
+        
+        # 触发识别任务
+        with patch('app.tasks.run_segment_transcription_task'):
+            response = client.post(f"/api/episodes/{episode.id}/segments/1/transcribe")
+            assert response.status_code == 200
+            data = response.json()
+            
+            assert data["message"] == "Segment 识别任务已启动"
+            assert data["episode_id"] == episode.id
+            assert data["segment_index"] == 1
+            assert data["segment_id"] == "segment_002"
+        
+        # 验证 segment 状态已更新为 processing
+        db_session.refresh(segment)
+        assert segment.status == "processing"
+    
+    def test_trigger_segment_transcription_already_completed(self, client, db_session):
+        """测试触发已完成的 segment：应返回已完成状态"""
+        from app.models import AudioSegment
+        
+        # 创建 Episode
+        episode = Episode(
+            title="Test Episode",
+            file_hash="test_hash_006",
+            duration=600.0
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 创建已完成的 segment
+        segment = AudioSegment(
+            episode_id=episode.id,
+            segment_index=0,
+            segment_id="segment_001",
+            start_time=0.0,
+            end_time=180.0,
+            status="completed"
+        )
+        db_session.add(segment)
+        db_session.commit()
+        
+        # 触发识别任务（应该返回已完成状态）
+        response = client.post(f"/api/episodes/{episode.id}/segments/0/transcribe")
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert data["message"] == "Segment 已完成识别"
+        assert data["status"] == "completed"
+    
+    def test_recover_incomplete_segments(self, client, db_session):
+        """测试恢复未完成的 segment 识别任务"""
+        from app.models import AudioSegment
+        
+        # 创建 Episode
+        episode = Episode(
+            title="Test Episode",
+            file_hash="test_hash_007",
+            duration=600.0,
+            audio_path="/tmp/test_audio.mp3"
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 创建未完成的 segments
+        segment1 = AudioSegment(
+            episode_id=episode.id,
+            segment_index=1,
+            segment_id="segment_002",
+            start_time=180.0,
+            end_time=360.0,
+            status="pending"
+        )
+        segment2 = AudioSegment(
+            episode_id=episode.id,
+            segment_index=2,
+            segment_id="segment_003",
+            start_time=360.0,
+            end_time=540.0,
+            status="failed",
+            retry_count=1  # 小于3，可以重试
+        )
+        db_session.add(segment1)
+        db_session.add(segment2)
+        db_session.commit()
+        
+        # 触发恢复
+        with patch('app.tasks.run_segment_transcription_task'):
+            response = client.post(f"/api/episodes/{episode.id}/segments/recover")
+            assert response.status_code == 200
+            data = response.json()
+            
+            assert "已启动" in data["message"]
+            assert data["episode_id"] == episode.id
+            assert len(data["recovered_segments"]) == 2
+        
+        # 验证 segments 状态已更新为 processing
+        db_session.refresh(segment1)
+        db_session.refresh(segment2)
+        assert segment1.status == "processing"
+        assert segment2.status == "processing"
     
     def test_delete_episode_success(self, client, db_session, tmp_path):
         """测试删除 Episode：成功删除"""

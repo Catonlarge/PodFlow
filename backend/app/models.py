@@ -251,6 +251,8 @@ class Episode(Base):
         
         注意：这是动态属性，不用于数据库查询（避免 N+1 问题）。
         查询时使用 transcription_status 物理字段。
+        
+        注意：前端不使用此进度值，而是自己模拟进度条（基于时间）。
         """
         if not self.segments:
             return 0.0

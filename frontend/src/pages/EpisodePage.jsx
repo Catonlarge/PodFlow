@@ -49,6 +49,10 @@ export default function EpisodePage() {
   const [processingState, setProcessingState] = useState(null); // 'upload' | 'load' | 'recognize' | null
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processingError, setProcessingError] = useState(null);
+  
+  // Segment 状态（用于检查第一段是否完成）
+  const [segments, setSegments] = useState([]);
+  const [progressInterval, setProgressInterval] = useState(null);
 
   // 从环境变量或 api.js 获取 Base URL（避免硬编码）
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || api.defaults.baseURL || 'http://localhost:8000';
@@ -75,20 +79,72 @@ export default function EpisodePage() {
         setAudioUrl(url);
       }
       
-      // 更新转录进度（如果正在转录）
-      // 如果之前是 upload 状态，现在应该根据 episode 状态转换为 recognize 或清除
-      if (data.transcription_status === 'processing' || data.transcription_status === 'pending') {
-        setProcessingState('recognize');
-        setUploadProgress(data.transcription_progress || 0);
-      } else if (data.transcription_status === 'completed') {
-        // 转录完成，清除 ProcessingOverlay
-        setProcessingState(null);
-        setUploadProgress(0);
-      } else {
-        // 其他状态（如 failed），只有在非初始加载时才清除（初始加载时由轮询 useEffect 处理）
-        if (!isInitialLoad) {
+      // 获取 segment 状态（用于检查第一段是否完成）
+      try {
+        const segmentsData = await subtitleService.getEpisodeSegments(targetEpisodeId);
+        setSegments(segmentsData || []);
+        
+        // 检查第一段（segment_index=0）是否完成
+        const firstSegment = Array.isArray(segmentsData) ? segmentsData.find(s => s.segment_index === 0) : null;
+        if (firstSegment && firstSegment.status === 'completed') {
+          // 第一段已完成，隐藏 ProcessingOverlay
           setProcessingState(null);
           setUploadProgress(0);
+          if (progressInterval) {
+            clearInterval(progressInterval);
+            setProgressInterval(null);
+          }
+        } else if (data.transcription_status === 'processing' || data.transcription_status === 'pending') {
+          // 第一段未完成，显示 ProcessingOverlay
+          // 进度条由前端模拟，不从后端获取
+          if (!processingState || processingState !== 'recognize') {
+            setProcessingState('recognize');
+            setUploadProgress(0);
+            
+            // 启动前端模拟进度条（如果还没有启动）
+            if (!progressInterval && data.duration) {
+              // 计算第一段的进度上限：第一段时长 * 0.4 / 总时长 * 100
+              const segmentDuration = firstSegment ? firstSegment.duration : 180; // 默认180秒
+              const maxProgress = (segmentDuration * 0.4 / data.duration) * 100;
+              
+              // 模拟进度条：从0%到maxProgress，匀速增长
+              const startTime = Date.now();
+              const duration = segmentDuration * 0.4 * 1000; // 转换为毫秒
+              
+              const interval = setInterval(() => {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min((elapsed / duration) * maxProgress, maxProgress);
+                setUploadProgress(progress);
+                
+                // 如果达到上限，停止增长（等待后端完成）
+                if (progress >= maxProgress) {
+                  clearInterval(interval);
+                }
+              }, 100); // 每100ms更新一次
+              
+              setProgressInterval(interval);
+            }
+          }
+        }
+      } catch (segmentsError) {
+        console.error('[EpisodePage] 获取 Segment 状态失败:', segmentsError);
+        // 如果获取segment失败，使用旧的逻辑
+        if (data.transcription_status === 'processing' || data.transcription_status === 'pending') {
+          setProcessingState('recognize');
+          setUploadProgress(data.transcription_progress || 0);
+        } else if (data.transcription_status === 'completed') {
+          setProcessingState(null);
+          setUploadProgress(0);
+        }
+      }
+      
+      // 如果转录完成，清除 ProcessingOverlay
+      if (data.transcription_status === 'completed') {
+        setProcessingState(null);
+        setUploadProgress(0);
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          setProgressInterval(null);
         }
       }
     } catch (err) {
@@ -98,7 +154,7 @@ export default function EpisodePage() {
         setLoading(false);
       }
     }
-  }, [API_BASE_URL]);
+  }, [API_BASE_URL, processingState, progressInterval]);
 
   // 首次打开逻辑：检查 localStorage 或 URL 参数
   useEffect(() => {
@@ -136,6 +192,10 @@ export default function EpisodePage() {
     if (episode.transcription_status === 'completed') {
       setProcessingState(null);
       setUploadProgress(0);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        setProgressInterval(null);
+      }
       return;
     }
 
@@ -151,8 +211,54 @@ export default function EpisodePage() {
       // 其他状态（如 failed），清除 ProcessingOverlay
       setProcessingState(null);
       setUploadProgress(0);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        setProgressInterval(null);
+      }
     }
-  }, [episode, episodeId, fetchEpisode]);
+  }, [episode, episodeId, fetchEpisode, progressInterval]);
+  
+  // 清理进度条定时器
+  useEffect(() => {
+    return () => {
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
+    };
+  }, [progressInterval]);
+  
+  // 页面加载时恢复未完成的 segment
+  useEffect(() => {
+    if (!episodeId || !episode) {
+      return;
+    }
+    
+    // 检查是否有未完成的 segment，如果有则触发恢复
+    const checkAndRecover = async () => {
+      try {
+        const segmentsData = await subtitleService.getEpisodeSegments(episodeId);
+        if (!Array.isArray(segmentsData)) {
+          return;
+        }
+        const incompleteSegments = segmentsData.filter(
+          s => s.status === 'pending' || (s.status === 'failed' && s.retry_count < 3)
+        );
+        
+        if (incompleteSegments.length > 0) {
+          // 触发恢复
+          await subtitleService.recoverIncompleteSegments(episodeId);
+          console.log(`[EpisodePage] 已触发 ${incompleteSegments.length} 个未完成 segment 的恢复`);
+        }
+      } catch (error) {
+        console.error('[EpisodePage] 恢复未完成 segment 失败:', error);
+      }
+    };
+    
+    // 只在首次加载时检查
+    if (episode.transcription_status === 'processing' || episode.transcription_status === 'pending') {
+      checkAndRecover();
+    }
+  }, [episodeId, episode]);
 
   // 处理文件导入按钮点击
   const handleFileImportClick = useCallback(() => {
@@ -365,6 +471,7 @@ export default function EpisodePage() {
           episodeId={episodeId}
           onFileImportClick={handleFileImportClick}
           transcriptionStatus={episode?.transcription_status}
+          segments={segments}
         />
       )}
       

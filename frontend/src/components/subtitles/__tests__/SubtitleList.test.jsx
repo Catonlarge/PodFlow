@@ -1,12 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import SubtitleList from '../SubtitleList';
-import { getMockCues, getCuesByEpisodeId } from '../../../services/subtitleService';
+import { getMockCues, getCuesByEpisodeId, subtitleService } from '../../../services/subtitleService';
 
 // Mock subtitleService
 vi.mock('../../../services/subtitleService', () => ({
   getMockCues: vi.fn(),
   getCuesByEpisodeId: vi.fn(),
+  getEpisodeSegments: vi.fn(),
+  triggerSegmentTranscription: vi.fn(),
+  subtitleService: {
+    getMockCues: vi.fn(),
+    getCuesByEpisodeId: vi.fn(),
+    getEpisodeSegments: vi.fn(),
+    triggerSegmentTranscription: vi.fn(),
+  },
 }));
 
 // Mock SubtitleRow
@@ -40,6 +48,8 @@ describe('SubtitleList', () => {
     vi.clearAllMocks();
     getMockCues.mockResolvedValue(mockCues);
     getCuesByEpisodeId.mockResolvedValue(mockCues);
+    subtitleService.getEpisodeSegments.mockResolvedValue([]);
+    subtitleService.triggerSegmentTranscription.mockResolvedValue({});
   });
 
   describe('渲染', () => {
@@ -595,6 +605,254 @@ describe('SubtitleList', () => {
       await waitFor(() => {
         expect(getCuesByEpisodeId).not.toHaveBeenCalled();
       }, { timeout: 1000 });
+    });
+  });
+
+  describe('滚动触发异步加载', () => {
+    const mockSegments = [
+      { segment_index: 0, segment_id: 'segment_001', status: 'completed', start_time: 0.0, end_time: 180.0 },
+      { segment_index: 1, segment_id: 'segment_002', status: 'processing', start_time: 180.0, end_time: 360.0 },
+      { segment_index: 2, segment_id: 'segment_003', status: 'pending', start_time: 360.0, end_time: 540.0 },
+    ];
+
+    it('当滚动到底部且下一个segment为pending时，应该触发识别任务', async () => {
+      const segmentsWithPendingNext = [
+        { segment_index: 0, segment_id: 'segment_001', status: 'completed', start_time: 0.0, end_time: 180.0 },
+        { segment_index: 1, segment_id: 'segment_002', status: 'pending', start_time: 180.0, end_time: 360.0 },
+      ];
+
+      const { container } = render(
+        <SubtitleList
+          episodeId={123}
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          segments={segmentsWithPendingNext}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      });
+
+      const scrollContainer = container.querySelector('[data-subtitle-container="true"]');
+      expect(scrollContainer).toBeInTheDocument();
+
+      Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, writable: true });
+      Object.defineProperty(scrollContainer, 'scrollTop', { value: 900, writable: true });
+      Object.defineProperty(scrollContainer, 'clientHeight', { value: 100, writable: true });
+
+      fireEvent.scroll(scrollContainer);
+
+      await waitFor(() => {
+        expect(subtitleService.triggerSegmentTranscription).toHaveBeenCalledWith(123, 1);
+      }, { timeout: 2000 });
+    });
+
+    it('当滚动到底部且下一个segment为failed且retry_count<3时，应该触发识别任务', async () => {
+      const segmentsWithFailedNext = [
+        { segment_index: 0, segment_id: 'segment_001', status: 'completed', start_time: 0.0, end_time: 180.0 },
+        { segment_index: 1, segment_id: 'segment_002', status: 'failed', start_time: 180.0, end_time: 360.0, retry_count: 1 },
+      ];
+
+      const { container } = render(
+        <SubtitleList
+          episodeId={123}
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          segments={segmentsWithFailedNext}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      });
+
+      const scrollContainer = container.querySelector('[data-subtitle-container="true"]');
+      expect(scrollContainer).toBeInTheDocument();
+
+      Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, writable: true });
+      Object.defineProperty(scrollContainer, 'scrollTop', { value: 900, writable: true });
+      Object.defineProperty(scrollContainer, 'clientHeight', { value: 100, writable: true });
+
+      fireEvent.scroll(scrollContainer);
+
+      await waitFor(() => {
+        expect(subtitleService.triggerSegmentTranscription).toHaveBeenCalledWith(123, 1);
+      }, { timeout: 2000 });
+    });
+
+    it('当滚动到底部但下一个segment为processing时，不应该触发任何操作', async () => {
+      const segmentsWithProcessingNext = [
+        { segment_index: 0, segment_id: 'segment_001', status: 'completed', start_time: 0.0, end_time: 180.0 },
+        { segment_index: 1, segment_id: 'segment_002', status: 'processing', start_time: 180.0, end_time: 360.0 },
+      ];
+
+      const { container } = render(
+        <SubtitleList
+          episodeId={123}
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          segments={segmentsWithProcessingNext}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      });
+
+      getCuesByEpisodeId.mockClear();
+      subtitleService.triggerSegmentTranscription.mockClear();
+
+      const scrollContainer = container.querySelector('[data-subtitle-container="true"]');
+      expect(scrollContainer).toBeInTheDocument();
+
+      Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, writable: true });
+      Object.defineProperty(scrollContainer, 'scrollTop', { value: 900, writable: true });
+      Object.defineProperty(scrollContainer, 'clientHeight', { value: 100, writable: true });
+
+      fireEvent.scroll(scrollContainer);
+
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).not.toHaveBeenCalled();
+        expect(subtitleService.triggerSegmentTranscription).not.toHaveBeenCalled();
+      }, { timeout: 1000 });
+    });
+
+    it('当滚动但未到底部时，不应该触发加载', async () => {
+      const { container } = render(
+        <SubtitleList
+          episodeId={123}
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          segments={mockSegments}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      });
+
+      getCuesByEpisodeId.mockClear();
+
+      const scrollContainer = container.querySelector('[data-subtitle-container="true"]');
+      expect(scrollContainer).toBeInTheDocument();
+
+      Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, writable: true });
+      Object.defineProperty(scrollContainer, 'scrollTop', { value: 500, writable: true });
+      Object.defineProperty(scrollContainer, 'clientHeight', { value: 100, writable: true });
+
+      fireEvent.scroll(scrollContainer);
+
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).not.toHaveBeenCalled();
+      }, { timeout: 1000 });
+    });
+  });
+
+  describe('后续静默识别展示（SubtitleListFooter）', () => {
+    it('当所有segment完成时，应该显示-END-', async () => {
+      const allCompletedSegments = [
+        { segment_index: 0, segment_id: 'segment_001', status: 'completed', start_time: 0.0, end_time: 180.0 },
+        { segment_index: 1, segment_id: 'segment_002', status: 'completed', start_time: 180.0, end_time: 360.0 },
+      ];
+
+      render(
+        <SubtitleList
+          episodeId={123}
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          segments={allCompletedSegments}
+          transcriptionStatus="completed"
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('-END-')).toBeInTheDocument();
+      });
+    });
+
+    it('当下一个segment正在识别中时，应该显示"……请稍等，努力识别字幕中……"', async () => {
+      const segmentsWithProcessingNext = [
+        { segment_index: 0, segment_id: 'segment_001', status: 'completed', start_time: 0.0, end_time: 180.0 },
+        { segment_index: 1, segment_id: 'segment_002', status: 'processing', start_time: 180.0, end_time: 360.0 },
+      ];
+
+      render(
+        <SubtitleList
+          episodeId={123}
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          segments={segmentsWithProcessingNext}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('……请稍等，努力识别字幕中……')).toBeInTheDocument();
+      });
+    });
+
+    it('当下一个segment为pending时，应该显示"……请稍等，努力识别字幕中……"', async () => {
+      const segmentsWithPendingNext = [
+        { segment_index: 0, segment_id: 'segment_001', status: 'completed', start_time: 0.0, end_time: 180.0 },
+        { segment_index: 1, segment_id: 'segment_002', status: 'pending', start_time: 180.0, end_time: 360.0 },
+      ];
+
+      render(
+        <SubtitleList
+          episodeId={123}
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          segments={segmentsWithPendingNext}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('……请稍等，努力识别字幕中……')).toBeInTheDocument();
+      });
+    });
+
+    it('当没有segments时，不应该显示状态提示', () => {
+      render(
+        <SubtitleList
+          episodeId={123}
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          segments={[]}
+        />
+      );
+
+      expect(screen.queryByText('-END-')).not.toBeInTheDocument();
+      expect(screen.queryByText('……请稍等，努力识别字幕中……')).not.toBeInTheDocument();
+    });
+
+    it('当transcriptionStatus为completed时，应该显示-END-', async () => {
+      const segmentsWithProcessingNext = [
+        { segment_index: 0, segment_id: 'segment_001', status: 'completed', start_time: 0.0, end_time: 180.0 },
+        { segment_index: 1, segment_id: 'segment_002', status: 'processing', start_time: 180.0, end_time: 360.0 },
+      ];
+
+      render(
+        <SubtitleList
+          episodeId={123}
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          segments={segmentsWithProcessingNext}
+          transcriptionStatus="completed"
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('-END-')).toBeInTheDocument();
+      });
     });
   });
 });

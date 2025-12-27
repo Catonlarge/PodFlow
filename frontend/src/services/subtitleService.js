@@ -368,8 +368,87 @@ export async function getEpisode(episodeId) {
   }
 }
 
+/**
+ * 获取 Episode 的所有 segment 状态信息
+ * 
+ * API 端点：GET /api/episodes/{episode_id}/segments
+ * 
+ * @param {number} episodeId - Episode ID
+ * @returns {Promise<Array>} Segment 数组，格式：
+ *   [
+ *     {
+ *       segment_index: 0,
+ *       segment_id: "segment_001",
+ *       status: "completed",
+ *       start_time: 0.0,
+ *       end_time: 180.0,
+ *       duration: 180.0,
+ *       retry_count: 0,
+ *       error_message: null
+ *     },
+ *     ...
+ *   ]
+ */
+export async function getEpisodeSegments(episodeId) {
+  try {
+    const response = await api.get(`/api/episodes/${episodeId}/segments`);
+    return response.segments || [];
+  } catch (error) {
+    console.error(`[subtitleService] 获取 Segment 状态失败 (episodeId: ${episodeId}):`, error);
+    throw error;
+  }
+}
+
+/**
+ * 触发指定 segment 的识别任务
+ * 
+ * API 端点：POST /api/episodes/{episode_id}/segments/{segment_index}/transcribe
+ * 
+ * @param {number} episodeId - Episode ID
+ * @param {number} segmentIndex - Segment 索引（从 0 开始）
+ * @returns {Promise<Object>} 响应对象
+ */
+export async function triggerSegmentTranscription(episodeId, segmentIndex) {
+  try {
+    const response = await api.post(
+      `/api/episodes/${episodeId}/segments/${segmentIndex}/transcribe`
+    );
+    return response;
+  } catch (error) {
+    console.error(
+      `[subtitleService] 触发 Segment 识别失败 (episodeId: ${episodeId}, segmentIndex: ${segmentIndex}):`,
+      error
+    );
+    throw error;
+  }
+}
+
+/**
+ * 恢复未完成的 segment 识别任务
+ * 
+ * API 端点：POST /api/episodes/{episode_id}/segments/recover
+ * 
+ * @param {number} episodeId - Episode ID
+ * @returns {Promise<Object>} 响应对象
+ */
+export async function recoverIncompleteSegments(episodeId) {
+  try {
+    const response = await api.post(`/api/episodes/${episodeId}/segments/recover`);
+    return response;
+  } catch (error) {
+    console.error(
+      `[subtitleService] 恢复未完成 Segment 失败 (episodeId: ${episodeId}):`,
+      error
+    );
+    throw error;
+  }
+}
+
 export const subtitleService = {
   getMockCues,
   getCuesByEpisodeId,
   getEpisode,
+  getEpisodeSegments,
+  triggerSegmentTranscription,
+  recoverIncompleteSegments,
 };

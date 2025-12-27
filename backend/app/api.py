@@ -453,52 +453,249 @@ def get_episode_segments(
     db: Session = Depends(get_db)
 ):
     """
-    获取虚拟分段信息（用于调试）
+    获取 Episode 的所有 segment 状态信息
+    
+    用于前端滚动触发异步加载时检查下一个segment的状态
     
     参数:
         episode_id: Episode ID
         
     返回:
-        [
-            {
-                "segment_id": "segment_001",
-                "status": "completed",
-                "cue_count": 15,
-                "start_time": 0.0,
-                "end_time": 180.0
-            },
-            ...
-        ]
+        {
+            "segments": [
+                {
+                    "segment_index": 0,
+                    "segment_id": "segment_001",
+                    "status": "completed",
+                    "start_time": 0.0,
+                    "end_time": 180.0,
+                    "duration": 180.0,
+                    "retry_count": 0,
+                    "error_message": null
+                },
+                {
+                    "segment_index": 1,
+                    "segment_id": "segment_002",
+                    "status": "processing",
+                    "start_time": 180.0,
+                    "end_time": 360.0,
+                    "duration": 180.0,
+                    "retry_count": 0,
+                    "error_message": null
+                }
+            ]
+        }
     """
     episode = db.query(Episode).filter(Episode.id == episode_id).first()
     if not episode:
         raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
     
-    # 获取所有分段（按 segment_index 排序）
+    # 获取所有segments，按segment_index排序
     segments = db.query(AudioSegment).filter(
         AudioSegment.episode_id == episode_id
-    ).order_by(AudioSegment.segment_index.asc()).all()
+    ).order_by(AudioSegment.segment_index).all()
     
-    # 序列化
     segments_data = []
     for seg in segments:
-        # 统计该分段的 cue 数量
-        cue_count = db.query(func.count(TranscriptCue.id)).filter(
-            TranscriptCue.segment_id == seg.id
-        ).scalar() or 0
-        
         segments_data.append({
-            "segment_id": seg.segment_id,
             "segment_index": seg.segment_index,
+            "segment_id": seg.segment_id,
             "status": seg.status,
-            "cue_count": cue_count,
             "start_time": seg.start_time,
             "end_time": seg.end_time,
+            "duration": seg.duration,
             "retry_count": seg.retry_count,
-            "error_message": seg.error_message if seg.status == "failed" else None
+            "error_message": seg.error_message
         })
     
-    return segments_data
+    return {
+        "segments": segments_data
+    }
+
+
+@router.post("/episodes/{episode_id}/segments/{segment_index}/transcribe")
+async def trigger_segment_transcription(
+    episode_id: int,
+    segment_index: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    手动触发指定 segment 的识别任务
+    
+    用于恢复失败或未开始的 segment，或用户滚动时触发异步识别
+    
+    参数:
+        episode_id: Episode ID
+        segment_index: Segment 索引（从 0 开始）
+        
+    返回:
+        {
+            "message": "Segment 识别任务已启动",
+            "episode_id": 1,
+            "segment_index": 1,
+            "segment_id": "segment_002"
+        }
+    """
+    # 验证 Episode 是否存在
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
+    
+    # 查找指定的 segment
+    segment = db.query(AudioSegment).filter(
+        AudioSegment.episode_id == episode_id,
+        AudioSegment.segment_index == segment_index
+    ).first()
+    
+    if not segment:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Episode {episode_id} 的 Segment {segment_index} 不存在"
+        )
+    
+    # 检查 segment 状态
+    if segment.status == "completed":
+        return {
+            "message": "Segment 已完成识别",
+            "episode_id": episode_id,
+            "segment_index": segment_index,
+            "segment_id": segment.segment_id,
+            "status": "completed"
+        }
+    
+    if segment.status == "processing":
+        return {
+            "message": "Segment 正在识别中",
+            "episode_id": episode_id,
+            "segment_index": segment_index,
+            "segment_id": segment.segment_id,
+            "status": "processing"
+        }
+    
+    # 检查重试次数
+    if segment.status == "failed" and segment.retry_count >= 3:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Segment {segment.segment_id} 已达到最大重试次数（3次），无法继续识别"
+        )
+    
+    # 检查音频文件是否存在
+    if not episode.audio_path:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Episode {episode_id} 没有音频文件路径"
+        )
+    
+    # 启动后台识别任务
+    from app.tasks import run_segment_transcription_task
+    background_tasks.add_task(
+        run_segment_transcription_task,
+        episode_id,
+        segment_index
+    )
+    
+    # 更新 segment 状态为 processing
+    segment.status = "processing"
+    if segment.transcription_started_at is None:
+        from datetime import datetime
+        segment.transcription_started_at = datetime.utcnow()
+    db.commit()
+    
+    logger.info(
+        f"[API] 已启动 Segment {segment.segment_id} 的识别任务 "
+        f"(Episode {episode_id}, segment_index={segment_index})"
+    )
+    
+    return {
+        "message": "Segment 识别任务已启动",
+        "episode_id": episode_id,
+        "segment_index": segment_index,
+        "segment_id": segment.segment_id
+    }
+
+
+@router.post("/episodes/{episode_id}/segments/recover")
+async def recover_incomplete_segments(
+    episode_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    检查并启动未完成的 segment 识别任务
+    
+    用于页面加载时恢复失败或未开始的 segment
+    
+    参数:
+        episode_id: Episode ID
+        
+    返回:
+        {
+            "message": "已启动 X 个未完成 segment 的识别任务",
+            "episode_id": 1,
+            "recovered_segments": [
+                {"segment_index": 1, "segment_id": "segment_002", "status": "pending"},
+                {"segment_index": 2, "segment_id": "segment_003", "status": "failed", "retry_count": 1}
+            ]
+        }
+    """
+    # 验证 Episode 是否存在
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
+    
+    # 查找未完成的 segments
+    incomplete_segments = db.query(AudioSegment).filter(
+        AudioSegment.episode_id == episode_id
+    ).filter(
+        (AudioSegment.status == "pending") |
+        ((AudioSegment.status == "failed") & (AudioSegment.retry_count < 3))
+    ).order_by(AudioSegment.segment_index).all()
+    
+    if not incomplete_segments:
+        return {
+            "message": "没有需要恢复的 segment",
+            "episode_id": episode_id,
+            "recovered_segments": []
+        }
+    
+    # 启动后台识别任务
+    from app.tasks import run_segment_transcription_task
+    recovered_segments = []
+    
+    for segment in incomplete_segments:
+        # 启动识别任务
+        background_tasks.add_task(
+            run_segment_transcription_task,
+            episode_id,
+            segment.segment_index
+        )
+        
+        # 更新 segment 状态为 processing
+        segment.status = "processing"
+        if segment.transcription_started_at is None:
+            from datetime import datetime
+            segment.transcription_started_at = datetime.utcnow()
+        
+        recovered_segments.append({
+            "segment_index": segment.segment_index,
+            "segment_id": segment.segment_id,
+            "status": segment.status,
+            "retry_count": segment.retry_count
+        })
+    
+    db.commit()
+    
+    logger.info(
+        f"[API] 已启动 {len(recovered_segments)} 个未完成 segment 的识别任务 "
+        f"(Episode {episode_id})"
+    )
+    
+    return {
+        "message": f"已启动 {len(recovered_segments)} 个未完成 segment 的识别任务",
+        "episode_id": episode_id,
+        "recovered_segments": recovered_segments
+    }
 
 
 # ==================== 转录任务管理 ====================

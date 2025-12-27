@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Box, IconButton, Skeleton } from '@mui/material';
+import { Box, IconButton, Skeleton, Typography } from '@mui/material';
 import { Translate as TranslateIcon } from '@mui/icons-material';
 import SubtitleRow from './SubtitleRow';
 import { useSubtitleSync } from '../../hooks/useSubtitleSync';
-import { getMockCues, getCuesByEpisodeId } from '../../services/subtitleService';
+import { getMockCues, getCuesByEpisodeId, subtitleService } from '../../services/subtitleService';
 
 /**
  * SubtitleList 组件
@@ -34,6 +34,7 @@ import { getMockCues, getCuesByEpisodeId } from '../../services/subtitleService'
  * @param {Function} [props.onHighlightClick] - 点击划线源的回调函数 (highlight) => void
  * @param {boolean} [props.isLoading] - 是否处于加载状态
  * @param {string} [props.transcriptionStatus] - 转录状态（pending/processing/completed/failed），用于在识别完成后触发字幕重新加载
+ * @param {Array} [props.segments] - Segment 状态数组，用于显示底部状态提示
  */
 export default function SubtitleList({
   cues: propsCues,
@@ -47,6 +48,7 @@ export default function SubtitleList({
   onHighlightClick,
   isLoading = false,
   transcriptionStatus,
+  segments = [],
 }) {
   const [cues, setCues] = useState(propsCues || []);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -292,9 +294,63 @@ export default function SubtitleList({
     }
       }, [currentSubtitleIndex, containerRef, externalIsUserScrollingRef, isInteracting]);
 
+  // 已加载的segment索引集合（防止重复加载）
+  const loadedSegmentIndicesRef = useRef(new Set());
+  
+  // 滚动触发异步加载逻辑
+  const checkAndLoadNextSegment = useCallback(async () => {
+    if (!episodeId || !segments || segments.length === 0) {
+      return;
+    }
+    
+    // 找到已加载字幕对应的最后一个segment
+    const completedSegments = segments.filter(s => s.status === 'completed');
+    const lastCompletedIndex = completedSegments.length > 0
+      ? Math.max(...completedSegments.map(s => s.segment_index))
+      : -1;
+    
+    // 检查下一个segment
+    const nextSegmentIndex = lastCompletedIndex + 1;
+    const nextSegment = segments.find(s => s.segment_index === nextSegmentIndex);
+    
+    if (!nextSegment) {
+      // 没有下一个segment，说明全部完成
+      return;
+    }
+    
+    // 检查是否已经加载过
+    if (loadedSegmentIndicesRef.current.has(nextSegmentIndex)) {
+      return;
+    }
+    
+    // 如果下一个segment已完成，加载字幕
+    if (nextSegment.status === 'completed') {
+      // 标记为已加载
+      loadedSegmentIndicesRef.current.add(nextSegmentIndex);
+      
+      // 重新加载字幕数据（包含新完成的segment）
+      try {
+        const newCues = await getCuesByEpisodeId(episodeId);
+        setCues(newCues);
+      } catch (error) {
+        console.error('[SubtitleList] 加载新segment字幕失败:', error);
+      }
+    } else if (nextSegment.status === 'pending' || (nextSegment.status === 'failed' && nextSegment.retry_count < 3)) {
+      // 如果下一个segment未开始或失败但可重试，触发识别
+      try {
+        await subtitleService.triggerSegmentTranscription(episodeId, nextSegmentIndex);
+        console.log(`[SubtitleList] 已触发 Segment ${nextSegmentIndex} 的识别任务`);
+      } catch (error) {
+        console.error(`[SubtitleList] 触发 Segment ${nextSegmentIndex} 识别失败:`, error);
+      }
+    }
+    // 如果status是processing，不处理，等待完成
+  }, [episodeId, segments]);
+  
   /**
    * 监听用户滚动事件（仅当使用内部滚动容器时）
    * 根据 PRD 6.2.4.1，用户使用滚轮操作屏幕时，停止滚动，用户鼠标没有动作之后5s，重新回到滚动状态
+   * 同时检查是否滚动到底部，触发下一个segment的加载
    */
   const handleScroll = useCallback(() => {
     if (scrollContainerRef) {
@@ -314,7 +370,63 @@ export default function SubtitleList({
     internalUserScrollTimeoutRef.current = setTimeout(() => {
       internalIsUserScrollingRef.current = false;
     }, 5000);
-  }, [scrollContainerRef]);
+    
+    // 检查是否滚动到底部（距离底部 < 100px）
+    const container = internalContainerRef.current;
+    if (container) {
+      const scrollTop = container.scrollTop;
+      const scrollHeight = container.scrollHeight;
+      const clientHeight = container.clientHeight;
+      const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+      
+      if (distanceToBottom < 100) {
+        // 滚动到底部，触发检查下一个segment
+        checkAndLoadNextSegment();
+      }
+    }
+  }, [scrollContainerRef, checkAndLoadNextSegment]);
+  
+  // 监听外部滚动容器的滚动事件
+  useEffect(() => {
+    if (!scrollContainerRef || !scrollContainerRef.current) {
+      return;
+    }
+    
+    const container = scrollContainerRef.current;
+    const handleExternalScroll = () => {
+      // 检查是否滚动到底部
+      const scrollTop = container.scrollTop;
+      const scrollHeight = container.scrollHeight;
+      const clientHeight = container.clientHeight;
+      const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+      
+      if (distanceToBottom < 100) {
+        // 滚动到底部，触发检查下一个segment
+        checkAndLoadNextSegment();
+      }
+    };
+    
+    container.addEventListener('scroll', handleExternalScroll);
+    return () => {
+      container.removeEventListener('scroll', handleExternalScroll);
+    };
+  }, [scrollContainerRef, checkAndLoadNextSegment]);
+  
+  // 当segments变化时，重置已加载集合（重新计算）
+  useEffect(() => {
+    if (!segments || segments.length === 0) {
+      loadedSegmentIndicesRef.current.clear();
+      return;
+    }
+    
+    // 重新计算已加载的segment（基于当前cues对应的segment）
+    // 这里简化处理：找到所有completed的segment
+    const completedIndices = segments
+      .filter(s => s.status === 'completed')
+      .map(s => s.segment_index);
+    
+    loadedSegmentIndicesRef.current = new Set(completedIndices);
+  }, [segments]);
 
   // 清理定时器（仅当使用内部滚动容器时）
   useEffect(() => {
@@ -463,6 +575,91 @@ export default function SubtitleList({
           }
         })}
       </Box>
+      
+      {/* 底部状态提示区域（后续静默识别） */}
+      <SubtitleListFooter
+        segments={segments}
+        transcriptionStatus={transcriptionStatus}
+        episodeId={episodeId}
+      />
     </Box>
   );
+}
+
+/**
+ * SubtitleListFooter 组件
+ * 
+ * 显示字幕列表底部的状态提示
+ * - 如果下一个segment正在识别中：显示"……请稍等，努力识别字幕中……"
+ * - 如果所有segment已完成：显示"-END-"
+ */
+function SubtitleListFooter({ segments, transcriptionStatus, episodeId }) {
+  const [nextSegmentStatus, setNextSegmentStatus] = useState(null);
+  const [allCompleted, setAllCompleted] = useState(false);
+  
+  useEffect(() => {
+    if (!segments || segments.length === 0) {
+      setNextSegmentStatus(null);
+      setAllCompleted(false);
+      return;
+    }
+    
+    // 找到已加载字幕对应的最后一个segment
+    // 这里简化处理：找到最后一个status为completed的segment
+    const completedSegments = segments.filter(s => s.status === 'completed');
+    const lastCompletedIndex = completedSegments.length > 0
+      ? Math.max(...completedSegments.map(s => s.segment_index))
+      : -1;
+    
+    // 检查下一个segment
+    const nextSegment = segments.find(s => s.segment_index === lastCompletedIndex + 1);
+    
+    if (!nextSegment) {
+      // 没有下一个segment，说明全部完成
+      setAllCompleted(true);
+      setNextSegmentStatus(null);
+    } else {
+      setAllCompleted(false);
+      setNextSegmentStatus(nextSegment.status);
+    }
+  }, [segments]);
+  
+  // 如果转录已完成，显示-END-
+  if (transcriptionStatus === 'completed' || allCompleted) {
+    return (
+      <Box
+        sx={{
+          textAlign: 'center',
+          py: 2,
+          color: 'text.secondary',
+          fontSize: '0.875rem',
+        }}
+      >
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          -END-
+        </Typography>
+      </Box>
+    );
+  }
+  
+  // 如果下一个segment正在识别中，显示提示
+  if (nextSegmentStatus === 'processing' || nextSegmentStatus === 'pending') {
+    return (
+      <Box
+        sx={{
+          textAlign: 'center',
+          py: 2,
+          color: 'text.secondary',
+          fontSize: '0.875rem',
+        }}
+      >
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          ……请稍等，努力识别字幕中……
+        </Typography>
+      </Box>
+    );
+  }
+  
+  // 其他情况不显示
+  return null;
 }

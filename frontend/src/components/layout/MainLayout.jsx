@@ -28,6 +28,7 @@
  * @param {number|string} [props.episodeId] - Episode ID，传递给 SubtitleList 用于加载字幕数据
  * @param {Function} [props.onFileImportClick] - 文件导入按钮点击回调 () => void
  * @param {string} [props.transcriptionStatus] - 转录状态（pending/processing/completed/failed），传递给 SubtitleList 用于在识别完成后触发字幕重新加载
+ * @param {Array} [props.segments] - Segment 状态数组，传递给 SubtitleList 用于显示底部状态提示
  * @param {React.ReactNode} [props.children] - 可选，用于未来扩展
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -44,6 +45,7 @@ export default function MainLayout({
   episodeId,
   onFileImportClick,
   transcriptionStatus,
+  segments = [],
   children 
 }) {
   // 定义常量，方便维护
@@ -215,6 +217,7 @@ export default function MainLayout({
             isUserScrollingRef={isUserScrollingRef}
             isInteracting={isInteracting}
             transcriptionStatus={transcriptionStatus}
+            segments={segments}
           />
         </Box>
 
