@@ -4,6 +4,39 @@
 
 ---
 
+## [2025-01-27] [feat] - 实现文本选择 Hook（Task 3.1）
+
+**变更内容**：
+- **Hook 实现** (`frontend/src/hooks/useTextSelection.js`)：
+  - 实现 `useTextSelection` Hook，支持跨段落文本选择
+  - 监听 `mouseup` 事件，使用 `window.getSelection()` API 获取用户选择的文本
+  - 自动识别受影响的 cues（单 cue 或跨 cue 选择）
+  - 计算选择范围（`startOffset`、`endOffset`）
+  - 跨 cue 选择时自动拆分成多个 `affectedCues`（每个 cue 一个）
+  - 实现 `clearSelection` 方法清除选择状态
+  - 处理边界情况（空选择、容器外选择、enabled=false 等）
+  - 使用 `useCallback` 优化性能
+
+- **测试用例** (`frontend/src/hooks/__tests__/useTextSelection.test.js`)：
+  - 编写完整的测试用例（12 个测试，全部通过）
+  - 覆盖单 cue 文本选择、跨 cue 文本选择、清除选择、边界情况等场景
+  - 遵循 TDD 原则，测试先行
+
+**功能特性**：
+- 支持单 cue 文本选择（90% 使用场景）
+- 支持跨 cue 文本选择（自动拆分）
+- 精确计算选择范围（字符级别的偏移量）
+- 性能优化（使用 `useCallback` 缓存函数）
+
+**相关 PRD**：
+- PRD 6.2.4.b: 划线操作
+
+**文件变更**：
+- `frontend/src/hooks/useTextSelection.js` - 实现 Hook 逻辑（299 行）
+- `frontend/src/hooks/__tests__/useTextSelection.test.js` - 测试用例（396 行）
+
+---
+
 ## [2025-01-27] [feat] - 添加音频上传工具脚本
 
 **变更内容**：
