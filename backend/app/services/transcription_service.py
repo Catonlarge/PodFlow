@@ -210,6 +210,10 @@ class TranscriptionService:
                 segment.status = "failed"
                 segment.error_message = "转录结果为空"
                 self.db.commit()
+                
+                # 同步更新 Episode 状态
+                self.sync_episode_transcription_status(segment.episode_id)
+                
                 return 0
             
             # Step 4: 保存字幕到数据库
@@ -227,7 +231,10 @@ class TranscriptionService:
                 f"生成 {cues_count} 条字幕"
             )
             
-            # Step 6: 删除临时文件
+            # Step 6: 同步更新 Episode 状态
+            self.sync_episode_transcription_status(segment.episode_id)
+            
+            # Step 7: 删除临时文件
             if temp_path and os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
@@ -254,6 +261,9 @@ class TranscriptionService:
             segment.retry_count += 1
             # 保留 segment_path（用于重试）
             self.db.commit()
+            
+            # 同步更新 Episode 状态
+            self.sync_episode_transcription_status(segment.episode_id)
             
             # 注意：失败时不删除临时文件，保留用于重试
             raise RuntimeError(f"转录失败: {e}") from e
@@ -320,6 +330,84 @@ class TranscriptionService:
         )
         
         return len(transcript_cues)
+    
+    def sync_episode_transcription_status(self, episode_id: int) -> None:
+        """
+        同步更新 Episode 的转录状态（基于所有 Segment 的状态）
+        
+        此方法在单个 Segment 转录完成或失败后调用，确保 Episode 状态与实际 Segment 状态一致。
+        
+        状态判断逻辑：
+        - 所有 Segment 都 completed → Episode.status = "completed"
+        - 有 completed 也有 failed，没有 processing/pending → Episode.status = "partial_failed"
+        - 所有 Segment 都 failed → Episode.status = "failed"
+        - 有 processing 或 pending → Episode.status = "processing"（如果当前不是 processing）
+        
+        参数:
+            episode_id: Episode ID
+        """
+        episode = self.db.query(Episode).filter(Episode.id == episode_id).first()
+        if not episode:
+            logger.warning(
+                f"[TranscriptionService] Episode {episode_id} 不存在，无法同步状态"
+            )
+            return
+        
+        # 获取所有 Segment
+        segments = self.db.query(AudioSegment).filter(
+            AudioSegment.episode_id == episode_id
+        ).all()
+        
+        if not segments:
+            # 没有 Segment，保持当前状态或设为 pending
+            if episode.transcription_status not in ["pending", "processing"]:
+                episode.transcription_status = "pending"
+                self.db.commit()
+            return
+        
+        # 统计各状态的 Segment 数量
+        completed_count = sum(1 for s in segments if s.status == "completed")
+        failed_count = sum(1 for s in segments if s.status == "failed")
+        processing_count = sum(1 for s in segments if s.status == "processing")
+        pending_count = sum(1 for s in segments if s.status == "pending")
+        total_count = len(segments)
+        
+        # 判断新的状态
+        new_status = None
+        
+        if completed_count == total_count:
+            # 所有 Segment 都完成
+            new_status = "completed"
+        elif failed_count == total_count:
+            # 所有 Segment 都失败
+            new_status = "failed"
+        elif processing_count > 0 or pending_count > 0:
+            # 还有进行中或等待中的 Segment
+            new_status = "processing"
+        elif completed_count > 0 and failed_count > 0:
+            # 有完成也有失败，没有进行中的
+            new_status = "partial_failed"
+        else:
+            # 其他情况（理论上不应该发生）
+            logger.warning(
+                f"[TranscriptionService] Episode {episode_id} 状态异常: "
+                f"completed={completed_count}, failed={failed_count}, "
+                f"processing={processing_count}, pending={pending_count}"
+            )
+            new_status = "processing"  # 默认设为 processing
+        
+        # 更新状态（如果发生变化）
+        if new_status and episode.transcription_status != new_status:
+            old_status = episode.transcription_status
+            episode.transcription_status = new_status
+            self.db.commit()
+            
+            logger.info(
+                f"[TranscriptionService] Episode {episode_id} 状态已同步: "
+                f"{old_status} → {new_status} "
+                f"(completed={completed_count}, failed={failed_count}, "
+                f"processing={processing_count}, pending={pending_count})"
+            )
     
     def segment_and_transcribe(
         self,
