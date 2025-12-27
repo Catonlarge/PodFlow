@@ -163,37 +163,48 @@ export default function EpisodePage() {
           } else if (data.transcription_status === 'pending') {
             setIsTranscriptionPaused(true); // 待处理，视为暂停
           }
-          // 第一段未完成，显示 ProcessingOverlay
-          // 进度条由前端模拟，不从后端获取
-          if (!processingState || processingState !== 'recognize') {
+          
+          // 检查第一段是否完成，如果完成则隐藏 ProcessingOverlay
+          if (firstSegment && firstSegment.status === 'completed') {
+            // 第一段已完成，隐藏 ProcessingOverlay
+            setProcessingState(null);
+            setUploadProgress(0);
+            if (progressInterval) {
+              clearInterval(progressInterval);
+              setProgressInterval(null);
+            }
+          } else {
+            // 第一段未完成，显示 ProcessingOverlay
+            // 进度条由前端模拟，不从后端获取
+            // 确保设置recognize状态，即使当前状态已经是recognize（确保overlay被正确渲染）
             setProcessingState('recognize');
             setUploadProgress(0);
-          }
-          
-          // 启动前端模拟进度条（如果还没有启动）
-          // 根据PRD c.i：字幕识别进度条计算方式：基于segment001时长，识别时间0.1X（X为segment001时长）
-          if (!progressInterval && data.duration) {
-            // 获取第一段（segment001）的时长
-            const segmentDuration = firstSegment ? firstSegment.duration : 180; // 默认180秒
             
-            // 识别时间 = segment001时长 * 0.1
-            const recognitionDuration = segmentDuration * 0.1 * 1000; // 转换为毫秒
-            
-            // 模拟进度条：从0%到100%，匀速增长
-            const startTime = Date.now();
-            
-            const interval = setInterval(() => {
-              const elapsed = Date.now() - startTime;
-              const progress = Math.min((elapsed / recognitionDuration) * 100, 99); // 最多到99%，等待后端完成
-              setUploadProgress(progress);
+            // 启动前端模拟进度条（如果还没有启动）
+            // 根据PRD c.i：字幕识别进度条计算方式：基于segment001时长，识别时间0.1X（X为segment001时长）
+            if (!progressInterval && data.duration) {
+              // 获取第一段（segment001）的时长
+              const segmentDuration = firstSegment ? firstSegment.duration : 180; // 默认180秒
               
-              // 如果达到99%，停止增长（等待后端完成）
-              if (progress >= 99) {
-                clearInterval(interval);
-              }
-            }, 100); // 每100ms更新一次
-            
-            setProgressInterval(interval);
+              // 识别时间 = segment001时长 * 0.1
+              const recognitionDuration = segmentDuration * 0.1 * 1000; // 转换为毫秒
+              
+              // 模拟进度条：从0%到100%，匀速增长
+              const startTime = Date.now();
+              
+              const interval = setInterval(() => {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min((elapsed / recognitionDuration) * 100, 99); // 最多到99%，等待后端完成
+                setUploadProgress(progress);
+                
+                // 如果达到99%，停止增长（等待后端完成）
+                if (progress >= 99) {
+                  clearInterval(interval);
+                }
+              }, 100); // 每100ms更新一次
+              
+              setProgressInterval(interval);
+            }
           }
         }
       } catch (segmentsError) {

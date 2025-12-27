@@ -798,6 +798,89 @@ async def cancel_transcription(
     }
 
 
+@router.post("/episodes/{episode_id}/transcribe/test-fail")
+async def test_transcription_fail(
+    episode_id: int,
+    error_type: Optional[str] = Query("model", description="错误类型: network, model, file, memory"),
+    db: Session = Depends(get_db)
+):
+    """
+    测试端点：模拟转录失败场景
+    
+    用于测试转录失败时的错误提示和重试按钮功能
+    
+    参数:
+        episode_id: Episode ID
+        error_type: 错误类型
+            - "network": 网络错误
+            - "model": 模型错误（默认）
+            - "file": 文件错误
+            - "memory": 内存错误
+    
+    返回:
+        dict: 测试结果信息
+    """
+    # 验证 Episode 是否存在
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
+    
+    # 根据错误类型生成错误信息
+    error_messages = {
+        "network": "Connection timeout: Failed to connect to transcription service after 30 seconds. Network error occurred.",
+        "model": "Model initialization failed: Whisper model could not be loaded. RuntimeError: Model file corrupted or missing.",
+        "file": "FFmpeg error: Unable to extract audio segment. File format not supported or corrupted audio file.",
+        "memory": "Out of memory: Insufficient memory to process audio transcription. System requires at least 8GB RAM."
+    }
+    
+    error_message = error_messages.get(error_type, error_messages["model"])
+    
+    # 设置 Episode 状态为 failed
+    episode.transcription_status = "failed"
+    
+    # 检查是否存在 segments，如果不存在则创建一个失败的 segment
+    segments = db.query(AudioSegment).filter(
+        AudioSegment.episode_id == episode_id
+    ).all()
+    
+    if not segments:
+        # 如果没有 segments，创建一个失败的 segment
+        from datetime import datetime
+        segment = AudioSegment(
+            episode_id=episode_id,
+            segment_index=0,
+            segment_id=f"segment_{episode_id}_001",
+            start_time=0.0,
+            end_time=min(episode.duration, 180.0) if episode.duration else 180.0,
+            status="failed",
+            error_message=error_message,
+            retry_count=0,
+            transcription_started_at=datetime.utcnow()
+        )
+        db.add(segment)
+    else:
+        # 如果已有 segments，将第一个 segment 设置为失败
+        first_segment = min(segments, key=lambda s: s.segment_index)
+        first_segment.status = "failed"
+        first_segment.error_message = error_message
+        first_segment.retry_count = 0
+        if first_segment.transcription_started_at is None:
+            from datetime import datetime
+            first_segment.transcription_started_at = datetime.utcnow()
+    
+    db.commit()
+    
+    logger.info(f"[TEST] 已设置 Episode {episode_id} 为失败状态（错误类型: {error_type}）")
+    
+    return {
+        "status": "failed",
+        "message": f"Episode {episode_id} 已设置为失败状态（测试模式）",
+        "episode_id": episode_id,
+        "error_type": error_type,
+        "error_message": error_message
+    }
+
+
 # ==================== Episode 删除 ====================
 
 @router.delete("/episodes/{episode_id}")

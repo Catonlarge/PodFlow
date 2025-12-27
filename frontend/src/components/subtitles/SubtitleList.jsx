@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Box, IconButton, Skeleton, Typography, LinearProgress, Stack } from '@mui/material';
+import { Box, IconButton, Button, Skeleton, Typography, LinearProgress, Stack } from '@mui/material';
 import { Translate as TranslateIcon, Refresh } from '@mui/icons-material';
 import SubtitleRow from './SubtitleRow';
 import { useSubtitleSync } from '../../hooks/useSubtitleSync';
@@ -67,6 +67,50 @@ export default function SubtitleList({
   // 当使用外部滚动容器时，containerRef 指向外部容器；否则使用内部容器
   const containerRef = scrollContainerRef || internalContainerRef;
 
+  /**
+   * 将技术性错误信息转换为用户友好的提示
+   * 
+   * @param {string} errorMessage - 原始错误信息
+   * @returns {string} 用户友好的错误提示
+   */
+  const formatUserFriendlyError = useCallback((errorMessage) => {
+    if (!errorMessage) {
+      return '模型处理失败，请重试';
+    }
+
+    const errorLower = errorMessage.toLowerCase();
+
+    // 网络相关错误
+    if (errorLower.includes('network') || errorLower.includes('connection') || 
+        errorLower.includes('timeout') || errorLower.includes('连接') || 
+        errorLower.includes('网络')) {
+      return '网络问题，请检查网络连接后重试';
+    }
+
+    // 模型相关错误
+    if (errorLower.includes('model') || errorLower.includes('whisper') || 
+        errorLower.includes('模型') || errorLower.includes('transcription') || 
+        errorLower.includes('识别')) {
+      return '模型处理失败，请重试';
+    }
+
+    // 文件相关错误
+    if (errorLower.includes('file') || errorLower.includes('audio') || 
+        errorLower.includes('ffmpeg') || errorLower.includes('文件') || 
+        errorLower.includes('音频')) {
+      return '音频处理失败，请重试';
+    }
+
+    // 内存相关错误
+    if (errorLower.includes('memory') || errorLower.includes('out of memory') || 
+        errorLower.includes('内存')) {
+      return '内存不足，请稍后重试';
+    }
+
+    // 默认提示
+    return '模型处理失败，请重试';
+  }, []);
+
   // 使用 useSubtitleSync hook 获取当前高亮字幕索引
   const { currentSubtitleIndex, registerSubtitleRef } = useSubtitleSync({
     currentTime,
@@ -76,6 +120,13 @@ export default function SubtitleList({
   // 加载字幕数据
   // 优先级：propsCues > episodeId > mock 数据
   useEffect(() => {
+    console.log('[DEBUG SubtitleList] useEffect触发，检查字幕数据', {
+      hasPropsCues: !!propsCues,
+      propsCuesLength: propsCues?.length || 0,
+      episodeId,
+      timestamp: new Date().toISOString(),
+    });
+    
     // 清理之前的加载进度定时器
     if (loadingProgressIntervalRef.current) {
       clearInterval(loadingProgressIntervalRef.current);
@@ -84,6 +135,9 @@ export default function SubtitleList({
     
     if (propsCues) {
       // 如果传入了 cues prop，直接使用
+      console.log('[DEBUG SubtitleList] 使用propsCues，不触发加载状态', {
+        cuesLength: propsCues.length,
+      });
       // 使用 requestAnimationFrame 避免在 effect 中同步调用 setState
       requestAnimationFrame(() => {
         setCues(propsCues);
@@ -92,6 +146,13 @@ export default function SubtitleList({
         setSubtitleLoadingError(null);
       });
     } else if (episodeId) {
+      // 根据PRD：字幕加载过程中，在英文字幕区域中间显示提示"请稍等，字幕加载中"和进度条
+      console.log('[DEBUG SubtitleList] 没有propsCues，触发加载状态', {
+        episodeId,
+      });
+      setSubtitleLoadingState('loading');
+      setSubtitleLoadingProgress(0);
+      setSubtitleLoadingError(null);
       // 根据PRD：字幕加载过程中，在英文字幕区域中间显示提示"请稍等，字幕加载中"和进度条
       setSubtitleLoadingState('loading');
       setSubtitleLoadingProgress(0);
@@ -192,16 +253,16 @@ export default function SubtitleList({
     if (currentStatus === 'failed') {
       // 尝试从segments中获取错误信息（从失败的segment中获取）
       // 如果没有错误信息，使用默认消息
+      let rawErrorMessage = null;
       if (segments && segments.length > 0) {
         const failedSegment = segments.find(s => s.status === 'failed' && s.error_message);
         if (failedSegment && failedSegment.error_message) {
-          setTranscriptionError(failedSegment.error_message);
-        } else {
-          setTranscriptionError('字幕识别失败，请重试');
+          rawErrorMessage = failedSegment.error_message;
         }
-      } else {
-        setTranscriptionError('字幕识别失败，请重试');
       }
+      // 将技术性错误转换为用户友好的提示
+      const friendlyError = formatUserFriendlyError(rawErrorMessage);
+      setTranscriptionError(friendlyError);
     } else if (currentStatus !== 'failed') {
       // 如果状态不是failed，清除错误信息
       setTranscriptionError(null);
@@ -209,7 +270,7 @@ export default function SubtitleList({
     
     // 更新上一次的状态
     previousTranscriptionStatusRef.current = currentStatus;
-  }, [transcriptionStatus, propsCues, episodeId]);
+  }, [transcriptionStatus, propsCues, episodeId, segments, formatUserFriendlyError]);
 
   /**
    * 处理 speaker 分组，为每个新的 speaker 添加 speaker 标签
@@ -676,7 +737,10 @@ export default function SubtitleList({
   }
 
   // 根据PRD c.ii：字幕识别失败状态：显示错误提示和重试按钮（在英文字幕区域中间显示）
-  if (transcriptionStatus === 'failed' && transcriptionError) {
+  if (transcriptionStatus === 'failed') {
+    // 如果没有错误信息，使用默认提示
+    const displayError = transcriptionError || formatUserFriendlyError(null);
+    
     return (
       <Box
         sx={{
@@ -685,43 +749,54 @@ export default function SubtitleList({
           alignItems: 'center',
           justifyContent: 'center',
           height: '100%',
-          gap: 2,
+          gap: 3,
+          px: 3,
         }}
       >
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
+        <Typography 
+          variant="body1" 
+          sx={{ 
+            color: 'text.primary',
+            textAlign: 'center',
+            mb: 1,
           }}
         >
-          <Typography variant="body1" sx={{ color: 'text.primary' }}>
-            识别失败，错误原因：{transcriptionError}，请重试
-          </Typography>
-          <IconButton
-            onClick={async () => {
-              // 根据PRD c.ii：点击重试图标，重新调用API进行字幕识别和说话人识别
-              if (episodeId) {
-                try {
-                  setTranscriptionError(null);
-                  // 调用重新开始识别API
-                  await subtitleService.restartTranscription(episodeId);
-                  // 重新开始识别后，状态会变为processing，错误提示会自动清除
-                } catch (error) {
-                  console.error('[SubtitleList] 重新开始识别失败:', error);
-                  setTranscriptionError(error.response?.data?.detail || error.message || '字幕识别失败，请重试');
-                }
+          {displayError}
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<Refresh />}
+          onClick={async () => {
+            // 根据PRD c.ii：点击重试按钮，重新调用API进行字幕识别和说话人识别
+            if (episodeId) {
+              try {
+                setTranscriptionError(null);
+                // 调用重新开始识别API
+                await subtitleService.restartTranscription(episodeId);
+                // 重新开始识别后，状态会变为processing，错误提示会自动清除
+              } catch (error) {
+                console.error('[SubtitleList] 重新开始识别失败:', error);
+                const rawError = error.response?.data?.detail || error.message;
+                const friendlyError = formatUserFriendlyError(rawError);
+                setTranscriptionError(friendlyError);
               }
-            }}
-            aria-label="重试"
-            sx={{
-              '&:hover': { bgcolor: 'action.hover' },
-              '&:active': { transform: 'scale(0.95)' },
-            }}
-          >
-            <Refresh />
-          </IconButton>
-        </Box>
+            }
+          }}
+          sx={{
+            '&:hover': { 
+              bgcolor: 'primary.dark',
+              transform: 'translateY(-1px)',
+              boxShadow: 4,
+            },
+            '&:active': { 
+              transform: 'translateY(0px)',
+              boxShadow: 2,
+            },
+            transition: 'all 0.2s ease-in-out',
+          }}
+        >
+          请重试
+        </Button>
       </Box>
     );
   }
