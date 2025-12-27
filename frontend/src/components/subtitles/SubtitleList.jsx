@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Box, IconButton, Button, Skeleton, Typography, LinearProgress, Stack } from '@mui/material';
+import { Box, IconButton, Button, Skeleton, Typography, LinearProgress, Stack, Snackbar, Alert } from '@mui/material';
 import { Translate as TranslateIcon, Refresh } from '@mui/icons-material';
 import SubtitleRow from './SubtitleRow';
 import SelectionMenu from './SelectionMenu';
 import { useSubtitleSync } from '../../hooks/useSubtitleSync';
 import { useTextSelection } from '../../hooks/useTextSelection';
 import { getMockCues, getCuesByEpisodeId, subtitleService } from '../../services/subtitleService';
+import { highlightService } from '../../services/highlightService';
+import { noteService } from '../../services/noteService';
 
 /**
  * SubtitleList 组件
@@ -58,6 +60,16 @@ export default function SubtitleList({
   const [subtitleLoadingProgress, setSubtitleLoadingProgress] = useState(0);
   const [subtitleLoadingError, setSubtitleLoadingError] = useState(null);
   const [transcriptionError, setTranscriptionError] = useState(null); // 字幕识别失败错误信息
+  
+  // Highlights 状态管理（如果 props 没有传入，则内部管理）
+  const [internalHighlights, setInternalHighlights] = useState([]);
+  const [highlightError, setHighlightError] = useState(null);
+  const [highlightErrorOpen, setHighlightErrorOpen] = useState(false);
+  
+  // 使用 props 传入的 highlights，如果没有则使用内部状态
+  // 注意：如果 props 传入了 highlights，优先使用 props（父组件管理状态）
+  const effectiveHighlights = (highlights && highlights.length > 0) ? highlights : internalHighlights;
+  
   const internalContainerRef = useRef(null);
   const internalUserScrollTimeoutRef = useRef(null);
   const internalIsUserScrollingRef = useRef(false);
@@ -157,17 +169,100 @@ export default function SubtitleList({
     }
   }, [selectedText, selectionRange]);
 
-  // 处理纯划线回调
-  const handleUnderline = useCallback(() => {
-    // TODO: 后续 Task 3.5 实现 API 调用
-    // 暂时使用占位逻辑
-    console.log('[SubtitleList] 纯划线操作:', {
-      selectedText,
-      selectionRange,
-      affectedCues,
+  /**
+   * 生成 UUID（用于跨 cue 划线的分组 ID）
+   * 使用浏览器原生的 crypto.randomUUID()，如果不支持则使用简单实现
+   */
+  const generateUUID = useCallback(() => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    // 降级方案：简单的 UUID v4 实现
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
     });
-    clearSelection();
-  }, [selectedText, selectionRange, affectedCues, clearSelection]);
+  }, []);
+
+  // 处理纯划线回调
+  const handleUnderline = useCallback(async () => {
+    if (!episodeId || !affectedCues || affectedCues.length === 0) {
+      console.warn('[SubtitleList] 无法创建划线：缺少必要参数');
+      clearSelection();
+      return;
+    }
+
+    try {
+      // 判断是单 cue 还是跨 cue 划线
+      const isCrossCue = affectedCues.length > 1;
+      const highlightGroupId = isCrossCue ? generateUUID() : null;
+
+      // 构建 highlights 数组
+      const highlightsToCreate = affectedCues.map((affectedCue) => {
+        const cue = affectedCue.cue;
+        const startOffset = affectedCue.startOffset;
+        const endOffset = affectedCue.endOffset;
+        const highlightedText = cue.text.substring(startOffset, endOffset);
+
+        return {
+          cue_id: cue.id,
+          start_offset: startOffset,
+          end_offset: endOffset,
+          highlighted_text: highlightedText,
+          color: '#9C27B0', // 紫色，与 PRD 一致
+        };
+      });
+
+      // 1. 创建 Highlight
+      const highlightResponse = await highlightService.createHighlights(
+        episodeId,
+        highlightsToCreate,
+        highlightGroupId
+      );
+
+      if (!highlightResponse || !highlightResponse.highlight_ids || highlightResponse.highlight_ids.length === 0) {
+        throw new Error('创建划线失败：服务器返回无效数据');
+      }
+
+      // 2. 为每个 Highlight 创建 Note（underline 类型）
+      const notePromises = highlightResponse.highlight_ids.map((highlightId) =>
+        noteService.createNote(episodeId, highlightId, 'underline', null, null)
+      );
+
+      await Promise.all(notePromises);
+
+      // 3. 更新本地状态（添加新创建的 highlights）
+      const newHighlights = highlightsToCreate.map((h, index) => ({
+        id: highlightResponse.highlight_ids[index],
+        cue_id: h.cue_id,
+        start_offset: h.start_offset,
+        end_offset: h.end_offset,
+        highlighted_text: h.highlighted_text,
+        color: h.color,
+        highlight_group_id: highlightGroupId,
+      }));
+
+      // 使用函数式更新，避免闭包问题
+      // 如果使用 props 传入的 highlights，只更新内部状态（用于显示）
+      // 注意：如果父组件传入了 highlights prop，这里更新内部状态不会影响 props
+      // 但可以确保 UI 立即更新，后续可以通过 onHighlightsChange 回调通知父组件
+      setInternalHighlights((prev) => [...prev, ...newHighlights]);
+
+      // 4. 清除文本选择
+      clearSelection();
+    } catch (error) {
+      console.error('[SubtitleList] 创建划线失败:', error);
+      
+      // 显示错误提示
+      const errorMessage = error.response?.data?.detail || error.message || '创建划线失败，请重试';
+      setHighlightError(errorMessage);
+      setHighlightErrorOpen(true);
+      
+      // 清除文本选择（即使失败也要清除，避免 UI 卡住）
+      clearSelection();
+    }
+  }, [episodeId, affectedCues, highlights, generateUUID, clearSelection]);
 
   // 处理 AI 查询回调
   const handleQuery = useCallback(() => {
@@ -293,6 +388,41 @@ export default function SubtitleList({
       }
     };
   }, [propsCues, episodeId]);
+
+  // 加载已有 highlights（当 episodeId 变化时）
+  useEffect(() => {
+    // 如果使用 props 传入的 highlights，不加载
+    if ((highlights && highlights.length > 0) || !episodeId) {
+      return;
+    }
+
+    // 从 API 加载 highlights
+    highlightService.getHighlightsByEpisode(episodeId)
+      .then((loadedHighlights) => {
+        // 过滤出 underline 类型的笔记对应的 highlights
+        // 先获取所有笔记，然后过滤出 underline 类型
+        return noteService.getNotesByEpisode(episodeId)
+          .then((notes) => {
+            // 找出所有 underline 类型的笔记对应的 highlight_id
+            const underlineHighlightIds = new Set(
+              notes
+                .filter(note => note.note_type === 'underline')
+                .map(note => note.highlight_id)
+            );
+
+            // 只保留 underline 类型的 highlights
+            const underlineHighlights = loadedHighlights.filter(h => 
+              underlineHighlightIds.has(h.id)
+            );
+
+            setInternalHighlights(underlineHighlights);
+          });
+      })
+      .catch((error) => {
+        console.error('[SubtitleList] 加载 highlights 失败:', error);
+        // 不显示错误提示，避免干扰用户（highlights 加载失败不影响主要功能）
+      });
+  }, [episodeId, highlights]);
 
   // 监听转录状态变化：当状态变为 completed 时，重新加载字幕；当状态变为 failed 时，显示错误提示
   useEffect(() => {
@@ -970,7 +1100,7 @@ export default function SubtitleList({
             // 未来的行 progress 默认为 0
 
             // 获取当前 cue 的 highlights
-            const cueHighlights = highlights.filter(h => h.cue_id === item.cue.id);
+            const cueHighlights = effectiveHighlights.filter(h => h.cue_id === item.cue.id);
 
             // 判断当前 cue 是否被选中
             const isSelected = affectedCues.some(ac => ac.cue.id === item.cue.id);
@@ -1019,6 +1149,22 @@ export default function SubtitleList({
           onClose={clearSelection}
         />
       )}
+
+      {/* 错误提示 Snackbar */}
+      <Snackbar
+        open={highlightErrorOpen}
+        autoHideDuration={6000}
+        onClose={() => setHighlightErrorOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setHighlightErrorOpen(false)}
+          severity="error"
+          sx={{ width: '100%' }}
+        >
+          {highlightError}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
