@@ -22,6 +22,67 @@ import { noteService } from '../../services/noteService';
 import { highlightService } from '../../services/highlightService';
 import NoteCard from './NoteCard';
 
+// Mock数据（用于开发调试，展示效果）
+const mockNotes = [
+  {
+    id: 1,
+    highlight_id: 1,
+    content: '这是第一条笔记内容，用于展示笔记卡片的效果。\n支持换行显示。\n还可以使用**加粗**语法。',
+    note_type: 'thought',
+    origin_ai_query_id: null,
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-01T00:00:00Z',
+  },
+  {
+    id: 2,
+    highlight_id: 2,
+    content: '这是第二条笔记，来自AI查询的结果。\n\n**taxonomy**\n发音：/tækˈsɒnəmi/\nn. 分类学；分类法；分类系统\n\n解释：\n1. 在生物学中，taxonomy 指对生物体进行分类的科学。\n2. 在更广泛的领域中，taxonomy 也可以指任何事物的分类系统或方法。',
+    note_type: 'ai_card',
+    origin_ai_query_id: 1,
+    created_at: '2025-01-02T00:00:00Z',
+    updated_at: '2025-01-02T00:00:00Z',
+  },
+  {
+    id: 3,
+    highlight_id: 3,
+    content: '这是一条较长的笔记内容，用于测试笔记卡片的最大高度限制和滚动功能。\n\n当内容超过屏幕一半高度时，会出现垂直滚动条。\n\n标题栏会保持固定，不会随着内容滚动。\n\n这样可以确保用户始终可以看到编辑和删除按钮。',
+    note_type: 'thought',
+    origin_ai_query_id: null,
+    created_at: '2025-01-03T00:00:00Z',
+    updated_at: '2025-01-03T00:00:00Z',
+  },
+];
+
+const mockHighlights = [
+  {
+    id: 1,
+    cue_id: 1,
+    highlighted_text: 'test text 1',
+    start_offset: 0,
+    end_offset: 10,
+    color: '#9C27B0',
+    highlight_group_id: null,
+  },
+  {
+    id: 2,
+    cue_id: 2,
+    highlighted_text: 'taxonomy',
+    start_offset: 5,
+    end_offset: 13,
+    color: '#9C27B0',
+    highlight_group_id: null,
+  },
+  {
+    id: 3,
+    cue_id: 3,
+    highlighted_text: 'test text 3',
+    start_offset: 0,
+    end_offset: 10,
+    color: '#9C27B0',
+    highlight_group_id: null,
+  },
+];
+
 /**
  * NoteSidebar 组件
  * 
@@ -62,19 +123,58 @@ export default function NoteSidebar({ episodeId, onNoteClick, onNoteDelete, isEx
   
   // 记录已加载的 episodeId，避免重复加载
   const loadedEpisodeIdRef = useRef(null);
-  
+
   // 数据加载逻辑
   useEffect(() => {
-    if (!episodeId) {
-      setNotes([]);
-      setHighlights(new Map());
+    // 开发模式：如果没有episodeId或episodeId为'mock'，使用mock数据
+    const USE_MOCK_DATA = !episodeId || episodeId === 'mock';
+    
+    if (USE_MOCK_DATA) {
+      // 使用mock数据
+      const displayNotes = mockNotes.filter(n => n.note_type !== 'underline');
+      const highlightMap = new Map(mockHighlights.map(h => [h.id, h]));
+      
+      setNotes(displayNotes);
+      setHighlights(highlightMap);
       setError(null);
-      if (externalIsExpanded === undefined) {
-        setInternalIsExpanded(false);
+      setLoading(false);
+      
+      // 自动展开（有笔记时）
+      if (displayNotes.length > 0 && !hasUserInteractedRef.current) {
+        if (externalIsExpanded === undefined) {
+          setInternalIsExpanded(true);
+        }
+        onExpandedChange?.(true);
+      } else {
+        if (externalIsExpanded === undefined) {
+          setInternalIsExpanded(false);
+        }
+        onExpandedChange?.(false);
       }
-      hasUserInteractedRef.current = false;
-      loadedEpisodeIdRef.current = null;
-      onExpandedChange?.(false);
+      return;
+    }
+    
+    if (!episodeId) {
+      // 如果没有episodeId，也使用mock数据（开发调试）
+      const displayNotes = mockNotes.filter(n => n.note_type !== 'underline');
+      const highlightMap = new Map(mockHighlights.map(h => [h.id, h]));
+      
+      setNotes(displayNotes);
+      setHighlights(highlightMap);
+      setError(null);
+      setLoading(false);
+      
+      if (displayNotes.length > 0 && !hasUserInteractedRef.current) {
+        if (externalIsExpanded === undefined) {
+          setInternalIsExpanded(true);
+        }
+        onExpandedChange?.(true);
+      } else {
+        if (externalIsExpanded === undefined) {
+          setInternalIsExpanded(false);
+        }
+        onExpandedChange?.(false);
+      }
       return;
     }
     
@@ -103,6 +203,25 @@ export default function NoteSidebar({ episodeId, onNoteClick, onNoteDelete, isEx
         // 建立 Note 与 Highlight 的映射关系
         const highlightMap = new Map(highlightsData.map(h => [h.id, h]));
         
+        // 开发模式：如果没有真实数据，使用mock数据（用于展示效果）
+        if (displayNotes.length === 0 && highlightsData.length === 0) {
+          console.log('[NoteSidebar] 没有真实数据，使用mock数据展示效果');
+          const mockDisplayNotes = mockNotes.filter(n => n.note_type !== 'underline');
+          const mockHighlightMap = new Map(mockHighlights.map(h => [h.id, h]));
+          
+          setNotes(mockDisplayNotes);
+          setHighlights(mockHighlightMap);
+          loadedEpisodeIdRef.current = episodeId;
+          
+          if (mockDisplayNotes.length > 0 && !hasUserInteractedRef.current) {
+            if (externalIsExpanded === undefined) {
+              setInternalIsExpanded(true);
+            }
+            onExpandedChange?.(true);
+          }
+          return;
+        }
+        
         // 更新状态
         setNotes(displayNotes);
         setHighlights(highlightMap);
@@ -122,11 +241,23 @@ export default function NoteSidebar({ episodeId, onNoteClick, onNoteDelete, isEx
         }
       })
       .catch((err) => {
-        console.error('[NoteSidebar] 加载笔记数据失败:', err);
-        setError(err);
-        setNotes([]);
-        setHighlights(new Map());
-        loadedEpisodeIdRef.current = null; // 加载失败，清除记录
+        console.error('[NoteSidebar] 加载笔记数据失败，使用mock数据展示效果:', err);
+        // 开发模式：加载失败时，使用mock数据（用于展示效果）
+        const mockDisplayNotes = mockNotes.filter(n => n.note_type !== 'underline');
+        const mockHighlightMap = new Map(mockHighlights.map(h => [h.id, h]));
+        
+        setNotes(mockDisplayNotes);
+        setHighlights(mockHighlightMap);
+        setError(null); // 不显示错误，直接使用mock数据
+        loadedEpisodeIdRef.current = episodeId; // 记录已加载的 episodeId（使用mock数据）
+        
+        // 自动展开（有mock数据时）
+        if (mockDisplayNotes.length > 0 && !hasUserInteractedRef.current) {
+          if (externalIsExpanded === undefined) {
+            setInternalIsExpanded(true);
+          }
+          onExpandedChange?.(true);
+        }
       })
       .finally(() => {
         setLoading(false);
@@ -165,6 +296,27 @@ export default function NoteSidebar({ episodeId, onNoteClick, onNoteDelete, isEx
     console.log('[NoteSidebar] handleExpand 完成');
   };
   
+  // 处理笔记更新
+  const handleUpdateNote = async (noteId, content) => {
+    // 刷新列表（重新加载数据）
+    if (episodeId) {
+      try {
+        const [notesData, highlightsData] = await Promise.all([
+          noteService.getNotesByEpisode(episodeId),
+          highlightService.getHighlightsByEpisode(episodeId)
+        ]);
+        
+        const displayNotes = notesData.filter(n => n.note_type !== 'underline');
+        const highlightMap = new Map(highlightsData.map(h => [h.id, h]));
+        
+        setNotes(displayNotes);
+        setHighlights(highlightMap);
+      } catch (err) {
+        console.error('[NoteSidebar] 刷新笔记列表失败:', err);
+      }
+    }
+  };
+
   // 处理笔记删除
   const handleDeleteNote = async (noteId) => {
     if (onNoteDelete) {
@@ -379,6 +531,7 @@ export default function NoteSidebar({ episodeId, onNoteClick, onNoteDelete, isEx
                     note={note}
                     highlight={highlight}
                     onClick={() => onNoteClick?.(note, highlight)}
+                    onUpdate={handleUpdateNote}
                     onDelete={() => handleDeleteNote(note.id)}
                   />
                 );

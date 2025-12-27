@@ -1,7 +1,7 @@
 /**
  * NoteCard 组件
  * 
- * TODO: 根据PRD 实现笔记卡片（Task 3.7）
+ * 笔记卡片组件，包含展示态、编辑态、删除功能、双向链接触发等核心功能
  * 
  * 功能描述：
  * - 显示单条笔记内容
@@ -14,46 +14,307 @@
  * @module components/notes/NoteCard
  */
 
+import { useState, useRef, useEffect } from 'react';
+import {
+  Card,
+  CardHeader,
+  CardContent,
+  Avatar,
+  IconButton,
+  Typography,
+  TextField,
+  Box,
+} from '@mui/material';
+import { Edit, Delete, Person } from '@mui/icons-material';
+import Modal from '../common/Modal';
+import { noteService } from '../../services/noteService';
+
 /**
- * NoteCard 组件（占位实现，Task 3.7 完善）
+ * 简单的Markdown渲染（仅支持**加粗**语法）
+ * 
+ * @param {string} content - 原始内容
+ * @returns {string} 渲染后的HTML字符串
+ */
+const renderMarkdown = (content) => {
+  if (!content) return '';
+  // 将 **text** 转换为 <strong>text</strong>
+  return content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+};
+
+/**
+ * 过滤危险内容（防止JS注入）
+ * 
+ * @param {string} content - 原始内容
+ * @returns {string} 过滤后的内容
+ */
+const sanitizeContent = (content) => {
+  if (!content) return '';
+  // 移除 <script>、<iframe>、onclick 等危险标签和属性
+  return content
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+    .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/javascript:/gi, '');
+};
+
+/**
+ * NoteCard 组件
  * 
  * @param {Object} props
  * @param {Object} props.note - 笔记数据
  * @param {Object} [props.highlight] - 关联的划线数据
- * @param {Function} [props.onClick] - 点击笔记卡片回调
- * @param {Function} [props.onDelete] - 删除笔记回调
+ * @param {Function} [props.onUpdate] - 更新笔记回调 (noteId: number, content: string) => Promise<void>
+ * @param {Function} [props.onDelete] - 删除笔记回调 (noteId: number) => Promise<void>
+ * @param {Function} [props.onClick] - 点击笔记卡片回调 (note: Object, highlight: Object) => void
  */
-export default function NoteCard({ note, highlight, onClick, onDelete }) {
-  // 占位实现：Task 3.7 将实现完整的笔记卡片功能
-  // 当前仅用于测试和基本渲染
+export default function NoteCard({ note, highlight, onUpdate, onDelete, onClick }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState(note.content || '');
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  const cardRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  // 当note.content变化时，更新editedContent
+  useEffect(() => {
+    setEditedContent(note.content || '');
+  }, [note.content]);
+
+  // 点击外部提交编辑
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (isEditing && cardRef.current && !cardRef.current.contains(event.target)) {
+        handleSubmitEdit();
+      }
+    };
+
+    if (isEditing) {
+      document.addEventListener('mousedown', handleClickOutside);
+      // 聚焦到textarea
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isEditing, editedContent]);
+
+  // 处理编辑提交
+  const handleSubmitEdit = async () => {
+    if (isUpdating) return;
+    
+    setIsUpdating(true);
+    try {
+      await noteService.updateNote(note.id, editedContent);
+      if (onUpdate) {
+        await onUpdate(note.id, editedContent);
+      }
+      setIsEditing(false);
+    } catch (error) {
+      console.error('[NoteCard] 更新笔记失败:', error);
+      // 恢复原内容
+      setEditedContent(note.content || '');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // 处理删除确认
+  const handleDeleteConfirm = async () => {
+    if (isDeleting) return;
+    
+    setIsDeleting(true);
+    try {
+      await noteService.deleteNote(note.id);
+      if (onDelete) {
+        await onDelete(note.id);
+      }
+      setDeleteModalOpen(false);
+    } catch (error) {
+      console.error('[NoteCard] 删除笔记失败:', error);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // 处理点击卡片容器
+  const handleCardClick = (e) => {
+    // 如果点击的是按钮或输入框，不触发onClick
+    if (e.target.closest('button') || e.target.closest('textarea') || e.target.closest('input')) {
+      return;
+    }
+    if (onClick) {
+      onClick(note, highlight);
+    }
+  };
+
+  // 处理edit图标点击
+  const handleEditClick = (e) => {
+    e.stopPropagation();
+    setIsEditing(true);
+  };
+
+  // 处理delete图标点击
+  const handleDeleteClick = (e) => {
+    e.stopPropagation();
+    setDeleteModalOpen(true);
+  };
+
+  // 渲染内容（支持换行和加粗）
+  const renderContent = () => {
+    const sanitized = sanitizeContent(note.content || '');
+    const withMarkdown = renderMarkdown(sanitized);
+    
+    return (
+      <Typography
+        variant="body1"
+        component="div"
+        sx={{
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          '& strong': {
+            fontWeight: 'bold',
+          },
+        }}
+        dangerouslySetInnerHTML={{ __html: withMarkdown }}
+      />
+    );
+  };
+
   return (
-    <div 
-      data-testid={`note-card-${note.id}`}
-      onClick={onClick}
-      data-note-type={note.note_type}
-      data-highlight-id={highlight?.id}
-      style={{ 
-        padding: '8px',
-        border: '1px solid #e0e0e0',
-        borderRadius: '4px',
-        cursor: onClick ? 'pointer' : 'default',
-      }}
-    >
-      <div data-testid={`note-content-${note.id}`}>
-        {note.content || 'No content'}
-      </div>
-      {onDelete && (
-        <button 
-          data-testid={`note-delete-${note.id}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
+    <>
+      <Card
+        ref={cardRef}
+        data-testid={`note-card-${note.id}`}
+        onClick={handleCardClick}
+        sx={{
+          minHeight: '40px',
+          maxHeight: '50vh',
+          display: 'flex',
+          flexDirection: 'column',
+          cursor: onClick ? 'pointer' : 'default',
+          '&:hover': {
+            bgcolor: 'action.hover',
+          },
+          '&:active': {
+            transform: 'scale(0.98)',
+          },
+          transition: 'all 0.2s ease-in-out',
+        }}
+      >
+        {/* 标题栏（常驻，滚动不影响） */}
+        <CardHeader
+          avatar={
+            <Avatar
+              data-testid={`note-avatar-${note.id}`}
+              sx={{ bgcolor: 'primary.main' }}
+            >
+              <Person />
+            </Avatar>
+          }
+          action={
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <IconButton
+                data-testid={`note-edit-${note.id}`}
+                size="small"
+                onClick={handleEditClick}
+                disabled={isEditing || isUpdating}
+                sx={{ ml: 3 }}
+              >
+                <Edit fontSize="small" />
+              </IconButton>
+              <IconButton
+                data-testid={`note-delete-${note.id}`}
+                size="small"
+                onClick={handleDeleteClick}
+                disabled={isDeleting}
+              >
+                <Delete fontSize="small" />
+              </IconButton>
+            </Box>
+          }
+          sx={{
+            position: 'sticky',
+            top: 0,
+            bgcolor: 'background.paper',
+            zIndex: 1,
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            py: 1,
+          }}
+        />
+
+        {/* 内容区 */}
+        <CardContent
+          sx={{
+            flex: 1,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            py: 1.5,
+            '&:last-child': {
+              pb: 1.5,
+            },
           }}
         >
-          删除
-        </button>
-      )}
-    </div>
+          {isEditing ? (
+            <TextField
+              data-testid={`note-edit-textarea-${note.id}`}
+              inputRef={textareaRef}
+              multiline
+              rows={4}
+              fullWidth
+              value={editedContent}
+              onChange={(e) => setEditedContent(e.target.value)}
+              onKeyDown={(e) => {
+                // Ctrl+Enter 或 Cmd+Enter 提交
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSubmitEdit();
+                }
+                // ESC 取消编辑
+                if (e.key === 'Escape') {
+                  setEditedContent(note.content || '');
+                  setIsEditing(false);
+                }
+              }}
+              disabled={isUpdating}
+              sx={{
+                '& .MuiInputBase-root': {
+                  fontSize: '0.875rem',
+                },
+              }}
+            />
+          ) : (
+            <Box
+              data-testid={`note-content-${note.id}`}
+              sx={{
+                minHeight: '20px',
+              }}
+            >
+              {note.content ? renderContent() : (
+                <Typography variant="body2" color="text.secondary">
+                  无内容
+                </Typography>
+              )}
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 删除确认弹窗 */}
+      <Modal
+        open={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        title="确认删除笔记？"
+        showCancel={true}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteModalOpen(false)}
+        allowBackdropClose={false}
+      />
+    </>
   );
 }
-

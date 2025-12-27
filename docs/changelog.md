@@ -4,6 +4,81 @@
 
 ---
 
+## [2025-12-27] [feat] - 实现笔记卡片组件（Task 3.7）
+
+**变更内容**：
+- **Modal组件实现** (`frontend/src/components/common/Modal.jsx`)：
+  - 使用 React Portal 实现弹窗（渲染到 body 下）
+  - 支持遮罩层（灰白色蒙层效果）
+  - 支持 ESC 键关闭
+  - 支持点击遮罩关闭（可选，删除确认弹窗不允许）
+  - 支持弹窗抖动效果（点击外部时，使用 CSS animation）
+  - 支持自定义内容（标题、消息、按钮）
+
+- **NoteCard组件实现** (`frontend/src/components/notes/NoteCard.jsx`)：
+  - **标题栏**（PRD 405-409行）：
+    - 使用 MUI `CardHeader` 组件，常驻显示（滚动不影响）
+    - 左侧：用户头像（demo阶段使用mock数据，Person图标）
+    - 中间：edit图标（距离头像24px）
+    - 右侧：垃圾桶图标
+  - **内容区**（PRD 410-416行）：
+    - **展示态**：使用 `Typography` 组件，支持自动换行（`whiteSpace: 'pre-wrap'`）
+    - **编辑态**：使用 MUI `TextField` 组件（多行，支持enter换行）
+    - 支持简单的Markdown渲染（仅支持`**加粗**`语法）
+    - 过滤危险内容（防止JS注入）：移除`<script>`、`<iframe>`、`onclick`等危险标签和属性
+  - **编辑功能**（PRD 420行）：
+    - 点击edit图标进入编辑态
+    - 点击外部提交修改（使用`useRef` + `useEffect`监听点击事件）
+    - 支持Ctrl+Enter或Cmd+Enter快速提交
+    - 支持ESC键取消编辑
+    - 调用`noteService.updateNote`更新后端数据
+  - **删除功能**（PRD 421-424行）：
+    - 点击垃圾桶图标弹出确认弹窗（使用通用`Modal`组件）
+    - 弹窗标题："确认删除笔记？"
+    - 不允许点击遮罩关闭（`allowBackdropClose={false}`）
+    - 点击外部时弹窗抖动（提示用户必须确认或取消）
+    - 调用`noteService.deleteNote`删除后端数据
+  - **双向链接**（PRD 418行）：
+    - 点击笔记卡片容器触发`onClick`回调（用于划线源闪烁）
+  - **三状态样式**：
+    - Normal：默认样式
+    - Hover：背景色变化（`bgcolor: 'action.hover'`）
+    - Active：点击时轻微缩放（`transform: 'scale(0.98)'`）
+  - **样式要求**（PRD 393-395行）：
+    - 笔记卡片高度：最小40px，最大为屏幕一半（`maxHeight: '50vh'`）
+    - 内容超过最大高度时显示垂直滚动条
+    - 滚动时标题栏保持固定（使用`position: 'sticky'`）
+
+- **NoteSidebar集成** (`frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 添加`handleUpdateNote`函数，处理笔记更新后的列表刷新
+  - 确保`NoteCard`的props正确传递：
+    - `onUpdate`：调用`noteService.updateNote`，然后刷新列表
+    - `onDelete`：调用`noteService.deleteNote`，然后刷新列表
+    - `onClick`：调用`onNoteClick`回调（用于双向链接）
+
+- **测试用例** (`frontend/src/components/notes/__tests__/NoteCard.test.jsx`)：
+  - 遵循TDD原则，不使用条件逻辑
+  - 测试渲染（标题栏、内容区、头像、图标）
+  - 测试编辑功能（进入编辑态、提交修改、调用回调）
+  - 测试删除功能（弹出确认弹窗、确认删除、取消删除、抖动效果）
+  - 测试双向链接（点击卡片触发onClick回调）
+  - 测试三状态（Normal/Hover/Active）
+  - 测试内容排版（换行、加粗、防止JS注入）
+
+**技术细节**：
+- 使用React Portal实现Modal弹窗，确保弹窗渲染在body下
+- 使用`useRef` + `useEffect`监听点击外部事件，实现编辑态自动提交
+- 使用简单的正则表达式过滤危险内容（未使用DOMPurify库）
+- 使用CSS animation实现弹窗抖动效果
+
+**相关文件**：
+- `frontend/src/components/common/Modal.jsx`（新建）
+- `frontend/src/components/notes/NoteCard.jsx`（完善）
+- `frontend/src/components/notes/NoteSidebar.jsx`（更新）
+- `frontend/src/components/notes/__tests__/NoteCard.test.jsx`（新建）
+
+---
+
 ## [2025-12-27] [fix] - 修复划线文本空格丢失问题，恢复单词级高亮
 
 **变更内容**：
