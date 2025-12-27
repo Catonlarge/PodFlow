@@ -4,6 +4,38 @@
 
 ---
 
+## [2025-12-27] [fix] - 修复 Episode 转录状态不同步问题
+
+**变更内容**：
+- **后端服务** (`backend/app/services/transcription_service.py`)：
+  - 添加 `sync_episode_transcription_status` 方法，在单个 Segment 转录完成或失败后自动更新 Episode 状态
+  - 在 `transcribe_virtual_segment` 方法中，当 Segment 转录完成、失败或结果为空时，自动调用状态同步方法
+  - 确保 Episode 状态与实际 Segment 状态保持一致
+
+- **工具脚本**：
+  - 添加 `backend/app/utils/check_episode_status.py`：检查 Episode 转录状态，诊断状态不一致问题
+  - 添加 `backend/app/utils/fix_episode_status.py`：修复 Episode 转录状态不一致问题，支持修复单个或所有 Episode
+  - 修复脚本支持检测并修复 Segment 状态不一致问题（如 `processing` 状态但有错误信息，或 `failed` 状态但有字幕数据）
+
+**问题描述**：
+- Episode 10 所有 Segment 都已完成转录，但 Episode 状态显示为 `partial_failed` 而不是 `completed`
+- 根本原因：当单个 Segment 通过异步方式转录完成时，没有自动更新 Episode 的状态
+- Episode 状态只在 `segment_and_transcribe` 方法结束时更新，但该方法是一次性转录所有段的场景
+
+**技术实现**：
+- 添加状态同步逻辑，基于所有 Segment 的状态自动判断并更新 Episode 状态：
+  - 所有 Segment 都 `completed` → Episode 状态为 `completed`
+  - 有 `completed` 也有 `failed`，没有 `processing/pending` → Episode 状态为 `partial_failed`
+  - 所有 Segment 都 `failed` → Episode 状态为 `failed`
+  - 有 `processing` 或 `pending` → Episode 状态为 `processing`
+
+**测试结果**：
+- ✅ 修复了 Episode 10 的状态不一致问题
+- ✅ 单个 Segment 转录完成后自动更新 Episode 状态
+- ✅ 提供了诊断和修复工具脚本
+
+---
+
 ## [2025-12-27] [fix] - 修复选择同一个episode时弹框闪烁和页面空白的问题
 
 **变更内容**：
