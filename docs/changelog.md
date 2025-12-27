@@ -4,6 +4,36 @@
 
 ---
 
+## [2025-01-27] [feat] - 添加音频上传工具脚本
+
+**变更内容**：
+- **工具脚本** (`backend/app/utils/upload_audio.py`)：
+  - 添加音频文件上传并触发转录的辅助脚本
+  - 支持通过命令行直接上传音频文件到后端并启动转录任务
+  - 自动处理相对路径和绝对路径
+  - 提供友好的错误提示和使用说明
+
+**使用方法**：
+```bash
+# 使用模块方式运行（推荐）
+python -m app.utils.upload_audio [音频文件路径] [标题]
+
+# 直接运行脚本
+python backend/app/utils/upload_audio.py [音频文件路径] [标题]
+
+# 示例
+python -m app.utils.upload_audio "data/sample_audio/003.mp3" "003"
+python -m app.utils.upload_audio "D:/path/to/audio.mp3" "我的音频"
+```
+
+**功能特性**：
+- 自动检测后端服务是否运行
+- 支持文件去重（相同 MD5 的文件会返回已有 Episode）
+- 自动触发转录任务
+- 返回 Episode ID 和前端访问链接
+
+---
+
 ## [2025-12-27] [fix] - 修复 Episode 转录状态不同步问题
 
 **变更内容**：

@@ -119,9 +119,19 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
         setSegments(currentSegments || []);
       } catch (segmentsError) {
         // 如果获取 segment 失败，使用旧的逻辑
+        // 注意：即使 segment 获取失败，也要继续执行后续的状态机逻辑
+        // 因为 episode 状态已经设置，轮询需要能够正常工作
+        setSegments([]);
         if (data.transcription_status === 'processing' || data.transcription_status === 'pending') {
           setProcessingState('recognize');
+          // 使用 transcription_progress，不启动前端模拟进度条
           setProgress(data.transcription_progress || 0);
+          // 根据转录状态更新暂停状态
+          if (data.transcription_status === 'processing') {
+            setIsPaused(false);
+          } else if (data.transcription_status === 'pending') {
+            setIsPaused(true);
+          }
         } else if (data.transcription_status === 'completed') {
           if (data.cues && data.cues.length > 0) {
             setProcessingState(null);
@@ -130,13 +140,16 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
             setIsPaused(false);
           }
         }
+        // 不 return，继续执行后续逻辑，确保轮询能够正常工作
+        // 但由于没有 segments，后续的状态机逻辑会使用空的 currentSegments
+        // 所以需要在这里处理完所有逻辑后 return
         return;
       }
 
       // --- 状态机逻辑 (PRD 6.1.2) ---
       const status = data.transcription_status;
       const hasCues = data.cues && data.cues.length > 0;
-      const firstSegment = Array.isArray(currentSegments) 
+      const firstSegment = Array.isArray(currentSegments) && currentSegments.length > 0
         ? currentSegments.find(s => s.segment_index === 0) 
         : null;
       const firstSegmentDone = firstSegment?.status === 'completed';
@@ -405,6 +418,14 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
     }
   }, [urlEpisodeId, navigate, episodeId]);
 
+  // --- Action: 重试加载 Episode ---
+  const retryFetch = useCallback(() => {
+    if (episodeId) {
+      setError(null);
+      fetchEpisodeData(episodeId, true);
+    }
+  }, [episodeId, fetchEpisodeData]);
+
   return {
     state: {
       episodeId,
@@ -423,6 +444,7 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
     actions: {
       upload: handleUpload,
       retryUpload: () => setProcessingError(null),
+      retryFetch,
       togglePause
     }
   };

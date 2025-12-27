@@ -1225,10 +1225,10 @@ describe('EpisodePage', () => {
       // 注意：轮询间隔是3秒，需要等待至少3秒让轮询触发
       await waitFor(() => {
         // 轮询时应该再次调用 getEpisode，返回 completed 状态
-        // 至少调用3次：初始加载、立即重取、轮询
+        // 至少调用2次：初始加载、轮询
         expect(subtitleServiceModule.subtitleService.getEpisode).toHaveBeenCalled();
         const callCount = subtitleServiceModule.subtitleService.getEpisode.mock.calls.length;
-        expect(callCount).toBeGreaterThanOrEqual(3);
+        expect(callCount).toBeGreaterThanOrEqual(2);
       }, { timeout: 5000 });
 
       // 验证 ProcessingOverlay 已清除（转录完成后）

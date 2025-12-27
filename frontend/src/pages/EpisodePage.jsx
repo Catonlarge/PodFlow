@@ -36,6 +36,7 @@ export default function EpisodePage() {
 
   // 解构状态以便使用
   const { episode, segments, loading, error, audioUrl, processing, episodeId } = state;
+  const { retryFetch } = actions;
 
   // 首次打开逻辑：如果没有 URL 参数且没有 localStorage，自动弹出文件选择弹窗
   useEffect(() => {
@@ -59,7 +60,14 @@ export default function EpisodePage() {
     
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error">
+        <Alert 
+          severity="error"
+          action={
+            <Button onClick={retryFetch} size="small">
+              重试
+            </Button>
+          }
+        >
           {errorMessage}
         </Alert>
       </Box>
