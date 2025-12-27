@@ -70,7 +70,11 @@ export function useTextSelection({ cues = [], containerRef, enabled = true }) {
 
   /**
    * 计算文本节点在 cue 文本中的偏移量
-   * 需要找到 cue 元素内的文本容器，然后计算文本节点相对于文本容器的偏移
+   * 
+   * 使用 document.createRange() 让浏览器精确计算字符数，避免在复杂 DOM 结构中数错
+   * 这相当于问浏览器："从开头到鼠标现在的位置，视觉上一共有多少个字符？"
+   * 浏览器给出的答案非常精准，不会因为 DOM 嵌套层级而漂移
+   * 
    * @param {Node} textNode - 文本节点
    * @param {HTMLElement} cueElement - cue 元素
    * @param {number} nodeOffset - 在文本节点中的偏移量
@@ -79,53 +83,26 @@ export function useTextSelection({ cues = [], containerRef, enabled = true }) {
   const calculateOffsetInCue = useCallback((textNode, cueElement, nodeOffset) => {
     if (!textNode || !cueElement) return 0;
 
-    // 如果 textNode 是文本节点，直接计算其前面的文本长度
-    if (textNode.nodeType === Node.TEXT_NODE) {
-      // 遍历 cue 元素内的所有文本节点，累加前面的文本长度
-      const walker = document.createTreeWalker(
-        cueElement,
-        NodeFilter.SHOW_TEXT,
-        null
-      );
-
-      let offset = 0;
-      let node = walker.nextNode();
-      while (node) {
-        if (node === textNode) {
-          // 找到目标文本节点，加上节点内的偏移
-          return offset + nodeOffset;
-        }
-        offset += node.textContent.length;
-        node = walker.nextNode();
-      }
+    try {
+      // 创建一个 Range，从 cue 元素开头到目标位置
+      const range = document.createRange();
+      
+      // 设置 Range 的起点为 cue 元素的开头
+      range.setStart(cueElement, 0);
+      
+      // 设置 Range 的终点为选中的位置
+      range.setEnd(textNode, nodeOffset);
+      
+      // 使用 toString().length 让浏览器精确计算字符数
+      // 这比手动遍历 DOM 节点更准确，特别是在复杂的 UI 结构中
+      const offset = range.toString().length;
+      
+      return offset;
+    } catch (error) {
+      // 如果 createRange 失败，回退到原始方法
+      console.warn('[useTextSelection] calculateOffsetInCue failed, using fallback:', error);
+      return nodeOffset;
     }
-
-    // 如果 textNode 是元素节点，需要找到其内的第一个文本节点
-    // 这种情况在实际使用中较少见，但为了健壮性还是处理一下
-    const walker = document.createTreeWalker(
-      cueElement,
-      NodeFilter.SHOW_TEXT,
-      null
-    );
-
-    let offset = 0;
-    let node = walker.nextNode();
-    while (node) {
-      // 检查 node 是否是 textNode 或其子节点
-      if (textNode.contains && textNode.contains(node)) {
-        // textNode 是元素节点，包含这个文本节点
-        // 计算从 cue 开始到这个文本节点的偏移
-        return offset + nodeOffset;
-      }
-      if (node === textNode || (node.parentNode && textNode.contains && textNode.contains(node.parentNode))) {
-        return offset + nodeOffset;
-      }
-      offset += node.textContent.length;
-      node = walker.nextNode();
-    }
-
-    // 如果没找到，返回 nodeOffset（至少返回选择在节点内的偏移）
-    return nodeOffset;
   }, []);
 
   /**
@@ -210,8 +187,84 @@ export function useTextSelection({ cues = [], containerRef, enabled = true }) {
     }
 
     // 计算偏移量
-    const startOffset = calculateOffsetInCue(range.startContainer, startCueElement, range.startOffset);
-    const endOffset = calculateOffsetInCue(range.endContainer, endCueElement, range.endOffset);
+    // 注意：由于 SubtitleRow 将文本拆分成多个单词，DOM 结构可能和原始文本不完全一致
+    // 我们需要通过原始文本和选中的文本来更准确地计算偏移量
+    let startOffset = calculateOffsetInCue(range.startContainer, startCueElement, range.startOffset);
+    let endOffset = calculateOffsetInCue(range.endContainer, endCueElement, range.endOffset);
+    
+    // 调试信息：输出选中的文本和初始计算的偏移量
+    console.log('[useTextSelection] 调试信息:', {
+      selectedTextContent: JSON.stringify(selectedTextContent),
+      selectedTextContentLength: selectedTextContent.length,
+      trimmedSelectedText: JSON.stringify(trimmedSelectedText),
+      startCueId,
+      endCueId,
+      initialStartOffset: startOffset,
+      initialEndOffset: endOffset,
+      startCueText: startCue.text,
+      calculatedText: startCue.text.substring(startOffset, endOffset),
+    });
+
+    // 补全首尾空格：确保选中范围包含完整的空格信息
+    // 即使计算过程中用 trim 过的文本去定位，最后也要把空格加回 startOffset 和 endOffset
+    if (startCueId === endCueId) {
+      // 单 cue 选择：补全 leadingSpaces 和 trailingSpaces
+      const actualSelectedText = selectedTextContent.trim();
+      const calculatedText = startCue.text.substring(startOffset, endOffset).trim();
+      
+      // 如果计算出的文本和实际选中的文本不匹配，尝试在原始文本中查找
+      if (calculatedText !== actualSelectedText && actualSelectedText.length > 0) {
+        // 在原始文本中查找选中的文本
+        const globalIndex = startCue.text.indexOf(actualSelectedText);
+        if (globalIndex !== -1) {
+          startOffset = globalIndex;
+          endOffset = globalIndex + actualSelectedText.length;
+        }
+      }
+      
+      // 补全前导空格（leadingSpaces）
+      // 检查原始选中文本（selectedTextContent）是否包含前导空格
+      let leadingSpaces = 0;
+      for (let i = 0; i < selectedTextContent.length; i++) {
+        if (selectedTextContent[i] === ' ') {
+          leadingSpaces++;
+        } else {
+          break;
+        }
+      }
+      
+      // 向前扩展以包含前导空格
+      while (leadingSpaces > 0 && startOffset > 0 && startCue.text[startOffset - 1] === ' ') {
+        startOffset--;
+        leadingSpaces--;
+      }
+      
+      // 补全尾随空格（trailingSpaces）
+      // 检查原始选中文本（selectedTextContent）是否包含尾随空格
+      let trailingSpaces = 0;
+      for (let i = selectedTextContent.length - 1; i >= 0; i--) {
+        if (selectedTextContent[i] === ' ') {
+          trailingSpaces++;
+        } else {
+          break;
+        }
+      }
+      
+      // 向后扩展以包含尾随空格
+      while (trailingSpaces > 0 && endOffset < startCue.text.length && startCue.text[endOffset] === ' ') {
+        endOffset++;
+        trailingSpaces--;
+      }
+      
+      // 调试信息：输出补全空格后的范围
+      console.log('[useTextSelection] 补全空格后:', {
+        finalStartOffset: startOffset,
+        finalEndOffset: endOffset,
+        finalText: JSON.stringify(startCue.text.substring(startOffset, endOffset)),
+        leadingSpacesCount: leadingSpaces,
+        trailingSpacesCount: trailingSpaces,
+      });
+    }
 
     // 设置 selectionRange
     setSelectionRange({
@@ -225,12 +278,13 @@ export function useTextSelection({ cues = [], containerRef, enabled = true }) {
     const newAffectedCues = [];
     if (startCueId === endCueId) {
       // 单 cue 选择
-      const selectedTextInCue = startCue.text.substring(startOffset, endOffset).trim();
+      // 注意：不要使用 trim()，保留原始文本范围，包括首尾空格
+      const selectedTextInCue = startCue.text.substring(startOffset, endOffset);
       newAffectedCues.push({
         cue: startCue,
         startOffset,
         endOffset,
-        selectedText: selectedTextInCue,
+        selectedText: selectedTextInCue.trim(), // 只用于显示，不影响范围计算
       });
     } else {
       // 跨 cue 选择：需要拆分
@@ -267,6 +321,25 @@ export function useTextSelection({ cues = [], containerRef, enabled = true }) {
 
     setAffectedCues(newAffectedCues);
     setSelectedText(trimmedSelectedText);
+    
+    // 调试信息：输出最终结果
+    console.log('[useTextSelection] 最终结果:', {
+      selectedText: trimmedSelectedText,
+      selectionRange: {
+        startCueId,
+        endCueId,
+        startOffset,
+        endOffset,
+      },
+      affectedCues: newAffectedCues.map(ac => ({
+        cueId: ac.cue.id,
+        cueText: ac.cue.text,
+        startOffset: ac.startOffset,
+        endOffset: ac.endOffset,
+        selectedTextInCue: JSON.stringify(ac.selectedText),
+        actualTextInRange: JSON.stringify(ac.cue.text.substring(ac.startOffset, ac.endOffset)),
+      })),
+    });
   }, [enabled, containerRef, cues, findCueElement, isNodeInContainer, calculateOffsetInCue]);
 
   /**

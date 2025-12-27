@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SubtitleList from '../SubtitleList';
+import { useTextSelection } from '../../../hooks/useTextSelection';
 import { getMockCues, getCuesByEpisodeId, subtitleService } from '../../../services/subtitleService';
 
 // Mock subtitleService
@@ -19,9 +20,27 @@ vi.mock('../../../services/subtitleService', () => ({
   },
 }));
 
+// Mock useTextSelection hook
+vi.mock('../../../hooks/useTextSelection', () => ({
+  useTextSelection: vi.fn(() => ({
+    selectedText: null,
+    selectionRange: null,
+    affectedCues: [],
+    clearSelection: vi.fn(),
+  })),
+}));
+
+// Mock SelectionMenu
+vi.mock('../SelectionMenu', () => ({
+  default: ({ selectedText, anchorPosition }) => {
+    if (!selectedText || !anchorPosition) return null;
+    return <div data-testid="selection-menu">Selection Menu</div>;
+  },
+}));
+
 // Mock SubtitleRow
 vi.mock('../SubtitleRow', () => ({
-  default: ({ cue, showSpeaker, isHighlighted, progress, highlights }) => {
+  default: ({ cue, showSpeaker, isHighlighted, progress, highlights, isSelected, selectionRange }) => {
     if (showSpeaker) {
       return <div data-testid={`speaker-${cue.speaker}`}>{cue.speaker}：</div>;
     }
@@ -31,6 +50,8 @@ vi.mock('../SubtitleRow', () => ({
         data-highlighted={isHighlighted}
         data-progress={progress}
         data-highlights-count={highlights?.length || 0}
+        data-selected={isSelected}
+        data-selection-range={selectionRange ? 'true' : 'false'}
       >
         {cue.text}
       </div>
@@ -1074,6 +1095,144 @@ describe('SubtitleList', () => {
       await waitFor(() => {
         expect(screen.getByText('-END-')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('文本选择功能', () => {
+    beforeEach(() => {
+      // 重置 useTextSelection mock
+      vi.mocked(useTextSelection).mockReturnValue({
+        selectedText: null,
+        selectionRange: null,
+        affectedCues: [],
+        clearSelection: vi.fn(),
+      });
+    });
+
+    it('应该集成 useTextSelection Hook', () => {
+      render(
+        <SubtitleList
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+        />
+      );
+
+      expect(useTextSelection).toHaveBeenCalledWith({
+        cues: mockCues,
+        containerRef: expect.any(Object),
+        enabled: true,
+      });
+    });
+
+    it('应该在选中文本时显示 SelectionMenu', () => {
+      const mockClearSelection = vi.fn();
+      vi.mocked(useTextSelection).mockReturnValue({
+        selectedText: 'First subtitle',
+        selectionRange: {
+          startCueId: 1,
+          endCueId: 1,
+          startOffset: 0,
+          endOffset: 14,
+        },
+        affectedCues: [{
+          cue: mockCues[0],
+          startOffset: 0,
+          endOffset: 14,
+          selectedText: 'First subtitle',
+        }],
+        clearSelection: mockClearSelection,
+      });
+
+      // Mock window.getSelection
+      const mockSelection = {
+        rangeCount: 1,
+        getRangeAt: vi.fn(() => ({
+          getBoundingClientRect: vi.fn(() => ({
+            left: 100,
+            top: 200,
+            width: 150,
+            height: 20,
+          })),
+        })),
+      };
+      global.window.getSelection = vi.fn(() => mockSelection);
+
+      render(
+        <SubtitleList
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+        />
+      );
+
+      expect(screen.getByTestId('selection-menu')).toBeInTheDocument();
+    });
+
+    it('应该将选择状态传递给 SubtitleRow', () => {
+      const mockClearSelection = vi.fn();
+      vi.mocked(useTextSelection).mockReturnValue({
+        selectedText: 'First subtitle',
+        selectionRange: {
+          startCueId: 1,
+          endCueId: 1,
+          startOffset: 0,
+          endOffset: 14,
+        },
+        affectedCues: [{
+          cue: mockCues[0],
+          startOffset: 0,
+          endOffset: 14,
+          selectedText: 'First subtitle',
+        }],
+        clearSelection: mockClearSelection,
+      });
+
+      // Mock window.getSelection
+      const mockSelection = {
+        rangeCount: 1,
+        getRangeAt: vi.fn(() => ({
+          getBoundingClientRect: vi.fn(() => ({
+            left: 100,
+            top: 200,
+            width: 150,
+            height: 20,
+          })),
+        })),
+      };
+      global.window.getSelection = vi.fn(() => mockSelection);
+
+      render(
+        <SubtitleList
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+        />
+      );
+
+      const subtitleRow = screen.getByTestId('subtitle-1');
+      expect(subtitleRow).toHaveAttribute('data-selected', 'true');
+      expect(subtitleRow).toHaveAttribute('data-selection-range', 'true');
+    });
+
+    it('应该在未选中文本时不显示 SelectionMenu', () => {
+      const mockClearSelection = vi.fn();
+      vi.mocked(useTextSelection).mockReturnValue({
+        selectedText: null,
+        selectionRange: null,
+        affectedCues: [],
+        clearSelection: mockClearSelection,
+      });
+
+      render(
+        <SubtitleList
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+        />
+      );
+
+      expect(screen.queryByTestId('selection-menu')).not.toBeInTheDocument();
     });
   });
 });

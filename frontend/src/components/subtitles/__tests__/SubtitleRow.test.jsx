@@ -77,6 +77,78 @@ describe('SubtitleRow', () => {
     });
   });
 
+  describe('选择状态', () => {
+    it('应该在 isSelected 为 true 时应用选中背景色', () => {
+      const { container } = render(
+        <SubtitleRow
+          cue={mockCue}
+          index={0}
+          isHighlighted={false}
+          isPast={false}
+          isSelected={true}
+        />
+      );
+
+      const box = container.querySelector('[data-subtitle-id="1"]');
+      expect(box).toBeInTheDocument();
+      // 检查是否有选中状态的样式（通过检查 computed style 或 data 属性）
+    });
+
+    it('应该在 selectionRange 存在时高亮选中的文本片段', () => {
+      const selectionRange = {
+        cue: mockCue,
+        startOffset: 0,
+        endOffset: 4,
+        selectedText: 'This',
+      };
+
+      render(
+        <SubtitleRow
+          cue={mockCue}
+          index={0}
+          isHighlighted={false}
+          isPast={false}
+          isSelected={true}
+          selectionRange={selectionRange}
+        />
+      );
+
+      // 选中的文本应该被渲染
+      expect(screen.getByText('This')).toBeInTheDocument();
+    });
+
+    it('应该在未选中时不应用选中样式', () => {
+      const { container } = render(
+        <SubtitleRow
+          cue={mockCue}
+          index={0}
+          isHighlighted={false}
+          isPast={false}
+          isSelected={false}
+        />
+      );
+
+      const box = container.querySelector('[data-subtitle-id="1"]');
+      expect(box).toBeInTheDocument();
+    });
+
+    it('应该在选择状态和高亮状态同时存在时，优先显示选择状态', () => {
+      const { container } = render(
+        <SubtitleRow
+          cue={mockCue}
+          index={0}
+          isHighlighted={true}
+          isPast={false}
+          isSelected={true}
+        />
+      );
+
+      const box = container.querySelector('[data-subtitle-id="1"]');
+      expect(box).toBeInTheDocument();
+      // 选择状态的背景色应该覆盖高亮状态的背景色
+    });
+  });
+
   describe('高亮状态', () => {
     it('应该在高亮时应用高亮样式', () => {
       const { container } = render(

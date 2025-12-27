@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Box, IconButton, Button, Skeleton, Typography, LinearProgress, Stack } from '@mui/material';
 import { Translate as TranslateIcon, Refresh } from '@mui/icons-material';
 import SubtitleRow from './SubtitleRow';
+import SelectionMenu from './SelectionMenu';
 import { useSubtitleSync } from '../../hooks/useSubtitleSync';
+import { useTextSelection } from '../../hooks/useTextSelection';
 import { getMockCues, getCuesByEpisodeId, subtitleService } from '../../services/subtitleService';
 
 /**
@@ -116,6 +118,80 @@ export default function SubtitleList({
     currentTime,
     cues,
   });
+
+  // 使用 useTextSelection hook 处理文本选择
+  const {
+    selectedText,
+    selectionRange,
+    affectedCues,
+    clearSelection,
+  } = useTextSelection({
+    cues: cues,
+    containerRef: containerRef,
+    enabled: true,
+  });
+
+  // 计算 SelectionMenu 的锚点位置
+  const anchorPosition = useMemo(() => {
+    if (!selectedText || !selectionRange) {
+      return null;
+    }
+
+    try {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) {
+        return null;
+      }
+
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+
+      // 计算选中文本的中心点作为锚点位置
+      return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+    } catch (error) {
+      console.error('[SubtitleList] 计算锚点位置失败:', error);
+      return null;
+    }
+  }, [selectedText, selectionRange]);
+
+  // 处理纯划线回调
+  const handleUnderline = useCallback(() => {
+    // TODO: 后续 Task 3.5 实现 API 调用
+    // 暂时使用占位逻辑
+    console.log('[SubtitleList] 纯划线操作:', {
+      selectedText,
+      selectionRange,
+      affectedCues,
+    });
+    clearSelection();
+  }, [selectedText, selectionRange, affectedCues, clearSelection]);
+
+  // 处理 AI 查询回调
+  const handleQuery = useCallback(() => {
+    // TODO: 后续 Task 4.3 实现 AI 查询功能
+    // 暂时使用占位逻辑
+    console.log('[SubtitleList] AI 查询操作:', {
+      selectedText,
+      selectionRange,
+      affectedCues,
+    });
+    clearSelection();
+  }, [selectedText, selectionRange, affectedCues, clearSelection]);
+
+  // 处理记录想法回调
+  const handleThought = useCallback(() => {
+    // TODO: 后续 Task 3.7 实现笔记卡片功能
+    // 暂时使用占位逻辑
+    console.log('[SubtitleList] 记录想法操作:', {
+      selectedText,
+      selectionRange,
+      affectedCues,
+    });
+    clearSelection();
+  }, [selectedText, selectionRange, affectedCues, clearSelection]);
 
   // 加载字幕数据
   // 优先级：propsCues > episodeId > mock 数据
@@ -896,6 +972,12 @@ export default function SubtitleList({
             // 获取当前 cue 的 highlights
             const cueHighlights = highlights.filter(h => h.cue_id === item.cue.id);
 
+            // 判断当前 cue 是否被选中
+            const isSelected = affectedCues.some(ac => ac.cue.id === item.cue.id);
+            
+            // 获取当前 cue 的选择范围信息
+            const cueSelectionRange = affectedCues.find(ac => ac.cue.id === item.cue.id) || null;
+
             return (
               <SubtitleRow
                 key={`subtitle-${item.cue.id}`}
@@ -910,6 +992,8 @@ export default function SubtitleList({
                 progress={progress}
                 highlights={cueHighlights}
                 onHighlightClick={onHighlightClick}
+                isSelected={isSelected}
+                selectionRange={cueSelectionRange}
               />
             );
           }
@@ -922,6 +1006,19 @@ export default function SubtitleList({
         transcriptionStatus={transcriptionStatus}
         episodeId={episodeId}
       />
+
+      {/* 文本选择菜单 */}
+      {selectedText && anchorPosition && (
+        <SelectionMenu
+          anchorPosition={anchorPosition}
+          selectedText={selectedText}
+          affectedCues={affectedCues}
+          onUnderline={handleUnderline}
+          onQuery={handleQuery}
+          onThought={handleThought}
+          onClose={clearSelection}
+        />
+      )}
     </Box>
   );
 }

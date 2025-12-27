@@ -32,6 +32,8 @@ import { formatTime } from '../../utils/timeUtils';
  * @param {number} [props.progress] - 单词高亮进度（0-1 之间的小数，用于单词级高亮）
  * @param {Array} [props.highlights] - 当前 cue 的划线数据数组
  * @param {Function} [props.onHighlightClick] - 点击划线源的回调函数 (highlight) => void
+ * @param {boolean} [props.isSelected] - 当前 cue 是否被选中（用于文本选择视觉反馈）
+ * @param {Object|null} [props.selectionRange] - 选择范围信息 { cue, startOffset, endOffset, selectedText }
  */
 const SubtitleRow = forwardRef(function SubtitleRow({
   cue,
@@ -43,8 +45,14 @@ const SubtitleRow = forwardRef(function SubtitleRow({
   progress = 0,
   highlights = [],
   onHighlightClick,
+  isSelected = false,
+  selectionRange = null,
 }, ref) {
   const [isHovered, setIsHovered] = useState(false);
+  
+  // 用于区分点击和拖拽选择
+  const mouseDownPositionRef = useRef(null);
+  const isDraggingRef = useRef(false);
 
   // 当字幕失去高亮时，清除 hover 状态，避免灰色背景残留
   // 使用 ref 来避免在 effect 中同步调用 setState
@@ -73,15 +81,15 @@ const SubtitleRow = forwardRef(function SubtitleRow({
   /**
    * 渲染带下划线的文本片段
    * 根据 highlights 数组，在文本对应位置渲染紫色下划线
-   * 同时支持单词级高亮
+   * 同时支持单词级高亮和选择状态高亮
    */
   const renderTextParts = useMemo(() => {
     if (!cue || !cue.text) {
       return [];
     }
 
-    // 如果没有 highlights，返回单个文本片段
-    if (!highlights || highlights.length === 0) {
+    // 如果没有 highlights 和选择范围，返回单个文本片段
+    if ((!highlights || highlights.length === 0) && !selectionRange) {
       return [{
         type: 'text',
         content: cue.text,
@@ -90,34 +98,60 @@ const SubtitleRow = forwardRef(function SubtitleRow({
       }];
     }
 
-    // 按 start_offset 排序 highlights
-    const sortedHighlights = [...highlights].sort((a, b) => a.start_offset - b.start_offset);
+    // 合并 highlights 和选择范围，统一处理
+    const allRanges = [];
     
-    // 过滤重叠的 highlights（PRD 要求：禁止重叠划线）
-    // 如果两个 highlight 重叠，只保留第一个（按 start_offset 排序后的第一个）
-    const nonOverlappingHighlights = [];
+    // 添加 highlights
+    if (highlights && highlights.length > 0) {
+      highlights.forEach((highlight) => {
+        allRanges.push({
+          type: 'highlight',
+          start_offset: highlight.start_offset,
+          end_offset: highlight.end_offset,
+          highlighted_text: highlight.highlighted_text,
+          color: highlight.color || '#9C27B0',
+          id: highlight.id,
+        });
+      });
+    }
+    
+    // 添加选择范围（如果存在）
+    if (selectionRange) {
+      allRanges.push({
+        type: 'selection',
+        start_offset: selectionRange.startOffset,
+        end_offset: selectionRange.endOffset,
+        selectedText: selectionRange.selectedText,
+      });
+    }
+    
+    // 按 start_offset 排序所有范围
+    const sortedRanges = allRanges.sort((a, b) => a.start_offset - b.start_offset);
+    
+    // 过滤重叠的范围（PRD 要求：禁止重叠划线）
+    // 如果两个范围重叠，只保留第一个（按 start_offset 排序后的第一个）
+    const nonOverlappingRanges = [];
     let lastEndIndex = -1;
     
-    sortedHighlights.forEach((highlight) => {
-      const { start_offset, end_offset } = highlight;
+    sortedRanges.forEach((range) => {
+      const { start_offset, end_offset } = range;
       
-      // 检查是否与已处理的 highlight 重叠
-      // 重叠条件：start_offset < lastEndIndex（新 highlight 的开始位置在之前 highlight 的结束位置之前）
+      // 检查是否与已处理的范围重叠
       if (start_offset >= lastEndIndex) {
         // 不重叠，添加到列表
-        nonOverlappingHighlights.push(highlight);
+        nonOverlappingRanges.push(range);
         lastEndIndex = Math.max(lastEndIndex, end_offset);
       }
-      // 如果重叠，跳过这个 highlight（符合 PRD "禁止重叠划线" 的要求）
+      // 如果重叠，跳过这个范围（符合 PRD "禁止重叠划线" 的要求）
     });
     
     const parts = [];
     let lastIndex = 0;
 
-    nonOverlappingHighlights.forEach((highlight) => {
-      const { start_offset, end_offset, highlighted_text, color, id } = highlight;
+    nonOverlappingRanges.forEach((range) => {
+      const { start_offset, end_offset, type } = range;
       
-      // 添加划线前的文本
+      // 添加范围前的文本
       if (start_offset > lastIndex) {
         parts.push({
           type: 'text',
@@ -127,15 +161,26 @@ const SubtitleRow = forwardRef(function SubtitleRow({
         });
       }
 
-      // 添加划线文本
-      parts.push({
-        type: 'highlight',
-        content: highlighted_text || cue.text.substring(start_offset, end_offset),
-        color: color || '#9C27B0',
-        highlightId: id,
-        startCharIndex: start_offset,
-        endCharIndex: end_offset,
-      });
+      // 添加范围文本（highlight 或 selection）
+      if (type === 'highlight') {
+        parts.push({
+          type: 'highlight',
+          content: range.highlighted_text || cue.text.substring(start_offset, end_offset),
+          color: range.color,
+          highlightId: range.id,
+          startCharIndex: start_offset,
+          endCharIndex: end_offset,
+        });
+      } else if (type === 'selection') {
+        // 对于选择范围，直接使用原始文本内容，不使用 trim 后的 selectedText
+        // 这样可以确保所有选中的单词都被正确高亮
+        parts.push({
+          type: 'selection',
+          content: cue.text.substring(start_offset, end_offset),
+          startCharIndex: start_offset,
+          endCharIndex: end_offset,
+        });
+      }
 
       lastIndex = end_offset;
     });
@@ -151,7 +196,7 @@ const SubtitleRow = forwardRef(function SubtitleRow({
     }
 
     return parts;
-  }, [cue, highlights]);
+  }, [cue, highlights, selectionRange]);
 
   /**
    * 计算文本片段在整个句子中的单词范围
@@ -175,11 +220,47 @@ const SubtitleRow = forwardRef(function SubtitleRow({
     return null;
   }
 
-  const handleClick = () => {
-    if (onClick) {
-      onClick(cue.start_time);
+  // 处理鼠标按下事件
+  const handleMouseDown = useCallback((e) => {
+    // 记录鼠标按下位置
+    mouseDownPositionRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+    };
+    isDraggingRef.current = false;
+  }, []);
+
+  // 处理鼠标移动事件（用于检测拖拽）
+  const handleMouseMove = useCallback((e) => {
+    if (mouseDownPositionRef.current) {
+      const deltaX = Math.abs(e.clientX - mouseDownPositionRef.current.x);
+      const deltaY = Math.abs(e.clientY - mouseDownPositionRef.current.y);
+      // 如果移动距离超过5px，认为是拖拽
+      if (deltaX > 5 || deltaY > 5) {
+        isDraggingRef.current = true;
+      }
     }
-  };
+  }, []);
+
+  // 处理鼠标抬起事件
+  const handleMouseUp = useCallback((e) => {
+    if (mouseDownPositionRef.current) {
+      const deltaX = Math.abs(e.clientX - mouseDownPositionRef.current.x);
+      const deltaY = Math.abs(e.clientY - mouseDownPositionRef.current.y);
+      const isClick = deltaX <= 5 && deltaY <= 5 && !isDraggingRef.current;
+      
+      // 如果是点击（没有拖拽），且没有文本被选中，则触发音频定位
+      if (isClick && !window.getSelection()?.toString().trim()) {
+        if (onClick) {
+          onClick(cue.start_time);
+        }
+      }
+      
+      // 重置状态
+      mouseDownPositionRef.current = null;
+      isDraggingRef.current = false;
+    }
+  }, [onClick, cue.start_time]);
 
   const handleMouseEnter = () => {
     // 只有在非高亮状态下才设置 hover
@@ -216,17 +297,22 @@ const SubtitleRow = forwardRef(function SubtitleRow({
   }
 
   // 字幕行
-  // 根据高亮状态和 hover 状态确定背景色
-  const backgroundColor = isHighlighted 
-    ? 'background.default' 
-    : isHovered 
-      ? 'action.hover' 
-      : 'background.default';
+  // 根据高亮状态、hover 状态和选择状态确定背景色
+  // 优先级：选中状态 > 高亮状态 > hover 状态
+  const backgroundColor = isSelected
+    ? 'action.selected'
+    : isHighlighted 
+      ? 'background.default' 
+      : isHovered 
+        ? 'action.hover' 
+        : 'background.default';
 
   return (
     <Box
       ref={ref}
-      onClick={handleClick}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       sx={{
@@ -283,80 +369,142 @@ const SubtitleRow = forwardRef(function SubtitleRow({
           }}
         >
           {renderTextParts.map((part, partIndex) => {
+            // 直接使用原始文本内容，保留原始空格
+            // 通过检查原始文本中 part 前后的字符来判断是否需要添加空格
+            const prevPartEndIndex = partIndex > 0 
+              ? renderTextParts[partIndex - 1].endCharIndex 
+              : 0;
+            const currentPartStartIndex = part.startCharIndex;
+            
+            // 检查 part 之前是否有空格（在原始文本中）
+            // 如果前一个 part 的结束位置和当前 part 的开始位置之间有空格，则保留
+            const textBetweenParts = cue.text.substring(prevPartEndIndex, currentPartStartIndex);
+            const hasLeadingSpaceInOriginal = textBetweenParts.trim() === '' && textBetweenParts.includes(' ');
+            
+            // 检查 part 之后是否有空格（在原始文本中）
+            const nextPartStartIndex = partIndex < renderTextParts.length - 1
+              ? renderTextParts[partIndex + 1].startCharIndex
+              : cue.text.length;
+            const textAfterPart = cue.text.substring(part.endCharIndex, nextPartStartIndex);
+            const hasTrailingSpaceInOriginal = textAfterPart.trim() === '' && textAfterPart.includes(' ');
+            
+            // 移除 part.content 的首尾空格用于单词拆分，但保留原始文本中的空格位置
+            const trimmedContent = part.content.trim();
+            
             if (part.type === 'highlight') {
               // 划线文本：显示下划线，同时支持单词级高亮
               const { startWordIndex } = getWordRangeForTextPart(part);
-              const highlightWords = part.content.split(' ').filter(w => w.length > 0);
+              const highlightWords = trimmedContent.split(/\s+/).filter(w => w.length > 0);
               
               return (
-                <Box
-                  key={`highlight-${part.highlightId}-${partIndex}`}
-                  component="span"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onHighlightClick) {
-                      const highlight = highlights.find(h => h.id === part.highlightId);
-                      if (highlight) {
-                        onHighlightClick(highlight);
+                <React.Fragment key={`highlight-${part.highlightId}-${partIndex}`}>
+                  {hasLeadingSpaceInOriginal && ' '}
+                  <Box
+                    component="span"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onHighlightClick) {
+                        const highlight = highlights.find(h => h.id === part.highlightId);
+                        if (highlight) {
+                          onHighlightClick(highlight);
+                        }
                       }
-                    }
-                  }}
-                  sx={{
-                    textDecoration: 'underline',
-                    color: part.color,
-                    cursor: onHighlightClick ? 'pointer' : 'default',
-                    '&:hover': onHighlightClick ? {
-                      backgroundColor: 'action.hover',
-                    } : {},
-                  }}
-                >
-                  {highlightWords.map((word, wordIndex) => {
-                    const globalWordIndex = startWordIndex + wordIndex;
-                    const isWordActive = globalWordIndex < activeWordIndex || progress === 1;
-                    
-                    return (
-                      <Box
-                        key={`highlight-word-${partIndex}-${wordIndex}`}
-                        component="span"
-                        sx={{
-                          color: isWordActive ? part.color : `${part.color}80`, // 未播放时降低透明度
-                          transition: 'color 0.1s linear',
-                          display: 'inline-block',
-                          mr: 0.5,
-                        }}
-                      >
-                        {word}
-                      </Box>
-                    );
-                  })}
-                </Box>
+                    }}
+                    sx={{
+                      textDecoration: 'underline',
+                      color: part.color,
+                      cursor: onHighlightClick ? 'pointer' : 'default',
+                      '&:hover': onHighlightClick ? {
+                        backgroundColor: 'action.hover',
+                      } : {},
+                      display: 'inline',
+                    }}
+                  >
+                    {highlightWords.map((word, wordIndex) => {
+                      const globalWordIndex = startWordIndex + wordIndex;
+                      const isWordActive = globalWordIndex < activeWordIndex || progress === 1;
+                      const isLastWord = wordIndex === highlightWords.length - 1;
+                      
+                      return (
+                        <React.Fragment key={`highlight-word-${partIndex}-${wordIndex}`}>
+                          <Box
+                            component="span"
+                            sx={{
+                              color: isWordActive ? part.color : `${part.color}80`, // 未播放时降低透明度
+                              transition: 'color 0.1s linear',
+                              display: 'inline',
+                            }}
+                          >
+                            {word}
+                          </Box>
+                          {!isLastWord && ' '}
+                        </React.Fragment>
+                      );
+                    })}
+                  </Box>
+                  {hasTrailingSpaceInOriginal && ' '}
+                </React.Fragment>
+              );
+            } else if (part.type === 'selection') {
+              // 选中文本：显示背景色高亮（用于文本选择视觉反馈）
+              // 直接使用原始文本内容，不拆分单词，完全保留所有空格
+              // 为了支持单词级高亮，我们需要按字符渲染，但这样性能可能不好
+              // 更好的方法是：直接渲染文本，不进行单词级高亮（选择状态下）
+              const originalContent = part.content;
+              
+              return (
+                <React.Fragment key={`selection-${partIndex}`}>
+                  {hasLeadingSpaceInOriginal && ' '}
+                  <Box
+                    component="span"
+                    sx={{
+                      backgroundColor: 'action.selected',
+                      color: 'text.primary',
+                      display: 'inline',
+                      whiteSpace: 'pre-wrap', // 保留空格和换行
+                    }}
+                  >
+                    {originalContent}
+                  </Box>
+                  {hasTrailingSpaceInOriginal && ' '}
+                </React.Fragment>
               );
             } else {
               // 普通文本：只支持单词级高亮
+              // 对于普通文本，直接使用原始内容，保留原始空格
               const { startWordIndex } = getWordRangeForTextPart(part);
-              const textWords = part.content.split(' ').filter(w => w.length > 0);
+              // 使用原始内容，但需要拆分单词用于高亮
+              // 保留原始空格：如果 content 开头或结尾有空格，需要保留
+              const leadingSpace = part.content.match(/^\s*/)?.[0] || '';
+              const trailingSpace = part.content.match(/\s*$/)?.[0] || '';
+              const trimmedContent = part.content.trim();
+              const textWords = trimmedContent.split(/\s+/).filter(w => w.length > 0);
               
               return (
                 <React.Fragment key={`text-${partIndex}`}>
+                  {leadingSpace}
                   {textWords.map((word, wordIndex) => {
                     const globalWordIndex = startWordIndex + wordIndex;
                     const isWordActive = globalWordIndex < activeWordIndex || progress === 1;
+                    const isLastWord = wordIndex === textWords.length - 1;
                     
                     return (
-                      <Box
-                        component="span"
-                        key={`word-${partIndex}-${wordIndex}`}
-                        sx={{
-                          color: isWordActive ? 'text.primary' : 'text.disabled',
-                          transition: 'color 0.1s linear',
-                          display: 'inline-block',
-                          mr: 0.5,
-                        }}
-                      >
-                        {word}
-                      </Box>
+                      <React.Fragment key={`word-${partIndex}-${wordIndex}`}>
+                        <Box
+                          component="span"
+                          sx={{
+                            color: isWordActive ? 'text.primary' : 'text.disabled',
+                            transition: 'color 0.1s linear',
+                            display: 'inline',
+                          }}
+                        >
+                          {word}
+                        </Box>
+                        {!isLastWord && ' '}
+                      </React.Fragment>
                     );
                   })}
+                  {trailingSpace}
                 </React.Fragment>
               );
             }
@@ -425,6 +573,28 @@ export default memo(SubtitleRow, (prevProps, nextProps) => {
     });
     if (highlightsChanged) {
       return false; // 需要重新渲染
+    }
+  }
+
+  // 选择状态变化时，需要重渲染
+  if (prevProps.isSelected !== nextProps.isSelected) {
+    return false; // 需要重新渲染
+  }
+
+  // 选择范围变化时，需要重渲染
+  if (prevProps.selectionRange !== nextProps.selectionRange) {
+    if (prevProps.selectionRange && nextProps.selectionRange) {
+      // 检查选择范围内容是否变化
+      if (
+        prevProps.selectionRange.startOffset !== nextProps.selectionRange.startOffset ||
+        prevProps.selectionRange.endOffset !== nextProps.selectionRange.endOffset ||
+        prevProps.selectionRange.selectedText !== nextProps.selectionRange.selectedText
+      ) {
+        return false; // 需要重新渲染
+      }
+    } else {
+      // 一个为 null，另一个不为 null，需要重渲染
+      return false;
     }
   }
 
