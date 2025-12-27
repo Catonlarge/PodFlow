@@ -16,7 +16,7 @@
  * @module pages/EpisodePage
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Box, Alert, Skeleton, Stack, Button, Typography } from '@mui/material';
 import { UploadFile } from '@mui/icons-material';
@@ -36,6 +36,16 @@ export default function EpisodePage() {
 
   // 解构状态以便使用
   const { episode, segments, loading, error, audioUrl, processing, episodeId } = state;
+
+  // 首次打开逻辑：如果没有 URL 参数且没有 localStorage，自动弹出文件选择弹窗
+  useEffect(() => {
+    if (!urlEpisodeId && !episodeId && !loading) {
+      const savedEpisodeId = localStorage.getItem('podflow_last_episode_id');
+      if (!savedEpisodeId) {
+        setIsModalOpen(true);
+      }
+    }
+  }, [urlEpisodeId, episodeId, loading]);
 
   // --- UI 渲染分支 ---
 
