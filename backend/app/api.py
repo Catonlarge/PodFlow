@@ -516,6 +516,82 @@ def get_episode_segments(
     }
 
 
+@router.get("/episodes/{episode_id}/cues")
+def get_episode_cues_by_segments(
+    episode_id: int,
+    start_segment: int = Query(0, ge=0, description="起始 segment 索引（从 0 开始，包含）"),
+    end_segment: int = Query(None, description="结束 segment 索引（包含，为空则查询所有）"),
+    db: Session = Depends(get_db)
+):
+    """
+    根据 segment_index 范围获取字幕数据
+    
+    用于前端分批加载字幕，提升性能
+    
+    参数:
+        episode_id: Episode ID
+        start_segment: 起始 segment 索引（从 0 开始，包含）
+        end_segment: 结束 segment 索引（包含，为空则查询所有）
+        
+    返回:
+        {
+            "cues": [
+                {
+                    "id": 1,
+                    "start_time": 0.28,
+                    "end_time": 2.22,
+                    "speaker": "Lenny",
+                    "text": "Thank you so much for joining us today."
+                },
+                ...
+            ]
+        }
+    """
+    # 验证 Episode 是否存在
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail=f"Episode {episode_id} 不存在")
+    
+    # 获取指定范围的 segments
+    segment_query = db.query(AudioSegment).filter(
+        AudioSegment.episode_id == episode_id,
+        AudioSegment.segment_index >= start_segment
+    )
+    
+    if end_segment is not None:
+        segment_query = segment_query.filter(AudioSegment.segment_index <= end_segment)
+    
+    segments = segment_query.all()
+    
+    if not segments:
+        return {"cues": []}
+    
+    # 获取这些 segments 对应的 segment_id 列表
+    segment_ids = [seg.id for seg in segments]
+    
+    # 查询关联的字幕（按时间排序）
+    cues = db.query(TranscriptCue).filter(
+        TranscriptCue.episode_id == episode_id,
+        TranscriptCue.segment_id.in_(segment_ids)
+    ).order_by(TranscriptCue.start_time.asc()).all()
+    
+    # 序列化
+    cues_data = [
+        {
+            "id": cue.id,
+            "start_time": cue.start_time,
+            "end_time": cue.end_time,
+            "speaker": cue.speaker,
+            "text": cue.text
+        }
+        for cue in cues
+    ]
+    
+    return {
+        "cues": cues_data
+    }
+
+
 @router.post("/episodes/{episode_id}/segments/{segment_index}/transcribe")
 async def trigger_segment_transcription(
     episode_id: int,

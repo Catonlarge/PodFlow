@@ -400,6 +400,34 @@ export async function getEpisodeSegments(episodeId) {
 }
 
 /**
+ * 根据 segment_index 范围获取字幕数据
+ * 
+ * 用于前端分批加载字幕，提升性能
+ * API 端点：GET /api/episodes/{episode_id}/cues?start_segment={start_segment}&end_segment={end_segment}
+ * 
+ * @param {number} episodeId - Episode ID
+ * @param {number} startSegment - 起始 segment 索引（从 0 开始，包含）
+ * @param {number} [endSegment] - 结束 segment 索引（包含，可选）
+ * @returns {Promise<Array>} 字幕数组
+ */
+export async function getCuesBySegmentRange(episodeId, startSegment, endSegment = null) {
+  try {
+    const params = { start_segment: startSegment };
+    if (endSegment !== null && endSegment !== undefined) {
+      params.end_segment = endSegment;
+    }
+    const response = await api.get(`/api/episodes/${episodeId}/cues`, { params });
+    return response.cues || [];
+  } catch (error) {
+    console.error(
+      `[subtitleService] 获取字幕失败 (episodeId: ${episodeId}, startSegment: ${startSegment}, endSegment: ${endSegment}):`,
+      error
+    );
+    throw error;
+  }
+}
+
+/**
  * 触发指定 segment 的识别任务
  * 
  * API 端点：POST /api/episodes/{episode_id}/segments/{segment_index}/transcribe
@@ -489,6 +517,7 @@ export async function restartTranscription(episodeId) {
 export const subtitleService = {
   getMockCues,
   getCuesByEpisodeId,
+  getCuesBySegmentRange,
   getEpisode,
   getEpisodeSegments,
   triggerSegmentTranscription,

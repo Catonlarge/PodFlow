@@ -4,6 +4,37 @@
 
 ---
 
+## [2025-12-28] [Performance] - 优化字幕加载性能：实现按segment分批加载
+
+**变更内容**：
+- **后端API优化** (`backend/app/api.py`)：
+  - 新增 `/api/episodes/{episode_id}/cues` 端点，支持按 `segment_index` 范围查询字幕
+  - 通过 `start_segment` 和 `end_segment` 参数控制查询范围
+  - 使用 `segment_id` 关联查询，确保只返回指定segment范围内的字幕数据
+- **前端服务层** (`frontend/src/services/subtitleService.js`)：
+  - 新增 `getCuesBySegmentRange` 函数，封装按segment范围查询字幕的API调用
+- **字幕加载逻辑优化** (`frontend/src/components/subtitles/SubtitleList.jsx`)：
+  - 初始加载：只加载前3个已完成的segment的字幕，而不是一次性加载所有字幕
+  - 滚动加载：用户滚动到底部时，追加加载下一个segment的字幕，按时间排序合并到现有列表
+  - 使用 `lastLoadedSegmentIndexRef` 跟踪已加载的最后一个segment索引，避免重复加载
+  - 转录完成和错误重试时的加载逻辑也改为只加载前3个segment，保持一致性
+
+**性能提升**：
+- 初始加载时间显著减少，特别是对于长音频文件（例如：30分钟音频可能分为10+个segment）
+- 减少了网络传输数据量，提升首次渲染速度
+- 降低了内存占用，避免一次性加载大量字幕数据
+- 保持了向后兼容性：如果没有segments信息，仍会加载所有字幕
+
+**技术要点**：
+- 使用ref (`lastLoadedSegmentIndexRef`) 跟踪加载状态，避免重复加载
+- 字幕合并时使用 `sort` 确保时间顺序正确
+- 滚动加载采用追加模式，避免重新加载已加载的数据
+
+**相关需求**：
+- `docs/todo.md`：性能问题 - 字幕分批加载优化
+
+---
+
 ## [2025-01-27] [Fix] - 修复笔记侧边栏展开时笔记卡片下滑动画问题
 
 **问题描述**：

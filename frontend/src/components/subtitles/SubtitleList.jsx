@@ -5,7 +5,7 @@ import SubtitleRow from './SubtitleRow';
 import SelectionMenu from './SelectionMenu';
 import { useSubtitleSync } from '../../hooks/useSubtitleSync';
 import { useTextSelection } from '../../hooks/useTextSelection';
-import { getMockCues, getCuesByEpisodeId, subtitleService } from '../../services/subtitleService';
+import { getMockCues, getCuesByEpisodeId, getCuesBySegmentRange, subtitleService } from '../../services/subtitleService';
 import { highlightService } from '../../services/highlightService';
 import { noteService } from '../../services/noteService';
 import { aiService } from '../../services/aiService';
@@ -98,6 +98,7 @@ export default function SubtitleList({
   const subtitleRefs = useRef({});
   const previousTranscriptionStatusRef = useRef(transcriptionStatus || null);
   const loadingProgressIntervalRef = useRef(null);
+  const lastLoadedSegmentIndexRef = useRef(-1); // 记录已加载的最后一个segment索引（初始为-1）
 
   // 使用外部滚动容器或内部滚动容器
   // 当使用外部滚动容器时，containerRef 指向外部容器；否则使用内部容器
@@ -692,10 +693,6 @@ export default function SubtitleList({
       setSubtitleLoadingState('loading');
       setSubtitleLoadingProgress(0);
       setSubtitleLoadingError(null);
-      // 根据PRD：字幕加载过程中，在英文字幕区域中间显示提示"请稍等，字幕加载中"和进度条
-      setSubtitleLoadingState('loading');
-      setSubtitleLoadingProgress(0);
-      setSubtitleLoadingError(null);
       
       // 模拟字幕加载进度条（前端模拟，匀速增长）
       const startTime = Date.now();
@@ -707,37 +704,65 @@ export default function SubtitleList({
         setSubtitleLoadingProgress(progress);
       }, 100);
       
-      // 如果有 episodeId，从 API 加载字幕数据
-      getCuesByEpisodeId(episodeId).then((cues) => {
-        // 清理进度定时器
-        if (loadingProgressIntervalRef.current) {
-          clearInterval(loadingProgressIntervalRef.current);
-          loadingProgressIntervalRef.current = null;
-        }
-        
-        // 加载完成，进度条直接走到100%
-        setSubtitleLoadingProgress(100);
-        
-        // 短暂延迟后清除加载状态
-        setTimeout(() => {
-          setCues(cues);
-          setSubtitleLoadingState(null);
+      // 如果有 episodeId，根据是否有 segments 信息决定加载策略
+      // 如果有 segments 信息，只加载前3个segment的字幕（性能优化）
+      // 如果没有 segments 信息，加载所有字幕（向后兼容）
+      const loadInitialSubtitles = async () => {
+        try {
+          let initialCues = [];
+          let loadedLastSegmentIndex = -1;
+          
+          if (segments && segments.length > 0) {
+            // 有 segments 信息：只加载前3个已完成的segment的字幕
+            const completedSegments = segments
+              .filter(s => s.status === 'completed')
+              .sort((a, b) => a.segment_index - b.segment_index)
+              .slice(0, 3); // 只取前3个
+            
+            if (completedSegments.length > 0) {
+              const firstSegmentIndex = completedSegments[0].segment_index;
+              const lastSegmentIndex = completedSegments[completedSegments.length - 1].segment_index;
+              
+              // 加载前3个segment的字幕
+              initialCues = await getCuesBySegmentRange(episodeId, firstSegmentIndex, lastSegmentIndex);
+              loadedLastSegmentIndex = lastSegmentIndex;
+              lastLoadedSegmentIndexRef.current = loadedLastSegmentIndex;
+            }
+          } else {
+            // 没有 segments 信息：加载所有字幕（向后兼容）
+            initialCues = await getCuesByEpisodeId(episodeId);
+          }
+          
+          // 清理进度定时器
+          if (loadingProgressIntervalRef.current) {
+            clearInterval(loadingProgressIntervalRef.current);
+            loadingProgressIntervalRef.current = null;
+          }
+          
+          // 加载完成，进度条直接走到100%
+          setSubtitleLoadingProgress(100);
+          
+          // 短暂延迟后清除加载状态
+          setTimeout(() => {
+            setCues(initialCues);
+            setSubtitleLoadingState(null);
+            setSubtitleLoadingProgress(0);
+          }, 300);
+        } catch (error) {
+          // 清理进度定时器
+          if (loadingProgressIntervalRef.current) {
+            clearInterval(loadingProgressIntervalRef.current);
+            loadingProgressIntervalRef.current = null;
+          }
+          
+          console.error('[SubtitleList] 加载字幕失败:', error);
+          setSubtitleLoadingState('error');
           setSubtitleLoadingProgress(0);
-        }, 300);
-      }).catch((error) => {
-        // 清理进度定时器
-        if (loadingProgressIntervalRef.current) {
-          clearInterval(loadingProgressIntervalRef.current);
-          loadingProgressIntervalRef.current = null;
+          setSubtitleLoadingError(error.response?.data?.detail || error.message || '字幕加载失败，请重试');
         }
-        
-        console.error('[SubtitleList] 加载字幕失败:', error);
-        setSubtitleLoadingState('error');
-        setSubtitleLoadingProgress(0);
-        setSubtitleLoadingError(error.response?.data?.detail || error.message || '字幕加载失败，请重试');
-        
-        // 如果 API 失败，不降级到 mock 数据（根据PRD，应该显示错误提示）
-      });
+      };
+      
+      loadInitialSubtitles();
     } else {
       // 既没有 cues 也没有 episodeId，使用 mock 数据
       getMockCues().then((mockCues) => {
@@ -755,7 +780,7 @@ export default function SubtitleList({
         loadingProgressIntervalRef.current = null;
       }
     };
-  }, [propsCues, episodeId]);
+  }, [propsCues, episodeId, segments]);
 
   // 记录已加载 highlights 的 episodeId，避免重复加载
   const loadedHighlightsEpisodeIdRef = useRef(null);
@@ -833,16 +858,48 @@ export default function SubtitleList({
       && !propsCues 
       && episodeId
     ) {
-      console.log('[SubtitleList] 转录已完成，重新加载字幕数据');
-      getCuesByEpisodeId(episodeId).then((cues) => {
-        if (cues && cues.length > 0) {
-          setCues(cues);
+      console.log('[SubtitleList] 转录已完成，重新加载字幕数据（前3个segment）');
+      // 重置已加载的segment索引
+      lastLoadedSegmentIndexRef.current = -1;
+      
+      // 重新加载前3个segment的字幕（性能优化）
+      const loadInitialSubtitles = async () => {
+        try {
+          if (segments && segments.length > 0) {
+            // 有 segments 信息：只加载前3个已完成的segment的字幕
+            const completedSegments = segments
+              .filter(s => s.status === 'completed')
+              .sort((a, b) => a.segment_index - b.segment_index)
+              .slice(0, 3); // 只取前3个
+            
+            if (completedSegments.length > 0) {
+              const firstSegmentIndex = completedSegments[0].segment_index;
+              const lastSegmentIndex = completedSegments[completedSegments.length - 1].segment_index;
+              
+              // 加载前3个segment的字幕
+              const initialCues = await getCuesBySegmentRange(episodeId, firstSegmentIndex, lastSegmentIndex);
+              lastLoadedSegmentIndexRef.current = lastSegmentIndex;
+              
+              if (initialCues && initialCues.length > 0) {
+                setCues(initialCues);
+              }
+            }
+          } else {
+            // 没有 segments 信息：加载所有字幕（向后兼容）
+            const allCues = await getCuesByEpisodeId(episodeId);
+            if (allCues && allCues.length > 0) {
+              setCues(allCues);
+            }
+          }
+          
+          // 清除识别错误状态
+          setTranscriptionError(null);
+        } catch (error) {
+          console.error('[SubtitleList] 转录完成后加载字幕失败:', error);
         }
-        // 清除识别错误状态
-        setTranscriptionError(null);
-      }).catch((error) => {
-        console.error('[SubtitleList] 转录完成后加载字幕失败:', error);
-      });
+      };
+      
+      loadInitialSubtitles();
     }
     
     // 根据PRD c.ii：如果转录状态为 failed，显示错误提示
@@ -986,34 +1043,15 @@ export default function SubtitleList({
     }
       }, [currentSubtitleIndex, containerRef, externalIsUserScrollingRef, isInteracting]);
 
-  // 已加载的segment索引集合（防止重复加载）
-  const loadedSegmentIndicesRef = useRef(new Set());
-  
   // 滚动触发异步加载逻辑
-  // 根据PRD d.ix：优化滚动加载字幕去重，避免重复加载已加载的segment
+  // 性能优化：只加载下一个segment的字幕，追加到现有列表，而不是重新加载全部
   const checkAndLoadNextSegment = useCallback(async () => {
     if (!episodeId || !segments || segments.length === 0) {
       return;
     }
     
-    // 基于当前cues，找到已加载的最后一个segment索引
-    let lastLoadedIndex = -1;
-    if (cues && cues.length > 0) {
-      // 找到cues中的最大时间戳
-      const maxCueTime = Math.max(...cues.map(cue => cue.end_time || 0));
-      
-      // 找到包含这个时间戳的最后一个segment
-      const loadedSegments = segments
-        .filter(s => s.status === 'completed' && maxCueTime >= s.start_time)
-        .sort((a, b) => b.segment_index - a.segment_index);
-      
-      if (loadedSegments.length > 0) {
-        lastLoadedIndex = loadedSegments[0].segment_index;
-      }
-    }
-    
-    // 检查下一个segment
-    const nextSegmentIndex = lastLoadedIndex + 1;
+    // 获取下一个segment索引（基于已加载的最后一个segment索引）
+    const nextSegmentIndex = lastLoadedSegmentIndexRef.current + 1;
     const nextSegment = segments.find(s => s.segment_index === nextSegmentIndex);
     
     if (!nextSegment) {
@@ -1021,31 +1059,28 @@ export default function SubtitleList({
       return;
     }
     
-    // 检查是否已经加载过（双重检查，防止重复加载）
-    if (loadedSegmentIndicesRef.current.has(nextSegmentIndex)) {
-      return;
-    }
-    
-    // 如果下一个segment已完成，加载字幕
+    // 如果下一个segment已完成，加载该segment的字幕并追加
     if (nextSegment.status === 'completed') {
-      // 标记为已加载（在加载前标记，防止重复触发）
-      loadedSegmentIndicesRef.current.add(nextSegmentIndex);
-      
-      // 重新加载字幕数据（包含新完成的segment）
       try {
-        const newCues = await getCuesByEpisodeId(episodeId);
-        // 只有当新cues数量大于当前cues数量时，才更新（避免重复加载）
-        if (!cues || newCues.length > cues.length) {
-          setCues(newCues);
+        // 只加载这一个segment的字幕
+        const newCues = await getCuesBySegmentRange(episodeId, nextSegmentIndex, nextSegmentIndex);
+        
+        if (newCues && newCues.length > 0) {
+          // 追加到现有cues列表（按时间排序合并）
+          setCues((prevCues) => {
+            const mergedCues = [...prevCues, ...newCues];
+            // 按时间排序，确保顺序正确
+            return mergedCues.sort((a, b) => a.start_time - b.start_time);
+          });
+          
+          // 更新已加载的最后一个segment索引
+          lastLoadedSegmentIndexRef.current = nextSegmentIndex;
         }
       } catch (error) {
-        console.error('[SubtitleList] 加载新segment字幕失败:', error);
-        // 加载失败时，移除标记，允许重试
-        loadedSegmentIndicesRef.current.delete(nextSegmentIndex);
+        console.error(`[SubtitleList] 加载 Segment ${nextSegmentIndex} 字幕失败:`, error);
       }
     } else if (nextSegment.status === 'pending' || (nextSegment.status === 'failed' && nextSegment.retry_count < 3)) {
       // 如果下一个segment未开始或失败但可重试，触发识别
-      // 注意：这里不标记为已加载，因为segment还未完成
       try {
         await subtitleService.triggerSegmentTranscription(episodeId, nextSegmentIndex);
         console.log(`[SubtitleList] 已触发 Segment ${nextSegmentIndex} 的识别任务`);
@@ -1054,7 +1089,7 @@ export default function SubtitleList({
       }
     }
     // 如果status是processing，不处理，等待完成
-  }, [episodeId, segments, cues]);
+  }, [episodeId, segments]);
   
   /**
    * 监听用户滚动事件（仅当使用内部滚动容器时）
@@ -1132,37 +1167,14 @@ export default function SubtitleList({
     };
   }, [scrollContainerRef, checkAndLoadNextSegment]);
   
-  // 当segments或cues变化时，重新计算已加载的segment索引
-  // 根据PRD d.ix：基于当前已加载的cues对应的segment，计算已加载的segment索引
+  // 当初始加载完成后，重置 lastLoadedSegmentIndexRef（确保初始加载逻辑正确）
+  // 注意：初始加载逻辑已经设置了 lastLoadedSegmentIndexRef，这里主要用于重置场景
   useEffect(() => {
-    if (!segments || segments.length === 0) {
-      loadedSegmentIndicesRef.current.clear();
-      return;
+    // 如果 cues 被重置为空数组，说明需要重新初始化
+    if (cues && cues.length === 0 && segments && segments.length > 0) {
+      lastLoadedSegmentIndexRef.current = -1;
     }
-    
-    // 基于当前cues的时间范围，计算已加载的segment索引
-    // 如果cues为空，则没有已加载的segment
-    if (!cues || cues.length === 0) {
-      loadedSegmentIndicesRef.current.clear();
-      return;
-    }
-    
-    // 找到cues中的最大时间戳
-    const maxCueTime = Math.max(...cues.map(cue => cue.end_time || 0));
-    
-    // 根据时间戳，找到对应的segment索引
-    // segment的时间范围：start_time <= cueTime < end_time
-    const loadedIndices = new Set();
-    segments.forEach(segment => {
-      // 如果cues的最大时间戳 >= segment的start_time，说明这个segment的字幕已经加载
-      // 并且segment状态为completed
-      if (segment.status === 'completed' && maxCueTime >= segment.start_time) {
-        loadedIndices.add(segment.segment_index);
-      }
-    });
-    
-    loadedSegmentIndicesRef.current = loadedIndices;
-  }, [segments, cues]);
+  }, [cues, segments]);
 
   // 清理定时器（仅当使用内部滚动容器时）
   useEffect(() => {
@@ -1254,22 +1266,45 @@ export default function SubtitleList({
             字幕加载失败，错误原因：{subtitleLoadingError}，请重试
           </Typography>
           <IconButton
-            onClick={() => {
+            onClick={async () => {
               // 重新加载字幕
               setSubtitleLoadingState('loading');
               setSubtitleLoadingProgress(0);
               setSubtitleLoadingError(null);
               
               if (episodeId) {
-                // 重新触发加载
-                getCuesByEpisodeId(episodeId).then((cues) => {
-                  setCues(cues);
+                try {
+                  // 重置已加载的segment索引
+                  lastLoadedSegmentIndexRef.current = -1;
+                  
+                  let reloadedCues = [];
+                  
+                  if (segments && segments.length > 0) {
+                    // 有 segments 信息：只加载前3个已完成的segment的字幕
+                    const completedSegments = segments
+                      .filter(s => s.status === 'completed')
+                      .sort((a, b) => a.segment_index - b.segment_index)
+                      .slice(0, 3);
+                    
+                    if (completedSegments.length > 0) {
+                      const firstSegmentIndex = completedSegments[0].segment_index;
+                      const lastSegmentIndex = completedSegments[completedSegments.length - 1].segment_index;
+                      
+                      reloadedCues = await getCuesBySegmentRange(episodeId, firstSegmentIndex, lastSegmentIndex);
+                      lastLoadedSegmentIndexRef.current = lastSegmentIndex;
+                    }
+                  } else {
+                    // 没有 segments 信息：加载所有字幕（向后兼容）
+                    reloadedCues = await getCuesByEpisodeId(episodeId);
+                  }
+                  
+                  setCues(reloadedCues);
                   setSubtitleLoadingState(null);
                   setSubtitleLoadingProgress(0);
-                }).catch((error) => {
+                } catch (error) {
                   setSubtitleLoadingState('error');
                   setSubtitleLoadingError(error.response?.data?.detail || error.message || '字幕加载失败，请重试');
-                });
+                }
               }
             }}
             aria-label="重试"

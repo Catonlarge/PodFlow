@@ -1,5 +1,15 @@
 #性能问题
-- 字幕是异步识别的，一个音频的字幕分段被识别完了，也异步加载，先加载前3个segment的字幕，如果后面还有segment，等到用户的滚动屏幕到底部，再加载下一个字幕，不要一次性全部加载到当前页面；
+- [x] **字幕分批加载优化** - 已完成 ✅
+  - 问题描述：字幕是异步识别的，一个音频的字幕分段被识别完了，也异步加载，先加载前3个segment的字幕，如果后面还有segment，等到用户的滚动屏幕到底部，再加载下一个字幕，不要一次性全部加载到当前页面
+  - 实现方案：
+    - 后端新增 `/api/episodes/{episode_id}/cues` 端点，支持按 segment_index 范围查询字幕
+    - 前端初始加载时只加载前3个已完成的segment的字幕
+    - 滚动到底部时追加加载下一个segment的字幕
+  - 完成时间：2025-12-28
+  - 相关文件：
+    - `backend/app/api.py` - 新增按segment范围查询字幕的API端点
+    - `frontend/src/services/subtitleService.js` - 新增 `getCuesBySegmentRange` 函数
+    - `frontend/src/components/subtitles/SubtitleList.jsx` - 修改字幕加载逻辑
 
 #UI/UX问题
 - [ ] **笔记边栏展开/收缩时字幕容器抖动问题** - 优先级 P1
