@@ -1,43 +1,11 @@
 /**
  * AICard 组件
  * 
- * TODO: 根据PRD 6.2.4.e 实现AI查询卡片
- * 
  * 功能描述：
  * - 显示AI查询结果卡片
  * - 独立数据流，不依赖其他组件状态
  * - 支持流式输出显示
- * - 支持展开/收起、复制结果等操作
- * 
- * 实现计划：
- * - 接收查询的文本内容（从 SelectionMenu 传入）
- * - 调用后端AI查询接口（后续实现）
- * - 流式显示查询结果（使用 mock 数据模拟流式输出效果）
- * - 卡片定位逻辑（根据划线位置动态计算）
- * - 卡片运动规则（向上/向下增长，水平对齐）
- * - 标题栏固定（包含AI查询图标、标题、笔记图标）
- * - 内容区域可滚动（最大高度为屏幕一半）
- * 
- * 卡片样式（PRD 6.2.4.e）：
- * - 固定宽度：420px
- * - 最小高度：40px
- * - 最大高度：用户屏幕的一半
- * - 标题栏固定，内容区域可滚动
- * - 标题栏左侧：AI查询图标（loading/完成）和标题"AI查询"
- * - 标题栏右侧：笔记图标
- * 
- * 卡片定位规则（PRD 6.2.4.e）：
- * - 垂直方向：
- *   - 如果划线位置在屏幕的上1/2处，默认在"划线源"下方10px处悬浮展示
- *   - 如果划线位置在屏幕的下1/2处，默认在"划线源"上方10px处悬浮展示
- *   - 卡片增长时，需要调整位置确保内容完整可见
- * - 水平方向：
- *   - 默认与划线源中心对齐
- *   - 如果420px的卡片超出屏幕，则调整位置以完整展示
- * 
- * 卡片退出逻辑（PRD 6.2.4.e.viii）：
- * - 点击卡片外的屏幕任何地方，卡片消失
- * - 滚动屏幕把"划线源"滚动到屏幕之外，卡片消失
+ * - 支持智能定位、添加到笔记等操作
  * 
  * 相关PRD：
  * - PRD 6.2.4.e: 用户点击"查询"
@@ -45,7 +13,341 @@
  * @module components/subtitles/AICard
  */
 
-// TODO: 实现此组件
-export default function AICard() {
-  return null;
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import {
+  Card,
+  CardHeader,
+  CardContent,
+  IconButton,
+  Typography,
+  Box,
+  CircularProgress,
+  Portal,
+} from '@mui/material';
+import { CheckCircle, Note as NoteIcon } from '@mui/icons-material';
+
+/**
+ * AICard 组件
+ * 
+ * @param {Object} props
+ * @param {Object} props.anchorPosition - 划线源的位置信息（包含 top, left, right, bottom，或 x, y）
+ * @param {React.RefObject} [props.anchorElementRef] - 划线源 DOM 元素引用（可选，用于 IntersectionObserver 检测滚动消失）
+ * @param {string} props.queryText - 用户查询的文本（划线内容）
+ * @param {Object} props.responseData - AI 返回的结构化数据
+ * @param {string} props.responseData.type - 类型：'word' | 'phrase' | 'sentence'
+ * @param {Object} props.responseData.content - 内容对象
+ * @param {boolean} props.isLoading - 是否正在加载（显示 loading 状态）
+ * @param {Function} props.onAddToNote - 添加到笔记回调 (responseData, queryId) => void
+ * @param {Function} props.onClose - 关闭卡片回调 () => void
+ * @param {number} [props.queryId] - 查询 ID（可选，用于添加到笔记时传递）
+ */
+export default function AICard({
+  anchorPosition,
+  anchorElementRef,
+  queryText,
+  responseData,
+  isLoading,
+  onAddToNote,
+  onClose,
+  queryId,
+}) {
+  const cardRef = useRef(null);
+  const [cardPosition, setCardPosition] = useState({ top: 0, left: 0 });
+
+  /**
+   * 计算卡片位置
+   */
+  const calculateCardPosition = useCallback((anchorPos) => {
+    if (!anchorPos) return { top: 0, left: 0 };
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const cardWidth = 420;
+    const offset = 10; // 10px 间距
+
+    // 处理 anchorPosition 格式（可能是 {top, left, right, bottom} 或 {x, y}）
+    let anchorTop, anchorLeft, anchorRight, anchorBottom;
+    
+    if ('top' in anchorPos && 'left' in anchorPos) {
+      anchorTop = anchorPos.top;
+      anchorLeft = anchorPos.left;
+      anchorRight = anchorPos.right || anchorPos.left + 100; // 默认宽度
+      anchorBottom = anchorPos.bottom || anchorPos.top + 50; // 默认高度
+    } else if ('x' in anchorPos && 'y' in anchorPos) {
+      // 兼容 {x, y} 格式（从 SelectionMenu 传入）
+      anchorTop = anchorPos.y - 25; // 估算高度
+      anchorBottom = anchorPos.y + 25;
+      anchorLeft = anchorPos.x - 50; // 估算宽度
+      anchorRight = anchorPos.x + 50;
+    } else {
+      return { top: 0, left: 0 };
+    }
+
+    // 计算锚点中心
+    const anchorCenterX = anchorLeft + (anchorRight - anchorLeft) / 2;
+    const anchorCenterY = anchorTop + (anchorBottom - anchorTop) / 2;
+
+    // 垂直方向定位
+    let top;
+    const isUpperHalf = anchorCenterY < viewportHeight / 2;
+    
+    if (isUpperHalf) {
+      // 划线位置在屏幕上半部分，卡片显示在下方
+      top = anchorBottom + offset;
+    } else {
+      // 划线位置在屏幕下半部分，卡片显示在上方（需要估算卡片高度）
+      const estimatedCardHeight = 200; // 估算初始高度
+      top = anchorTop - estimatedCardHeight - offset;
+      // 如果上方空间不够，调整为下方
+      if (top < 0) {
+        top = anchorBottom + offset;
+      }
+    }
+
+    // 水平方向定位（与划线源中心对齐）
+    let left = anchorCenterX - cardWidth / 2;
+
+    // 检查屏幕边界
+    if (left < offset) {
+      left = offset; // 左边不够用，往右挪动
+    } else if (left + cardWidth > viewportWidth - offset) {
+      left = viewportWidth - cardWidth - offset; // 右边不够用，往左挪动
+    }
+
+    return { top, left };
+  }, []);
+
+  /**
+   * 更新卡片位置
+   */
+  useEffect(() => {
+    if (!anchorPosition) return;
+
+    const updatePosition = () => {
+      const position = calculateCardPosition(anchorPosition);
+      setCardPosition(position);
+    };
+
+    // 使用 requestAnimationFrame 确保 DOM 已经渲染
+    if (cardRef.current) {
+      updatePosition();
+    } else {
+      requestAnimationFrame(updatePosition);
+    }
+
+    // 监听窗口大小变化
+    const handleResize = () => {
+      updatePosition();
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [anchorPosition, calculateCardPosition]);
+
+
+  /**
+   * 点击外部区域关闭
+   */
+  useEffect(() => {
+    if (!anchorPosition) return;
+
+    const handleClickOutside = (event) => {
+      if (cardRef.current && !cardRef.current.contains(event.target)) {
+        onClose();
+      }
+    };
+
+    // 使用 mousedown 而不是 click，避免与按钮点击冲突
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [anchorPosition, onClose]);
+
+  /**
+   * 滚动划线源到屏幕外消失（使用 IntersectionObserver）
+   */
+  useEffect(() => {
+    if (!anchorElementRef || !anchorElementRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0].isIntersecting) {
+          onClose();
+        }
+      },
+      { threshold: 0 }
+    );
+
+    observer.observe(anchorElementRef.current);
+    return () => observer.disconnect();
+  }, [anchorElementRef, onClose]);
+
+  /**
+   * 处理添加到笔记
+   */
+  const handleAddToNote = useCallback(() => {
+    if (onAddToNote && responseData) {
+      onAddToNote(responseData, queryId);
+      onClose();
+    }
+  }, [onAddToNote, responseData, queryId, onClose]);
+
+  /**
+   * 渲染内容（根据 type 类型）
+   */
+  const renderContent = useCallback(() => {
+    if (!responseData || !responseData.content) {
+      return null;
+    }
+
+    const { type, content } = responseData;
+
+    if (type === 'word' || type === 'phrase') {
+      return (
+        <Box>
+          {content.phonetic && (
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              发音：{content.phonetic}
+            </Typography>
+          )}
+          {content.definition && (
+            <Typography variant="body1" sx={{ mb: 1, fontWeight: 'medium' }}>
+              {content.definition}
+            </Typography>
+          )}
+          {content.explanation && (
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+              {content.explanation}
+            </Typography>
+          )}
+        </Box>
+      );
+    } else if (type === 'sentence') {
+      return (
+        <Box>
+          {content.translation && (
+            <Typography variant="body1" sx={{ mb: 2, fontWeight: 'medium' }}>
+              {content.translation}
+            </Typography>
+          )}
+          {content.highlight_vocabulary && content.highlight_vocabulary.length > 0 && (
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>
+                难点词汇：
+              </Typography>
+              {content.highlight_vocabulary.map((vocab, index) => (
+                <Typography key={index} variant="body2" sx={{ mb: 0.5 }}>
+                  <strong>{vocab.term}</strong>: {vocab.definition}
+                </Typography>
+              ))}
+            </Box>
+          )}
+        </Box>
+      );
+    }
+
+    return null;
+  }, [responseData]);
+
+  // 如果 anchorPosition 为 null，不渲染
+  if (!anchorPosition) {
+    return null;
+  }
+
+  return (
+    <Portal>
+      <Card
+        ref={cardRef}
+        data-testid="ai-card"
+        sx={{
+          position: 'fixed',
+          top: `${cardPosition.top}px`,
+          left: `${cardPosition.left}px`,
+          width: '420px',
+          minHeight: '40px',
+          maxHeight: '50vh',
+          zIndex: 1400, // 比 SelectionMenu 更高（1300）
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: 3,
+        }}
+      >
+        {/* 标题栏（固定） */}
+        <CardHeader
+          avatar={
+            isLoading ? (
+              <CircularProgress size={24} />
+            ) : (
+              <CheckCircle
+                data-testid="ai-card-complete-icon"
+                sx={{
+                  color: 'success.main',
+                  fontSize: 28,
+                }}
+              />
+            )
+          }
+          title={
+            <Typography variant="h6" component="div">
+              AI查询
+            </Typography>
+          }
+          action={
+            !isLoading && responseData && (
+              <IconButton
+                aria-label="添加到笔记"
+                onClick={handleAddToNote}
+                sx={{
+                  color: 'grey.600',
+                  '&:hover': {
+                    backgroundColor: 'grey.100',
+                  },
+                  '&:active': {
+                    backgroundColor: 'grey.200',
+                  },
+                }}
+              >
+                <NoteIcon />
+              </IconButton>
+            )
+          }
+          sx={{
+            position: 'sticky',
+            top: 0,
+            backgroundColor: 'white',
+            zIndex: 1,
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            py: 1,
+          }}
+        />
+
+        {/* 内容区域（可滚动） */}
+        <CardContent
+          sx={{
+            flex: 1,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            maxHeight: 'calc(50vh - 64px)', // 减去标题栏高度
+            py: 1.5,
+            '&:last-child': {
+              pb: 1.5,
+            },
+          }}
+        >
+          {isLoading ? (
+            <Typography variant="body2" color="text.secondary">
+              正在查询中...
+            </Typography>
+          ) : responseData ? (
+            renderContent()
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              暂无结果
+            </Typography>
+          )}
+        </CardContent>
+      </Card>
+    </Portal>
+  );
 }
