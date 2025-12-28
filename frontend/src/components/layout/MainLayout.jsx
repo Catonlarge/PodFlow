@@ -293,10 +293,14 @@ export default function MainLayout({
     });
   }, [cues]);
 
+  // 笔记删除触发器（用于触发 SubtitleList 刷新 highlights）
+  const [noteDeleteTrigger, setNoteDeleteTrigger] = useState(0);
+  
   // 处理笔记删除
   const handleNoteDelete = useCallback((noteId) => {
     // 删除笔记后，NoteSidebar 内部会自动刷新列表
-    // 这里可以添加额外的清理逻辑（如清除缓存）
+    // 触发 SubtitleList 刷新 highlights
+    setNoteDeleteTrigger(prev => prev + 1);
     console.log('[MainLayout] 笔记删除:', noteId);
   }, []);
 
@@ -492,6 +496,7 @@ export default function MainLayout({
             segments={segments}
             onHighlightClick={handleHighlightClick}
             onNoteCreate={handleNoteCreate}
+            noteDeleteTrigger={noteDeleteTrigger}
           />
         </Box>
 

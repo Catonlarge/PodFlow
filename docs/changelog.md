@@ -4,6 +4,25 @@
 
 ---
 
+## [2025-01-28] [fix] - 修复删除笔记卡片时对应的划线未被删除的问题
+
+**变更内容**：
+- **后端删除逻辑** (`backend/app/api.py`)：
+  - 在删除笔记时，检查对应的 highlight 是否还有其他关联的 notes
+  - 如果没有其他 notes，自动删除对应的 highlight
+  - 确保删除笔记时，对应的划线也会被正确删除
+- **前端刷新机制** (`frontend/src/components/layout/MainLayout.jsx`, `frontend/src/components/subtitles/SubtitleList.jsx`)：
+  - 在 MainLayout 中添加 `noteDeleteTrigger` 状态，当笔记删除时触发更新
+  - 在 SubtitleList 中监听 `noteDeleteTrigger` 变化，触发 highlights 列表重新加载
+  - 确保删除笔记后，字幕中的划线能够及时从 UI 中移除
+
+**技术要点**：
+- 后端删除笔记时检查并清理孤立的 highlight 记录
+- 前端通过触发器机制确保 SubtitleList 在笔记删除后刷新 highlights 状态
+- 保持前后端数据一致性，避免出现无笔记对应的划线残留
+
+---
+
 ## [2025-01-28] [fix] - 修复笔记卡片在页面放大时消失或被隐藏的问题
 
 **变更内容**：

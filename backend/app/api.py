@@ -1344,11 +1344,30 @@ async def delete_note(
     if not note:
         raise HTTPException(status_code=404, detail=f"Note {note_id} 不存在")
     
+    # 保存 highlight_id，用于后续检查是否需要删除 highlight
+    highlight_id = note.highlight_id
+    
     # 删除 Note（级联删除由数据库处理）
     db.delete(note)
     db.commit()
     
-    logger.info(f"删除了 Note (id={note_id})")
+    # 检查这个 highlight 是否还有其他关联的 notes
+    # 如果没有其他 notes 了，删除对应的 highlight
+    remaining_notes_count = db.query(Note).filter(Note.highlight_id == highlight_id).count()
+    
+    if remaining_notes_count == 0:
+        # 没有其他 notes 了，删除对应的 highlight
+        highlight = db.query(Highlight).filter(Highlight.id == highlight_id).first()
+        if highlight:
+            # 注意：这里只删除单个 highlight，不考虑 highlight_group_id
+            # 因为同组的其他 highlight 可能有自己的 notes，不应该被删除
+            db.delete(highlight)
+            db.commit()
+            logger.info(f"删除了 Note (id={note_id}) 和关联的 Highlight (id={highlight_id})，因为没有其他 notes")
+        else:
+            logger.warning(f"删除了 Note (id={note_id})，但找不到对应的 Highlight (id={highlight_id})")
+    else:
+        logger.info(f"删除了 Note (id={note_id})，Highlight (id={highlight_id}) 仍有 {remaining_notes_count} 个关联的 notes")
     
     return {
         "success": True

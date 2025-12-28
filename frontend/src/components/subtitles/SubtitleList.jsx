@@ -42,6 +42,7 @@ import AICard from './AICard';
  * @param {string} [props.transcriptionStatus] - 转录状态（pending/processing/completed/failed），用于在识别完成后触发字幕重新加载
  * @param {Array} [props.segments] - Segment 状态数组，用于显示底部状态提示
  * @param {Function} [props.onNoteCreate] - 创建笔记成功后的回调函数 () => void
+ * @param {number} [props.noteDeleteTrigger] - 笔记删除触发器，当值变化时触发 highlights 刷新
  */
 export default function SubtitleList({
   cues: propsCues,
@@ -57,6 +58,7 @@ export default function SubtitleList({
   transcriptionStatus,
   segments = [],
   onNoteCreate,
+  noteDeleteTrigger = 0,
 }) {
   const [cues, setCues] = useState(propsCues || []);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -654,7 +656,7 @@ export default function SubtitleList({
   // 记录已加载 highlights 的 episodeId，避免重复加载
   const loadedHighlightsEpisodeIdRef = useRef(null);
   
-  // 加载已有 highlights（当 episodeId 变化时）
+  // 加载已有 highlights（当 episodeId 变化时，或 noteDeleteTrigger 变化时）
   useEffect(() => {
     // 如果使用 props 传入的 highlights，不加载
     if (highlights && highlights.length > 0) {
@@ -666,7 +668,12 @@ export default function SubtitleList({
       return;
     }
     
-    // 如果已经加载过这个 episodeId 的 highlights，不重复加载
+    // 如果 noteDeleteTrigger 变化，重置加载标记以强制重新加载
+    if (noteDeleteTrigger > 0) {
+      loadedHighlightsEpisodeIdRef.current = null;
+    }
+    
+    // 如果已经加载过这个 episodeId 的 highlights，且没有刷新触发，不重复加载
     if (loadedHighlightsEpisodeIdRef.current === episodeId) {
       return;
     }
@@ -701,7 +708,7 @@ export default function SubtitleList({
         // 其他错误也保持标记，避免频繁重试
         // 不显示错误提示，避免干扰用户（highlights 加载失败不影响主要功能）
       });
-  }, [episodeId]); // 移除 highlights 依赖，避免因数组引用变化导致无限循环
+  }, [episodeId, noteDeleteTrigger]); // 添加 noteDeleteTrigger 依赖，当笔记删除时触发刷新
 
   // 监听转录状态变化：当状态变为 completed 时，重新加载字幕；当状态变为 failed 时，显示错误提示
   useEffect(() => {
