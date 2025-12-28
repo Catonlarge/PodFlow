@@ -33,11 +33,14 @@ export default function EpisodePage() {
   
   // 本地 UI 状态（弹窗开关）
   const [isModalOpen, setIsModalOpen] = useState(false);
+  // 本地状态：用于在 upload 开始前立即显示 Overlay（避免闪烁）
+  const [pendingTranscription, setPendingTranscription] = useState(false);
 
   // 解构状态以便使用
   const { episode, segments, loading, error, audioUrl, processing, episodeId } = state;
-  const { retryFetch } = actions;
+  const { retryFetch, togglePause, retryTranscription } = actions;
 
+  // ========== 所有 Hooks 必须在条件返回之前调用 ==========
   // 首次打开逻辑：如果没有 URL 参数且没有 localStorage，自动弹出文件选择弹窗
   useEffect(() => {
     if (!urlEpisodeId && !episodeId && !loading) {
@@ -47,6 +50,21 @@ export default function EpisodePage() {
       }
     }
   }, [urlEpisodeId, episodeId, loading]);
+  
+  // 关键修复：当 processing.status 变为 'recognize' 时，清除 pendingTranscription
+  // 但只有在当前 episodeId 匹配时才清除，避免影响旧的组件实例
+  useEffect(() => {
+    if (processing.status === 'recognize' && pendingTranscription) {
+      setPendingTranscription(false);
+    }
+  }, [processing.status, pendingTranscription, episodeId]);
+  
+  // 关键修复：当 episodeId 变化时，清除 pendingTranscription（避免旧状态影响新页面）
+  useEffect(() => {
+    if (pendingTranscription) {
+      setPendingTranscription(false);
+    }
+  }, [episodeId]);
 
   // --- UI 渲染分支 ---
 
@@ -174,19 +192,24 @@ export default function EpisodePage() {
         onClose={() => setIsModalOpen(false)}
         onConfirm={(files) => {
           setIsModalOpen(false);
+          // 关键修复：如果启用了字幕识别，立即设置 pendingTranscription，确保 Overlay 能立即显示
+          if (files.enableTranscription) {
+            setPendingTranscription(true);
+          }
           actions.upload(files);
         }}
       />
       
       {/* 统一的 Overlay 处理 (Upload 或 Recognize) */}
-      {processing.status && (
+      {/* 关键修复：如果 pendingTranscription 为 true，立即显示 Overlay，避免闪烁 */}
+      {(processing.status || pendingTranscription) && (
         <ProcessingOverlay
-          type={processing.status}
+          type={processing.status || 'recognize'}
           progress={processing.progress}
           error={processing.error}
           isPaused={processing.isPaused}
-          onRetry={processing.error ? actions.retryUpload : null}
-          onTogglePause={processing.status === 'recognize' ? actions.togglePause : null}
+          onRetry={processing.error ? (processing.status === 'recognize' ? retryTranscription : actions.retryUpload) : null}
+          onTogglePause={(processing.status || pendingTranscription) === 'recognize' ? togglePause : null}
         />
       )}
     </>
