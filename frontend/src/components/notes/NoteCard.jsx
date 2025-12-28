@@ -137,9 +137,6 @@ export default function NoteCard({ note, highlight, onUpdate, onDelete, onClick 
       }
       setDeleteModalOpen(false);
     } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteCard.jsx:144',message:'删除笔记失败',data:{noteId:note.id,error:error.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       console.error('[NoteCard] 删除笔记失败:', error);
     } finally {
       setIsDeleting(false);

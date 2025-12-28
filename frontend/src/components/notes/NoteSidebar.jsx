@@ -595,6 +595,9 @@ const NoteSidebar = forwardRef(function NoteSidebar({
                   ? `${position - 24}px` // PRD 390行：笔记卡片的顶部在划线源顶部上面24px
                   : 'auto';
                 
+                // 位置是否已计算完成（用于控制显示和动画）
+                const isPositionReady = position !== null && position !== undefined;
+                
                 // 动态计算z-index：如果这个笔记应该显示在最前面，使用更高的z-index
                 const isFrontNote = highlight && highlight.id === frontNoteHighlightId;
                 const cardZIndex = isFrontNote ? 1002 : 1001; // 最前面的笔记使用1002，其他使用1001
@@ -612,9 +615,12 @@ const NoteSidebar = forwardRef(function NoteSidebar({
                       maxWidth: '100%', // 确保不超出容器宽度
                       height: 'auto', // 确保容器高度只包含内容
                       maxHeight: '50vh', // 限制最大高度，与 NoteCard 的 maxHeight 保持一致
-                      transition: 'top 0.1s ease-out, z-index 0.1s ease-out', // 平滑的位置和z-index更新
+                      // 只有在位置已就绪时才应用 transition，避免从 auto 到具体值的动画
+                      transition: isPositionReady ? 'top 0.1s ease-out, z-index 0.1s ease-out' : 'none',
                       zIndex: cardZIndex, // 动态z-index：最前面的笔记使用1002，其他使用1001
                       overflow: 'visible', // 允许 NoteCard 内部的滚动条显示
+                      // 位置未就绪时隐藏，避免显示在错误位置
+                      visibility: isPositionReady ? 'visible' : 'hidden',
                     }}
                   >
                     <NoteCard
