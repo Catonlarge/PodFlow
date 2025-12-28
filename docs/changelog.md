@@ -4,6 +4,36 @@
 
 ---
 
+## [2025-12-28] [feat] - 实现 AI 查询卡片组件（Task 4.2）
+
+**变更内容**：
+- **AICard 组件实现** (`frontend/src/components/subtitles/AICard.jsx`)：
+  - 实现 AI 查询结果卡片组件，支持智能定位和内容渲染
+  - 智能定位逻辑：根据划线源位置自动调整卡片位置（垂直方向：上半部分显示在下方，下半部分显示在上方；水平方向：与划线源中心对齐，自动调整屏幕边界）
+  - 内容渲染：根据 type 类型（word/phrase/sentence）渲染不同内容格式
+  - 退出逻辑：点击外部区域消失，支持 IntersectionObserver 检测滚动消失（可选 anchorElementRef）
+  - 添加到笔记功能：点击笔记图标调用回调，传递 responseData 和 queryId
+  - Loading 状态：显示 CircularProgress 转圈图标
+  - 完成状态：显示 CheckCircle 打勾图标（绿色）
+  - 使用 MUI 组件（Card、CardHeader、CardContent、Portal）
+  - 固定宽度 420px，最大高度 50vh，内容区域可滚动
+
+- **测试用例** (`frontend/src/components/subtitles/__tests__/AICard.test.jsx`)：
+  - 19 个测试用例全部通过
+  - 基础渲染测试（标题栏、内容区域、Loading/完成状态）
+  - 内容渲染测试（word/phrase/sentence 类型）
+  - 定位逻辑测试（垂直/水平方向、屏幕边界调整）
+  - 退出逻辑测试（点击外部消失）
+  - 添加到笔记功能测试
+
+**技术要点**：
+- 使用 Portal 实现悬浮显示
+- 使用 useMemo 和 useCallback 优化性能
+- 兼容 anchorPosition 格式（{top, left, right, bottom} 或 {x, y}）
+- 组件接口已准备好，可在 Task 4.3 中与 SubtitleList 集成
+
+---
+
 ## [2025-01-XX] [fix] - 修复 AI 服务以适配新的 Google GenAI SDK API
 
 **变更内容**：
