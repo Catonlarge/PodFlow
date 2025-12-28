@@ -69,7 +69,7 @@ class TestNoteAPI:
         )
         
         # Assert
-        assert response.status_code == 200
+        assert response.status_code == 201  # 创建操作返回 201
         data = response.json()
         assert "id" in data
         assert "created_at" in data
@@ -132,7 +132,7 @@ class TestNoteAPI:
         )
         
         # Assert
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert "id" in data
         
@@ -178,13 +178,15 @@ class TestNoteAPI:
         db_session.commit()
         db_session.refresh(highlight)
         
+        import json
+        response_json = {"type": "word", "content": {"definition": "问候", "explanation": "A greeting."}}
         ai_query = AIQueryRecord(
             highlight_id=highlight.id,
             query_text="Hello",
             context_text="Hello world.",
-            response_text="A greeting.",
-            query_type="word_translation",
-            provider="gpt-3.5",
+            response_text=json.dumps(response_json),
+            detected_type="word",
+            provider="gemini-2.5-flash",
             status="completed"
         )
         db_session.add(ai_query)
@@ -192,19 +194,23 @@ class TestNoteAPI:
         db_session.refresh(ai_query)
         
         # Act: POST /api/notes (note_type = "ai_card", origin_ai_query_id 提供)
+        # Note 的 content 格式化为可读文本（从 JSON 提取）
+        parsed_response = json.loads(ai_query.response_text)
+        note_content = f"{parsed_response['content']['definition']}\n{parsed_response['content']['explanation']}"
+        
         response = client.post(
             "/api/notes",
             json={
                 "episode_id": episode.id,
                 "highlight_id": highlight.id,
-                "content": ai_query.response_text,
+                "content": note_content,  # ⭐ 格式化的文本内容
                 "note_type": "ai_card",
                 "origin_ai_query_id": ai_query.id
             }
         )
         
         # Assert
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert "id" in data
         
@@ -212,7 +218,7 @@ class TestNoteAPI:
         note = db_session.query(Note).filter_by(id=data["id"]).first()
         assert note is not None
         assert note.note_type == "ai_card"
-        assert note.content == ai_query.response_text
+        assert note.content == note_content  # ⭐ 格式化的文本内容
         assert note.origin_ai_query_id == ai_query.id
     
     def test_create_note_with_invalid_highlight(self, client, db_session):
@@ -243,6 +249,59 @@ class TestNoteAPI:
         # Assert
         assert response.status_code == 404
         assert "highlight" in response.json()["detail"].lower()
+    
+    def test_create_note_underline_with_content_fails(self, client, db_session):
+        """测试创建 underline 类型笔记时不能有 content"""
+        # Arrange: 创建 Episode、TranscriptCue 和 Highlight
+        episode = Episode(
+            title="Test Episode",
+            file_hash="test_hash_006_underline_content",
+            duration=180.0,
+            transcription_status="completed"
+        )
+        db_session.add(episode)
+        db_session.commit()
+        db_session.refresh(episode)
+        
+        cue = TranscriptCue(
+            episode_id=episode.id,
+            start_time=0.0,
+            end_time=5.0,
+            speaker="Speaker1",
+            text="Hello world."
+        )
+        db_session.add(cue)
+        db_session.commit()
+        db_session.refresh(cue)
+        
+        highlight = Highlight(
+            episode_id=episode.id,
+            cue_id=cue.id,
+            start_offset=0,
+            end_offset=5,
+            highlighted_text="Hello",
+            color="#9C27B0"
+        )
+        db_session.add(highlight)
+        db_session.commit()
+        db_session.refresh(highlight)
+        
+        # Act: POST /api/notes (note_type = "underline", content 不为空)
+        response = client.post(
+            "/api/notes",
+            json={
+                "episode_id": episode.id,
+                "highlight_id": highlight.id,
+                "content": "This should not be allowed",  # ⚠️ underline 类型不能有 content
+                "note_type": "underline",
+                "origin_ai_query_id": None
+            }
+        )
+        
+        # Assert: 应该返回 400 错误
+        assert response.status_code == 400
+        assert "underline" in response.json()["detail"].lower()
+        assert "content" in response.json()["detail"].lower()
     
     def test_create_note_with_invalid_episode(self, client, db_session):
         """测试 highlight_id 不属于该 episode_id"""
@@ -360,7 +419,7 @@ class TestNoteAPI:
         )
         
         # Assert
-        assert response.status_code == 200
+        assert response.status_code == 200  # 更新操作返回 200
         data = response.json()
         assert data["success"] is True
         
@@ -435,7 +494,7 @@ class TestNoteAPI:
         response = client.delete(f"/api/notes/{note_id}")
         
         # Assert
-        assert response.status_code == 200
+        assert response.status_code == 200  # 删除操作返回 200
         data = response.json()
         assert data["success"] is True
         
@@ -530,7 +589,7 @@ class TestNoteAPI:
         response = client.get(f"/api/episodes/{episode.id}/notes")
         
         # Assert
-        assert response.status_code == 200
+        assert response.status_code == 200  # GET 操作返回 200
         data = response.json()
         assert isinstance(data, list)
         assert len(data) == 3  # 包含所有类型的笔记（前端负责过滤 underline）
@@ -566,7 +625,7 @@ class TestNoteAPI:
         response = client.get(f"/api/episodes/{episode.id}/notes")
         
         # Assert
-        assert response.status_code == 200
+        assert response.status_code == 200  # GET 操作返回 200
         data = response.json()
         assert isinstance(data, list)
         assert len(data) == 0
@@ -616,23 +675,27 @@ class TestNoteAPI:
         db_session.commit()
         db_session.refresh(highlight)
         
+        import json
+        response_json = {"type": "word", "content": {"definition": "问候", "explanation": "A greeting."}}
         ai_query = AIQueryRecord(
             highlight_id=highlight.id,
             query_text="Hello",
             context_text="Hello world.",
-            response_text="A greeting.",
-            query_type="word_translation",
-            provider="gpt-3.5",
+            response_text=json.dumps(response_json),
+            detected_type="word",
+            provider="gemini-2.5-flash",
             status="completed"
         )
         db_session.add(ai_query)
         db_session.commit()
         db_session.refresh(ai_query)
         
+        # Note 的 content 格式化为可读文本（从 JSON 提取）
+        note_content = f"{response_json['content']['definition']}\n{response_json['content']['explanation']}"
         note = Note(
             episode_id=episode.id,
             highlight_id=highlight.id,
-            content=ai_query.response_text,
+            content=note_content,
             note_type="ai_card",
             origin_ai_query_id=ai_query.id
         )
@@ -647,7 +710,7 @@ class TestNoteAPI:
         response = client.delete(f"/api/notes/{note_id}")
         
         # Assert
-        assert response.status_code == 200
+        assert response.status_code == 200  # 删除操作返回 200
         
         # 验证 Note 已删除
         deleted_note = db_session.query(Note).filter_by(id=note_id).first()

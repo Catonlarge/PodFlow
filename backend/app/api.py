@@ -1235,6 +1235,13 @@ async def create_note(
     if not episode:
         raise HTTPException(status_code=404, detail=f"Episode {note_data.episode_id} 不存在")
     
+    # 验证 underline 类型时 content 必须为空
+    if note_data.note_type == "underline" and note_data.content:
+        raise HTTPException(
+            status_code=400,
+            detail="underline 类型的笔记 content 必须为空"
+        )
+    
     # 如果 origin_ai_query_id 提供，验证其存在
     if note_data.origin_ai_query_id is not None:
         ai_query = db.query(AIQueryRecord).filter(AIQueryRecord.id == note_data.origin_ai_query_id).first()
@@ -1267,10 +1274,13 @@ async def create_note(
         f"episode_id={note.episode_id}, highlight_id={note.highlight_id})"
     )
     
-    return {
-        "id": note.id,
-        "created_at": note.created_at.isoformat() + "Z" if note.created_at else None
-    }
+    return JSONResponse(
+        status_code=201,
+        content={
+            "id": note.id,
+            "created_at": note.created_at.isoformat() + "Z" if note.created_at else None
+        }
+    )
 
 
 @router.put("/notes/{note_id}")
@@ -1296,9 +1306,8 @@ async def update_note(
     if not note:
         raise HTTPException(status_code=404, detail=f"Note {note_id} 不存在")
     
-    # 更新 content 和 updated_at
+    # 更新 content（updated_at 由数据库自动更新）
     note.content = note_data.content
-    note.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(note)
     
@@ -1319,7 +1328,7 @@ async def delete_note(
     
     说明:
     - 删除 Note 不会删除 AIQueryRecord（反向关联）
-    - 删除 Note 会级联删除关联的 Highlight（如果 Highlight 没有其他 Note）
+    - 删除 Highlight 会级联删除关联的 Note（级联删除由数据库处理）
     
     参数:
         note_id: Note ID
