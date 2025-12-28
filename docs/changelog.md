@@ -169,6 +169,23 @@
 - 使用 `contain: 'layout style'` 避免绝对定位子元素影响父容器高度
 - 位置计算需要相对于正确的父容器，且不需要累加 scrollTop（因为都在同一个滚动上下文）
 
+## [2025-01-XX] [fix] - 修复重叠笔记卡片的z-index管理问题
+
+**变更内容**：
+- **实现动态z-index管理** (`frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 添加 `frontNoteHighlightId` 状态来跟踪当前应该显示在最前面的笔记卡片
+  - 根据该状态动态计算每个笔记卡片的z-index（最前面的使用1002，其他使用1001）
+  - 添加 `bringNoteToFront` 方法，通过ref暴露给父组件，用于提升指定笔记卡片的z-index
+  - 在点击笔记卡片时，自动提升该笔记卡片的z-index
+
+- **点击划线源时提升对应笔记卡片** (`frontend/src/components/layout/MainLayout.jsx`)：
+  - 在 `handleHighlightClick` 中调用 `bringNoteToFront` 方法，确保点击划线源时对应的笔记卡片显示在最前面
+
+**技术要点**：
+- 使用状态管理来跟踪最前面的笔记卡片，避免直接操作DOM
+- 通过ref暴露方法，实现组件间的通信
+- 动态z-index确保重叠的笔记卡片能够正确显示层级关系
+
 ## [2025-01-XX] [fix] - 修复笔记卡片外层容器高度异常和位置计算问题
 
 **变更内容**：

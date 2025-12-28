@@ -225,7 +225,12 @@ export default function MainLayout({
       return;
     }
     
-    // 1. 触发笔记卡片闪烁效果（双向链接：点击划线 → 右侧笔记闪烁高亮）
+    // 1. 提升对应笔记卡片到最前面（z-index管理）
+    if (noteSidebarRef.current && noteSidebarRef.current.bringNoteToFront) {
+      noteSidebarRef.current.bringNoteToFront(highlight.id);
+    }
+    
+    // 2. 触发笔记卡片闪烁效果（双向链接：点击划线 → 右侧笔记闪烁高亮）
     const noteSidebarContainer = noteSidebarRef.current.getContainer 
       ? noteSidebarRef.current.getContainer() 
       : noteSidebarRef.current;

@@ -113,6 +113,10 @@ const NoteSidebar = forwardRef(function NoteSidebar({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   
+  // 最前面的笔记卡片（用于z-index管理）
+  // 存储当前应该显示在最前面的笔记的highlight_id
+  const [frontNoteHighlightId, setFrontNoteHighlightId] = useState(null);
+  
   // 展开/收缩状态（如果外部提供则使用外部状态，否则内部管理）
   const [internalIsExpanded, setInternalIsExpanded] = useState(false);
   const isExpanded = externalIsExpanded !== undefined ? externalIsExpanded : internalIsExpanded;
@@ -388,6 +392,11 @@ const NoteSidebar = forwardRef(function NoteSidebar({
     return dateA - dateB;
   });
   
+  // 提升笔记卡片到最前面（通过highlight_id）
+  const bringNoteToFront = useCallback((highlightId) => {
+    setFrontNoteHighlightId(highlightId);
+  }, []);
+
   // 暴露 ref 给父组件（用于双向链接和刷新）
   // 必须在所有条件返回之前调用，确保 hooks 调用顺序一致
   useImperativeHandle(ref, () => ({
@@ -395,7 +404,9 @@ const NoteSidebar = forwardRef(function NoteSidebar({
     getContainer: () => noteSidebarRef.current,
     // 刷新笔记列表，供外部调用
     refreshNotes: refreshNotes,
-  }), [refreshNotes]);
+    // 提升笔记卡片到最前面（通过highlight_id）
+    bringNoteToFront: bringNoteToFront,
+  }), [refreshNotes, bringNoteToFront]);
   
   // 渲染加载状态（只在真正需要加载时显示，避免展开时的闪烁）
   // 如果数据已经加载过（loadedEpisodeIdRef.current === episodeId），就不显示 loading
@@ -584,6 +595,10 @@ const NoteSidebar = forwardRef(function NoteSidebar({
                   ? `${position - 24}px` // PRD 390行：笔记卡片的顶部在划线源顶部上面24px
                   : 'auto';
                 
+                // 动态计算z-index：如果这个笔记应该显示在最前面，使用更高的z-index
+                const isFrontNote = highlight && highlight.id === frontNoteHighlightId;
+                const cardZIndex = isFrontNote ? 1002 : 1001; // 最前面的笔记使用1002，其他使用1001
+                
                 return (
                   <Box
                     key={note.id}
@@ -597,15 +612,21 @@ const NoteSidebar = forwardRef(function NoteSidebar({
                       maxWidth: '100%', // 确保不超出容器宽度
                       height: 'auto', // 确保容器高度只包含内容
                       maxHeight: '50vh', // 限制最大高度，与 NoteCard 的 maxHeight 保持一致
-                      transition: 'top 0.1s ease-out', // 平滑的位置更新
-                      zIndex: 1001, // 确保笔记卡片在音频播放器（zIndex 1000）之上
+                      transition: 'top 0.1s ease-out, z-index 0.1s ease-out', // 平滑的位置和z-index更新
+                      zIndex: cardZIndex, // 动态z-index：最前面的笔记使用1002，其他使用1001
                       overflow: 'visible', // 允许 NoteCard 内部的滚动条显示
                     }}
                   >
                     <NoteCard
                       note={note}
                       highlight={highlight}
-                      onClick={() => onNoteClick?.(note, highlight)}
+                      onClick={() => {
+                        // 点击笔记卡片时，提升该笔记卡片的z-index
+                        if (highlight) {
+                          setFrontNoteHighlightId(highlight.id);
+                        }
+                        onNoteClick?.(note, highlight);
+                      }}
                       onUpdate={handleUpdateNote}
                       onDelete={() => handleDeleteNote(note.id)}
                     />
