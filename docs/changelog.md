@@ -4,6 +4,28 @@
 
 ---
 
+## [2025-01-28] [fix] - 修复关闭AI查询卡片时highlight未被删除的问题
+
+**变更内容**：
+- **关闭AICard时删除highlight** (`frontend/src/components/subtitles/SubtitleList.jsx`)：
+  - 在 `handleCloseAICard` 中，当用户关闭AI查询卡片（未保存为笔记）时，自动删除对应的highlight
+  - 支持单cue和跨cue划线的情况（通过 `highlight_group_id` 识别并删除整组）
+  - 调用后端API删除highlight，并从 `internalHighlights` 状态中移除，确保UI及时更新
+- **AI查询失败时删除highlight** (`frontend/src/components/subtitles/SubtitleList.jsx`)：
+  - 在AI查询失败的错误处理中，也添加了删除highlight的逻辑
+  - 确保即使查询失败，也不会留下无用的highlight记录
+
+**技术要点**：
+- 使用函数式更新获取最新的 `internalHighlights` 状态，避免闭包问题
+- 后端API会自动处理按组删除（如果highlight有 `highlight_group_id`，会删除整组）
+- 即使删除失败，也会继续关闭AICard，避免界面卡住
+- 保持前后端数据一致性，避免出现无笔记对应的划线残留
+
+**相关PRD**：
+- PRD 6.2.4: AI查询功能，确保临时查询不会留下永久划线
+
+---
+
 ## [2025-12-28] [fix] - 修复AI查询卡片未出现在划线源附近的问题
 
 **变更内容**：

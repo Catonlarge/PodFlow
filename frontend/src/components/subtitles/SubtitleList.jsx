@@ -445,7 +445,40 @@ export default function SubtitleList({
       setAiQueryError(errorMessage);
       setAiQueryErrorOpen(true);
       
-      // 关闭 AICard
+      // 关闭 AICard 并删除 highlight（如果已创建）
+      const errorHighlightId = aiCardHighlightIdRef.current;
+      
+      if (errorHighlightId) {
+        try {
+          // 使用函数式更新获取最新的 internalHighlights 状态，避免闭包问题
+          let highlightGroupId = null;
+          setInternalHighlights((prev) => {
+            // 从 internalHighlights 中找到对应的 highlight，获取 highlight_group_id
+            const highlightToDelete = prev.find(h => h.id === errorHighlightId);
+            highlightGroupId = highlightToDelete?.highlight_group_id;
+            // 先返回原状态，等 API 调用成功后再更新
+            return prev;
+          });
+          
+          // 调用 API 删除 highlight（后端会自动处理按组删除）
+          await highlightService.deleteHighlight(errorHighlightId);
+          
+          // 从 internalHighlights 状态中移除对应的 highlight(s)
+          setInternalHighlights((prev) => {
+            if (highlightGroupId) {
+              // 跨 cue 划线：删除整组
+              return prev.filter(h => h.highlight_group_id !== highlightGroupId);
+            } else {
+              // 单 cue 划线：只删除当前 highlight
+              return prev.filter(h => h.id !== errorHighlightId);
+            }
+          });
+        } catch (deleteError) {
+          console.error('[SubtitleList] AI 查询失败后删除 highlight 失败:', deleteError);
+          // 即使删除失败，也继续关闭 AICard
+        }
+      }
+      
       setAiCardState({
         isVisible: false,
         anchorPosition: null,
@@ -547,7 +580,41 @@ export default function SubtitleList({
   }, [episodeId, onNoteCreate]);
 
   // 处理关闭 AICard
-  const handleCloseAICard = useCallback(() => {
+  const handleCloseAICard = useCallback(async () => {
+    const currentHighlightId = aiCardHighlightIdRef.current;
+    
+    // 如果有 highlightId，删除对应的 highlight（包括跨 cue 的情况）
+    if (currentHighlightId) {
+      try {
+        // 使用函数式更新获取最新的 internalHighlights 状态，避免闭包问题
+        let highlightGroupId = null;
+        setInternalHighlights((prev) => {
+          // 从 internalHighlights 中找到对应的 highlight，获取 highlight_group_id
+          const highlightToDelete = prev.find(h => h.id === currentHighlightId);
+          highlightGroupId = highlightToDelete?.highlight_group_id;
+          // 先返回原状态，等 API 调用成功后再更新
+          return prev;
+        });
+        
+        // 调用 API 删除 highlight（后端会自动处理按组删除）
+        await highlightService.deleteHighlight(currentHighlightId);
+        
+        // 从 internalHighlights 状态中移除对应的 highlight(s)
+        setInternalHighlights((prev) => {
+          if (highlightGroupId) {
+            // 跨 cue 划线：删除整组
+            return prev.filter(h => h.highlight_group_id !== highlightGroupId);
+          } else {
+            // 单 cue 划线：只删除当前 highlight
+            return prev.filter(h => h.id !== currentHighlightId);
+          }
+        });
+      } catch (error) {
+        console.error('[SubtitleList] 删除 highlight 失败:', error);
+        // 即使删除失败，也继续关闭 AICard，避免界面卡住
+      }
+    }
+    
     setAiCardState({
       isVisible: false,
       anchorPosition: null,
