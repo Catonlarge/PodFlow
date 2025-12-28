@@ -326,12 +326,11 @@ const SubtitleRow = forwardRef(function SubtitleRow({
         border: isHighlighted ? '2px solid' : '2px solid transparent',
         borderColor: isHighlighted ? 'primary.main' : 'transparent',
         borderRadius: 1,
-        transition: 'background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, width 0.2s ease-in-out, max-width 0.2s ease-in-out', // 精确控制过渡属性，包括宽度
+        transition: 'background-color 0.2s ease-in-out, border-color 0.2s ease-in-out', // 移除 width 和 max-width 的过渡，避免与父容器宽度变化冲突
         boxSizing: 'border-box',
         maxWidth: '100%',
         width: '100%',
         overflow: 'hidden', // 防止内容超出容器
-        willChange: 'width, max-width', // 优化性能
       }}
       data-subtitle-id={cue.id}
       data-subtitle-index={index}
@@ -360,8 +359,7 @@ const SubtitleRow = forwardRef(function SubtitleRow({
           flexDirection: 'column',
           gap: showTranslation && cue.translation ? 1 : 0, // 8px gap when translation is shown
           overflow: 'hidden', // 防止内容超出
-          transition: 'flex 0.2s ease-in-out', // 添加过渡动画
-          willChange: 'flex', // 优化性能
+          // 移除 flex transition，避免在父容器宽度变化时产生延迟
         }}
       >
         {/* 英文字幕文本（支持单词级高亮和下划线） */}

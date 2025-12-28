@@ -483,8 +483,8 @@ export default function MainLayout({
             overflow: 'visible',
             position: 'relative',
             boxSizing: 'border-box',
-            transition: 'flex 0.2s ease-in-out, width 0.2s ease-in-out, max-width 0.2s ease-in-out', // 使用更快的过渡，只过渡相关属性
-            willChange: 'flex, width, max-width', // 优化性能
+            transition: 'flex 0.15s ease-out', // 只过渡 flex 属性，移除 width 和 max-width 的过渡以避免与 flex 布局计算冲突
+            willChange: 'flex', // 只优化 flex 属性
           }}
         >
           <SubtitleList 
@@ -523,10 +523,10 @@ export default function MainLayout({
             position: 'relative',
             boxSizing: 'border-box',
             zIndex: 1001, // 确保在音频播放器（zIndex 1000）之上，避免被遮罩覆盖
-            transition: 'flex 0.2s ease-in-out, width 0.2s ease-in-out, max-width 0.2s ease-in-out, opacity 0.15s ease-in-out', // 使用更快的过渡，opacity 更快
+            transition: 'flex 0.15s ease-out, opacity 0.15s ease-out', // 只过渡 flex 和 opacity，移除 width 和 max-width 的过渡以避免与 flex 布局计算冲突
             opacity: isNoteSidebarExpanded ? 1 : 0, // 收缩时透明度为0
             pointerEvents: isNoteSidebarExpanded ? 'auto' : 'none', // 收缩时禁用交互
-            willChange: 'flex, width, max-width, opacity', // 优化性能
+            willChange: 'flex, opacity', // 只优化 flex 和 opacity 属性
           }}
         >
           <NoteSidebar 
