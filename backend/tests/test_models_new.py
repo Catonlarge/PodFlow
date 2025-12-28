@@ -2167,13 +2167,15 @@ def test_note_three_types(db_session):
     db_session.commit()
     
     # 创建 AI 查询记录（用于 ai_card 类型）
+    import json
+    response_json = {"type": "word", "content": {"definition": "测试", "explanation": "AI generated explanation"}}
     ai_query = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
-        provider="gpt-3.5-turbo",
-        status="completed",
-        response_text="AI generated explanation"
+        response_text=json.dumps(response_json),
+        detected_type="word",
+        provider="gemini-2.5-flash",
+        status="completed"
     )
     db_session.add(ai_query)
     db_session.commit()
@@ -2535,7 +2537,7 @@ def test_note_query_by_type(db_session):
     
     episode = Episode(
         title="Test Episode",
-        file_hash="test_hash_note_query_type",
+        file_hash="test_hash_note_types",
         duration=300.0
     )
     db_session.add(episode)
@@ -2644,7 +2646,8 @@ def test_note_string_representation(db_session):
 # ==================== AIQueryRecord Model Tests ====================
 
 def test_ai_query_record_model_creation(db_session):
-    """测试 AIQueryRecord 模型的基本创建"""
+    """测试 AIQueryRecord 模型的基本创建（⭐ 优化：使用 JSON 格式和 detected_type）"""
+    import json
     from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
     
     # 创建测试数据
@@ -2675,14 +2678,23 @@ def test_ai_query_record_model_creation(db_session):
     db_session.add(highlight)
     db_session.commit()
     
-    # 创建 AI 查询记录
+    # 创建 AI 查询记录（Gemini 返回 JSON 格式）
+    response_json = {
+        "type": "word",
+        "content": {
+            "phonetic": "/tækˈsɒnəmi/",
+            "definition": "分类学；分类法",
+            "explanation": "生物学中用于分类和命名生物体的科学体系。"
+        }
+    }
+    
     ai_query = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="taxonomy",
         context_text="This is a taxonomy example. The study of classification.",
-        response_text="n. 分类学；分类法",
-        query_type="word_translation",
-        provider="gpt-3.5-turbo",
+        response_text=json.dumps(response_json),  # ⭐ 存储 JSON 字符串
+        detected_type="word",  # ⭐ 从 JSON 解析得到的类型
+        provider="gemini-2.5-flash",
         status="completed"
     )
     db_session.add(ai_query)
@@ -2693,16 +2705,21 @@ def test_ai_query_record_model_creation(db_session):
     assert ai_query.highlight_id == highlight.id
     assert ai_query.query_text == "taxonomy"
     assert ai_query.context_text == "This is a taxonomy example. The study of classification."
-    assert ai_query.response_text == "n. 分类学；分类法"
-    assert ai_query.query_type == "word_translation"
-    assert ai_query.provider == "gpt-3.5-turbo"
+    assert ai_query.response_text == json.dumps(response_json)  # ⭐ JSON 字符串
+    assert ai_query.detected_type == "word"  # ⭐ 检测到的类型
+    assert ai_query.provider == "gemini-2.5-flash"
     assert ai_query.status == "completed"
     assert ai_query.error_message is None
     assert ai_query.created_at is not None
+    
+    # 验证可以解析 JSON
+    parsed_response = json.loads(ai_query.response_text)
+    assert parsed_response["type"] == "word"
+    assert parsed_response["content"]["definition"] == "分类学；分类法"
 
 
 def test_ai_query_record_default_status(db_session):
-    """测试 AIQueryRecord 的默认状态为 processing"""
+    """测试 AIQueryRecord 的默认状态为 processing（⭐ 优化：移除 query_type）"""
     from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
     
     episode = Episode(
@@ -2732,12 +2749,11 @@ def test_ai_query_record_default_status(db_session):
     db_session.add(highlight)
     db_session.commit()
     
-    # 创建查询记录，不指定 status
+    # 创建查询记录，不指定 status（处理中状态）
     ai_query = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
-        provider="gpt-3.5-turbo"
+        provider="gemini-2.5-flash"
     )
     db_session.add(ai_query)
     db_session.commit()
@@ -2745,10 +2761,11 @@ def test_ai_query_record_default_status(db_session):
     # 验证默认状态
     assert ai_query.status == "processing"
     assert ai_query.response_text is None
+    assert ai_query.detected_type is None  # ⭐ 处理中时 detected_type 为空
 
 
 def test_ai_query_record_with_error(db_session):
-    """测试 AIQueryRecord 的失败场景（带错误信息）"""
+    """测试 AIQueryRecord 的失败场景（带错误信息）（⭐ 优化：移除 query_type）"""
     from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
     
     episode = Episode(
@@ -2782,8 +2799,7 @@ def test_ai_query_record_with_error(db_session):
     ai_query = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
-        provider="gpt-3.5-turbo",
+        provider="gemini-2.5-flash",
         status="failed",
         error_message="API rate limit exceeded"
     )
@@ -2794,10 +2810,12 @@ def test_ai_query_record_with_error(db_session):
     assert ai_query.status == "failed"
     assert ai_query.error_message == "API rate limit exceeded"
     assert ai_query.response_text is None
+    assert ai_query.detected_type is None  # ⭐ 失败时 detected_type 为空
 
 
 def test_ai_query_record_relationship_with_highlight(db_session):
-    """测试 AIQueryRecord 与 Highlight 的关系"""
+    """测试 AIQueryRecord 与 Highlight 的关系（⭐ 优化：移除 query_type，使用 detected_type）"""
+    import json
     from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
     
     episode = Episode(
@@ -2827,18 +2845,25 @@ def test_ai_query_record_relationship_with_highlight(db_session):
     db_session.add(highlight)
     db_session.commit()
     
-    # 创建两个查询记录
+    # 创建两个查询记录（不同 detected_type）
+    response_json1 = {"type": "word", "content": {"definition": "测试"}}
+    response_json2 = {"type": "phrase", "content": {"definition": "测试短语"}}
+    
     ai_query1 = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
-        provider="gpt-3.5-turbo"
+        response_text=json.dumps(response_json1),
+        detected_type="word",  # ⭐ 从 JSON 解析得到
+        provider="gemini-2.5-flash",
+        status="completed"
     )
     ai_query2 = AIQueryRecord(
         highlight_id=highlight.id,
-        query_text="test",
-        query_type="phrase_explanation",
-        provider="gpt-4"
+        query_text="test phrase",
+        response_text=json.dumps(response_json2),
+        detected_type="phrase",  # ⭐ 从 JSON 解析得到
+        provider="gemini-2.5-flash",
+        status="completed"
     )
     db_session.add_all([ai_query1, ai_query2])
     db_session.commit()
@@ -2849,10 +2874,14 @@ def test_ai_query_record_relationship_with_highlight(db_session):
     assert ai_query2 in highlight.ai_queries
     assert ai_query1.highlight == highlight
     assert ai_query2.highlight == highlight
+    
+    # 验证 detected_type
+    assert ai_query1.detected_type == "word"
+    assert ai_query2.detected_type == "phrase"
 
 
 def test_ai_query_record_cascade_delete_with_highlight(db_session):
-    """测试删除 Highlight 时级联删除 AIQueryRecord"""
+    """测试删除 Highlight 时级联删除 AIQueryRecord（⭐ 优化：移除 query_type）"""
     from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
     
     episode = Episode(
@@ -2885,8 +2914,8 @@ def test_ai_query_record_cascade_delete_with_highlight(db_session):
     ai_query = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
-        provider="gpt-3.5-turbo"
+        provider="gemini-2.5-flash",
+        status="processing"
     )
     db_session.add(ai_query)
     db_session.commit()
@@ -2902,7 +2931,8 @@ def test_ai_query_record_cascade_delete_with_highlight(db_session):
 
 
 def test_ai_query_record_cache_logic(db_session):
-    """测试 AIQueryRecord 的缓存查询逻辑"""
+    """测试 AIQueryRecord 的缓存查询逻辑（⭐ 优化：移除 query_type 依赖）"""
+    import json
     from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
     
     episode = Episode(
@@ -2933,31 +2963,35 @@ def test_ai_query_record_cache_logic(db_session):
     db_session.commit()
     
     # 创建已完成的查询记录（缓存）
+    response_json = {"type": "word", "content": {"definition": "测试"}}
     ai_query = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
-        provider="gpt-3.5-turbo",
-        status="completed",
-        response_text="测试"
+        response_text=json.dumps(response_json),
+        detected_type="word",
+        provider="gemini-2.5-flash",
+        status="completed"
     )
     db_session.add(ai_query)
     db_session.commit()
     
-    # 模拟缓存查询逻辑
+    # 模拟缓存查询逻辑（⭐ 优化：基于 highlight_id，不依赖 query_type）
     existing = db_session.query(AIQueryRecord).filter(
         AIQueryRecord.highlight_id == highlight.id,
-        AIQueryRecord.query_type == "word_translation"
+        AIQueryRecord.status == "completed"
     ).first()
     
     # 验证缓存命中
     assert existing is not None
     assert existing.status == "completed"
-    assert existing.response_text == "测试"
+    assert existing.detected_type == "word"
+    parsed_response = json.loads(existing.response_text)
+    assert parsed_response["type"] == "word"
 
 
 def test_ai_query_record_different_providers(db_session):
-    """测试不同 AI 提供商的查询记录"""
+    """测试不同 AI 提供商的查询记录（⭐ 优化：移除 query_type，使用 JSON 格式）"""
+    import json
     from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
     
     episode = Episode(
@@ -2988,29 +3022,31 @@ def test_ai_query_record_different_providers(db_session):
     db_session.commit()
     
     # 创建不同提供商的查询记录
+    response_json = {"type": "word", "content": {"definition": "测试"}}
+    
     query_gpt35 = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
+        response_text=json.dumps(response_json),
+        detected_type="word",
         provider="gpt-3.5-turbo",
-        status="completed",
-        response_text="GPT-3.5 result"
+        status="completed"
     )
     query_gpt4 = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
+        response_text=json.dumps(response_json),
+        detected_type="word",
         provider="gpt-4",
-        status="completed",
-        response_text="GPT-4 result"
+        status="completed"
     )
     query_claude = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
+        response_text=json.dumps(response_json),
+        detected_type="word",
         provider="claude-3-sonnet",
-        status="completed",
-        response_text="Claude result"
+        status="completed"
     )
     
     db_session.add_all([query_gpt35, query_gpt4, query_claude])
@@ -3029,7 +3065,8 @@ def test_ai_query_record_different_providers(db_session):
 
 
 def test_ai_query_record_to_note_conversion(db_session):
-    """测试 AIQueryRecord 到 Note 的转化（Critical）"""
+    """测试 AIQueryRecord 到 Note 的转化（Critical ⭐ 优化：JSON 格式）"""
+    import json
     from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord, Note
     
     episode = Episode(
@@ -3059,25 +3096,37 @@ def test_ai_query_record_to_note_conversion(db_session):
     db_session.add(highlight)
     db_session.commit()
     
-    # 1. 用户划线 → AI 查询
+    # 1. 用户划线 → AI 查询（Gemini 返回 JSON 格式）
+    response_json = {
+        "type": "word",
+        "content": {
+            "phonetic": "/tækˈsɒnəmi/",
+            "definition": "分类学；分类法",
+            "explanation": "生物学中用于分类和命名生物体的科学体系。"
+        }
+    }
+    
     ai_query = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="taxonomy",
         context_text="This is a taxonomy example.",
-        response_text="n. 分类学；分类法",
-        query_type="word_translation",
-        provider="gpt-3.5-turbo",
+        response_text=json.dumps(response_json),  # ⭐ 存储 JSON 字符串
+        detected_type="word",  # ⭐ 从 JSON 解析得到
+        provider="gemini-2.5-flash",
         status="completed"
     )
     db_session.add(ai_query)
     db_session.commit()
     
     # 2. 用户点击"保存笔记" → 创建 Note
+    # Note 的 content 格式化为可读文本（从 JSON 提取）
+    note_content = f"{response_json['content']['definition']}\n{response_json['content']['explanation']}"
+    
     note = Note(
         episode_id=episode.id,
         highlight_id=highlight.id,
         origin_ai_query_id=ai_query.id,  # 标记来源
-        content=ai_query.response_text,
+        content=note_content,  # ⭐ 格式化的文本内容
         note_type="ai_card"
     )
     db_session.add(note)
@@ -3086,7 +3135,8 @@ def test_ai_query_record_to_note_conversion(db_session):
     # 验证关联
     assert note.origin_ai_query_id == ai_query.id
     assert note.note_type == "ai_card"
-    assert note.content == ai_query.response_text
+    assert note.content == note_content
+    assert ai_query.detected_type == "word"  # ⭐ 验证 detected_type
     
     # 3. 删除 AIQueryRecord → Note 保留，origin_ai_query_id 设为 NULL
     ai_query_id = ai_query.id
@@ -3100,11 +3150,12 @@ def test_ai_query_record_to_note_conversion(db_session):
     # 验证 Note 仍存在，但 origin_ai_query_id 被设为 NULL
     assert db_session.query(Note).filter_by(id=note.id).count() == 1
     assert note.origin_ai_query_id is None  # SET NULL 生效
-    assert note.content == "n. 分类学；分类法"  # content 保留
+    assert note.content == note_content  # content 保留
 
 
-def test_ai_query_record_query_types(db_session):
-    """测试不同查询类型的 AIQueryRecord"""
+def test_ai_query_record_detected_types(db_session):
+    """测试不同 detected_type 的 AIQueryRecord（⭐ 优化：使用 detected_type 替代 query_type）"""
+    import json
     from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
     
     episode = Episode(
@@ -3134,46 +3185,64 @@ def test_ai_query_record_query_types(db_session):
     db_session.add(highlight)
     db_session.commit()
     
-    # 创建不同类型的查询
+    # 创建不同类型的查询（AI 自动判断类型）
+    response_word = {"type": "word", "content": {"definition": "测试"}}
+    response_phrase = {"type": "phrase", "content": {"definition": "测试短语"}}
+    response_sentence = {"type": "sentence", "content": {"translation": "这是一个测试句子"}}
+    
     query1 = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
-        provider="gpt-3.5-turbo",
+        response_text=json.dumps(response_word),
+        detected_type="word",  # ⭐ AI 检测到的类型
+        provider="gemini-2.5-flash",
         status="completed"
     )
     query2 = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test phrase",
-        query_type="phrase_explanation",
-        provider="gpt-3.5-turbo",
+        response_text=json.dumps(response_phrase),
+        detected_type="phrase",  # ⭐ AI 检测到的类型
+        provider="gemini-2.5-flash",
         status="completed"
     )
     query3 = AIQueryRecord(
         highlight_id=highlight.id,
-        query_text="concept",
-        query_type="concept",
-        provider="gpt-3.5-turbo",
+        query_text="This is a test sentence.",
+        response_text=json.dumps(response_sentence),
+        detected_type="sentence",  # ⭐ AI 检测到的类型
+        provider="gemini-2.5-flash",
         status="completed"
     )
     
     db_session.add_all([query1, query2, query3])
     db_session.commit()
     
-    # 验证查询类型
-    assert query1.query_type == "word_translation"
-    assert query2.query_type == "phrase_explanation"
-    assert query3.query_type == "concept"
+    # 验证 detected_type
+    assert query1.detected_type == "word"
+    assert query2.detected_type == "phrase"
+    assert query3.detected_type == "sentence"
     
-    # 按类型查询
-    translation_queries = db_session.query(AIQueryRecord).filter_by(
-        query_type="word_translation"
+    # 按 detected_type 查询
+    word_queries = db_session.query(AIQueryRecord).filter_by(
+        detected_type="word"
     ).all()
-    assert len(translation_queries) == 1
+    assert len(word_queries) == 1
+    
+    phrase_queries = db_session.query(AIQueryRecord).filter_by(
+        detected_type="phrase"
+    ).all()
+    assert len(phrase_queries) == 1
+    
+    sentence_queries = db_session.query(AIQueryRecord).filter_by(
+        detected_type="sentence"
+    ).all()
+    assert len(sentence_queries) == 1
 
 
 def test_ai_query_record_string_representation(db_session):
-    """测试 AIQueryRecord 的字符串表示"""
+    """测试 AIQueryRecord 的字符串表示（⭐ 优化：使用 detected_type 替代 query_type）"""
+    import json
     from app.models import Episode, TranscriptCue, Highlight, AIQueryRecord
     
     episode = Episode(
@@ -3204,11 +3273,13 @@ def test_ai_query_record_string_representation(db_session):
     db_session.commit()
     
     # 短查询文本
+    response_json = {"type": "word", "content": {"definition": "测试"}}
     ai_query_short = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="test",
-        query_type="word_translation",
-        provider="gpt-3.5-turbo",
+        response_text=json.dumps(response_json),
+        detected_type="word",  # ⭐ 使用 detected_type
+        provider="gemini-2.5-flash",
         status="completed"
     )
     db_session.add(ai_query_short)
@@ -3216,7 +3287,7 @@ def test_ai_query_record_string_representation(db_session):
     
     repr_short = repr(ai_query_short)
     assert "AIQueryRecord" in repr_short
-    assert "word_translation" in repr_short
+    assert "detected_type='word'" in repr_short  # ⭐ 使用 detected_type
     assert "completed" in repr_short
     assert "query='test'" in repr_short
     
@@ -3224,8 +3295,8 @@ def test_ai_query_record_string_representation(db_session):
     ai_query_long = AIQueryRecord(
         highlight_id=highlight.id,
         query_text="This is a very long query text that should be truncated in repr",
-        query_type="phrase_explanation",
-        provider="gpt-4",
+        detected_type="phrase",  # ⭐ 使用 detected_type
+        provider="gemini-2.5-flash",
         status="processing"
     )
     db_session.add(ai_query_long)
@@ -3233,8 +3304,21 @@ def test_ai_query_record_string_representation(db_session):
     
     repr_long = repr(ai_query_long)
     assert "AIQueryRecord" in repr_long
-    assert "phrase_explanation" in repr_long
+    assert "detected_type='phrase'" in repr_long  # ⭐ 使用 detected_type
     assert "processing" in repr_long
     assert "..." in repr_long  # 截断标记
+    
+    # 测试 detected_type 为 None 的情况
+    ai_query_none = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text="test",
+        provider="gemini-2.5-flash",
+        status="processing"
+    )
+    db_session.add(ai_query_none)
+    db_session.commit()
+    
+    repr_none = repr(ai_query_none)
+    assert "detected_type=None" in repr_none  # ⭐ 处理中时 detected_type 为 None
 
 

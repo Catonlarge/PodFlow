@@ -562,21 +562,24 @@ class TestHighlightAPI:
         db_session.commit()
         db_session.refresh(highlight)
         
+        import json
+        response_json1 = {"type": "word", "content": {"definition": "测试"}}
+        response_json2 = {"type": "phrase", "content": {"definition": "解释"}}
         ai_query1 = AIQueryRecord(
             highlight_id=highlight.id,
             query_text="Test",
-            query_type="word_translation",
-            provider="gpt-3.5",
-            status="completed",
-            response_text="测试"
+            response_text=json.dumps(response_json1),
+            detected_type="word",
+            provider="gemini-2.5-flash",
+            status="completed"
         )
         ai_query2 = AIQueryRecord(
             highlight_id=highlight.id,
             query_text="Test",
-            query_type="phrase_explanation",
-            provider="gpt-3.5",
-            status="completed",
-            response_text="解释"
+            response_text=json.dumps(response_json2),
+            detected_type="phrase",
+            provider="gemini-2.5-flash",
+            status="completed"
         )
         db_session.add_all([ai_query1, ai_query2])
         db_session.commit()
@@ -636,13 +639,15 @@ class TestHighlightAPI:
             note_type="thought",
             content="Test note"
         )
+        import json
+        response_json = {"type": "word", "content": {"definition": "测试"}}
         ai_query = AIQueryRecord(
             highlight_id=highlight.id,
             query_text="Test",
-            query_type="word_translation",
-            provider="gpt-3.5",
-            status="completed",
-            response_text="测试"
+            response_text=json.dumps(response_json),
+            detected_type="word",
+            provider="gemini-2.5-flash",
+            status="completed"
         )
         db_session.add_all([note, ai_query])
         db_session.commit()

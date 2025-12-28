@@ -9,6 +9,16 @@ from datetime import datetime
 Base = declarative_base()
 
 
+def get_default_ai_provider():
+    """
+    获取默认 AI 提供商
+    
+    从 config.DEFAULT_AI_PROVIDER 获取，避免在 Column 定义时直接导入（可能产生循环依赖）。
+    """
+    from app.config import DEFAULT_AI_PROVIDER
+    return DEFAULT_AI_PROVIDER
+
+
 # ==================== 新数据库模型（Task 1.1）====================
 
 class Podcast(Base):
@@ -666,9 +676,9 @@ class AIQueryRecord(Base):
         highlight_id (int): 外键 → Highlight（必需）
         query_text (str): 用户查询的文本（划线内容）
         context_text (str): 上下文（相邻 2-3 个 cue 的文本，用于专有名词识别）
-        response_text (str): AI 返回的结果
-        query_type (str): 查询类型（word_translation/phrase_explanation/concept）
-        provider (str): AI 提供商（如 "gpt-3.5-turbo", "claude-3-sonnet"）
+        response_text (str): AI 返回的结果（JSON 字符串，Gemini 返回的完整 JSON 格式）
+        detected_type (str): AI 检测到的类型（word/phrase/sentence，从 response_text 解析得到）
+        provider (str): AI 提供商（如 "gemini-2.5-flash"，默认从 config.DEFAULT_AI_PROVIDER 获取）
         status (str): 查询状态（processing/completed/failed）
         error_message (str): 错误信息（失败时记录原因）
         created_at (datetime): 创建时间
@@ -684,10 +694,15 @@ class AIQueryRecord(Base):
             * 用户可能不保存为笔记（只是临时查看）
             * 如果保存为笔记，Note 通过 origin_ai_query_id 反向关联
         
-        - 查询缓存逻辑：
-            * 查询前先检查是否已有缓存（highlight_id + query_type）
-            * 如果有且状态为 completed，直接返回缓存的 response_text
+        - 查询缓存逻辑（⭐ 优化：移除 query_type 依赖）：
+            * 查询前先检查是否已有缓存（基于 highlight_id）
+            * 如果有且状态为 completed，解析 response_text（JSON 字符串）并返回结构化数据
             * 避免重复调用 AI API，节省成本
+        
+        - 类型判断由 AI 返回决定：
+            * 不再需要用户指定查询类型（word_translation/phrase_explanation/concept）
+            * Gemini 自动判断划线内容是 word/phrase/sentence
+            * detected_type 字段存储 AI 返回的 type 值，用于索引和查询
         
         - provider 全局配置管理：
             * 默认值从 config.DEFAULT_AI_PROVIDER 获取
@@ -709,11 +724,11 @@ class AIQueryRecord(Base):
     # 查询内容
     query_text = Column(Text, nullable=False)  # 用户查询的文本（必需）
     context_text = Column(Text, nullable=True)  # 上下文（可选）
-    response_text = Column(Text, nullable=True)  # AI 返回结果（处理中或失败时为空）
+    response_text = Column(Text, nullable=True)  # AI 返回结果（JSON 字符串，Gemini 返回的完整 JSON 格式，处理中或失败时为空）
     
     # 查询类型和提供商
-    query_type = Column(String, nullable=False)  # word_translation/phrase_explanation/concept
-    provider = Column(String, nullable=False)  # AI 提供商（从 config 获取默认值）
+    detected_type = Column(String, nullable=True)  # AI 检测到的类型（word/phrase/sentence，从 response_text 解析得到）
+    provider = Column(String, nullable=False, default=get_default_ai_provider)  # AI 提供商（从 config.DEFAULT_AI_PROVIDER 获取默认值）
     
     # 状态和错误信息
     status = Column(String, default="processing", nullable=False)  # processing/completed/failed
@@ -734,15 +749,18 @@ class AIQueryRecord(Base):
         Index('idx_query_status', 'status'),
         # 按提供商查询（数据分析）
         Index('idx_query_provider', 'provider'),
+        # 按检测到的类型查询（数据分析）⭐ 新增
+        Index('idx_query_detected_type', 'detected_type'),
         # 复合索引（缓存查询优化）
-        Index('idx_query_highlight_type', 'highlight_id', 'query_type'),
         Index('idx_query_highlight_status', 'highlight_id', 'status'),
+        Index('idx_query_highlight_type', 'highlight_id', 'detected_type'),  # ⭐ 修改：使用 detected_type 替代 query_type
     )
     
     def __repr__(self):
         """字符串表示"""
         query_preview = f"query='{self.query_text[:20]}...'" if len(self.query_text) > 20 else f"query='{self.query_text}'"
-        return f"<AIQueryRecord(id={self.id}, type='{self.query_type}', status='{self.status}', {query_preview})>"
+        detected_type_str = f"detected_type='{self.detected_type}'" if self.detected_type else "detected_type=None"
+        return f"<AIQueryRecord(id={self.id}, {detected_type_str}, status='{self.status}', {query_preview})>"
 
 
 # ==================== 旧数据库模型（待迁移）====================
