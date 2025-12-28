@@ -4,6 +4,24 @@
 
 ---
 
+## [2025-12-28] [fix] - 修复AI查询卡片未出现在划线源附近的问题
+
+**变更内容**：
+- **修复位置计算逻辑** (`frontend/src/components/subtitles/SubtitleList.jsx`)：
+  - 修改 `anchorPosition` 的计算，保存完整的矩形信息 `{top, left, right, bottom, width, height}`，同时保留 `{x, y}` 中心点用于 SelectionMenu 向后兼容
+  - 在 `handleQuery` 中复用已计算的 `anchorPosition`，而不是重新调用 `window.getSelection()`（此时选择可能已失效）
+  - 添加 `anchorPosition` 到 `handleQuery` 的依赖数组中，确保能访问最新的位置信息
+
+**技术要点**：
+- 问题根因：当用户点击"查询"按钮时，`window.getSelection()` 可能已失效或被清除，导致 `getBoundingClientRect()` 返回全 0 值
+- 解决方案：在文本选择时就保存完整的位置信息，并在需要时复用这些信息
+- 确保 AI 查询卡片能正确显示在划线源附近（上方或下方 10px 处，水平居中对齐）
+
+**相关PRD**：
+- PRD 6.2.4.e: AI查询卡片的定位规则（垂直和水平方向的位置计算）
+
+---
+
 ## [2025-01-28] [fix] - 修复删除笔记卡片时对应的划线未被删除的问题
 
 **变更内容**：

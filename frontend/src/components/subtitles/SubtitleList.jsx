@@ -165,7 +165,8 @@ export default function SubtitleList({
     enabled: true,
   });
 
-  // 计算 SelectionMenu 的锚点位置
+  // 计算 SelectionMenu 和 AICard 的锚点位置
+  // 保存完整的矩形信息，以便在点击查询按钮时也能使用（此时window.getSelection可能已失效）
   const anchorPosition = useMemo(() => {
     if (!selectedText || !selectionRange) {
       return null;
@@ -180,8 +181,15 @@ export default function SubtitleList({
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
 
-      // 计算选中文本的中心点作为锚点位置
+      // 保存完整的矩形信息，同时提供中心点（用于SelectionMenu向后兼容）
       return {
+        top: rect.top,
+        left: rect.left,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        // 中心点（用于SelectionMenu，保持向后兼容）
         x: rect.left + rect.width / 2,
         y: rect.top + rect.height / 2,
       };
@@ -313,27 +321,27 @@ export default function SubtitleList({
 
     try {
       console.log('[SubtitleList] handleQuery 开始执行，准备显示 AICard');
-      // Step 1: 计算 anchorPosition
+      // Step 1: 复用已计算的 anchorPosition（因为此时window.getSelection可能已失效）
       let computedAnchorPosition = null;
-      try {
-        const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          computedAnchorPosition = {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-          };
-        }
-      } catch (error) {
-        console.error('[SubtitleList] 计算锚点位置失败:', error);
-      }
       
-      // 如果 computedAnchorPosition 仍然为 null，使用默认位置（屏幕中心）
-      if (!computedAnchorPosition) {
+      if (anchorPosition && 'top' in anchorPosition && 'left' in anchorPosition) {
+        // 从已保存的anchorPosition中提取矩形信息
         computedAnchorPosition = {
-          x: window.innerWidth / 2,
-          y: window.innerHeight / 2,
+          top: anchorPosition.top,
+          left: anchorPosition.left,
+          right: anchorPosition.right,
+          bottom: anchorPosition.bottom,
+        };
+      } else {
+        // 如果anchorPosition不可用，使用默认位置（屏幕中心）
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const defaultSize = 100;
+        computedAnchorPosition = {
+          top: viewportHeight / 2 - defaultSize / 2,
+          left: viewportWidth / 2 - defaultSize / 2,
+          right: viewportWidth / 2 + defaultSize / 2,
+          bottom: viewportHeight / 2 + defaultSize / 2,
         };
       }
 
@@ -456,7 +464,7 @@ export default function SubtitleList({
       // 重置查询状态，允许下次查询
       isQueryingRef.current = false;
     }
-  }, [episodeId, affectedCues, selectedText, generateUUID, clearSelection]);
+  }, [episodeId, affectedCues, selectedText, generateUUID, clearSelection, anchorPosition]);
 
   // 处理添加到笔记
   const handleAddToNote = useCallback(async (responseData, queryId) => {

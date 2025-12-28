@@ -58,7 +58,9 @@ export default function AICard({
    * 计算卡片位置
    */
   const calculateCardPosition = useCallback((anchorPos) => {
-    if (!anchorPos) return { top: 0, left: 0 };
+    if (!anchorPos) {
+      return { top: 0, left: 0 };
+    }
 
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
