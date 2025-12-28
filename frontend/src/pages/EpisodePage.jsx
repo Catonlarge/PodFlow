@@ -152,9 +152,10 @@ export default function EpisodePage() {
   }
 
   // 分支 4: 正常主界面 (可能包含 Overlay)
+  // 只要有 episodeId，就显示 MainLayout（即使还在 loading 或没有 episode 数据）
   return (
     <>
-      {(episode || !loading || processing.status) && (
+      {episodeId && (
         <MainLayout
           episodeTitle={episode?.title}
           showName={episode?.show_name || '本地音频'}
