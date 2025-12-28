@@ -4,6 +4,37 @@
 
 ---
 
+## [2025-01-29] [Feature] - EpisodeList页面首次打开自动弹出音频选择弹框
+
+**变更内容**：
+- **EpisodeListPage组件** (`frontend/src/pages/EpisodeListPage.jsx`)：
+  - 新增首次打开逻辑：当数据库中没有episode时，自动弹出"音频和字幕选择弹框"
+  - 实现关闭弹框后的空状态显示：居中显示"您还未选择音频文件，点击按钮进行选择"提示
+  - 在提示右侧添加"音频和字幕选择"按钮，点击后重新打开弹框
+  - 实现文件上传功能：上传成功后自动刷新episode列表
+  - 导入FileImportModal组件和episodeService服务
+- **测试用例** (`frontend/src/pages/__tests__/EpisodeListPage.test.jsx`)：
+  - 新增12个测试用例，覆盖所有功能场景
+  - 测试首次打开逻辑、空状态显示、文件上传、列表显示、Loading/Error状态等
+  - 所有测试用例通过
+
+**用户体验改进**：
+- 首次打开EpisodeList页面时，如果数据库为空，自动引导用户选择音频文件
+- 关闭弹框后仍可通过按钮重新打开，提供清晰的入口
+- 上传成功后列表自动刷新，无需手动刷新页面
+
+**技术要点**：
+- 使用`hasShownModal`状态防止重复弹出弹框
+- 使用`useEffect`监听loading和episodes状态，自动触发弹框
+- 文件上传成功后调用`fetchEpisodes`刷新列表
+- 遵循TDD原则，先编写测试用例再实现功能
+
+**相关需求**：
+- PRD 6.1.1: 音频和字幕选择弹框
+- 用户需求：在episodelist页面就应该弹框让用户选择音频，如果用户数据库一个音频都没有
+
+---
+
 ## [2025-12-28] [Performance] - 优化字幕加载性能：实现按segment分批加载
 
 **变更内容**：

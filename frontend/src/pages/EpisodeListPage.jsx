@@ -7,6 +7,10 @@
  * - 从 API 获取 Episode 列表
  * - 显示 Episode 卡片（标题、时长、状态等）
  * - 点击卡片跳转到 Episode 详情页
+ * - 首次打开且数据库没有episode时，自动弹出音频和字幕选择弹框
+ * 
+ * 相关PRD：
+ * - PRD 6.1.1: 音频和字幕选择弹框
  * 
  * @module pages/EpisodeListPage
  */
@@ -14,30 +18,68 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box, Card, CardContent, Typography, Stack, Skeleton, Alert, Button, Chip } from '@mui/material';
+import { UploadFile } from '@mui/icons-material';
 import api from '../api';
+import FileImportModal from '../components/upload/FileImportModal';
+import { episodeService } from '../services/episodeService';
 
 export default function EpisodeListPage() {
   const navigate = useNavigate();
   const [episodes, setEpisodes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [hasShownModal, setHasShownModal] = useState(false);
+
+  const fetchEpisodes = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await api.get('/api/episodes?page=1&limit=20');
+      setEpisodes(response.items || []);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchEpisodes = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const response = await api.get('/api/episodes?page=1&limit=20');
-        setEpisodes(response.items || []);
-      } catch (err) {
-        setError(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchEpisodes();
   }, []);
+
+  // 首次打开逻辑：如果数据库没有episode，自动弹出文件选择弹窗
+  useEffect(() => {
+    if (!loading && episodes.length === 0 && !hasShownModal) {
+      setIsModalOpen(true);
+      setHasShownModal(true);
+    }
+  }, [loading, episodes.length, hasShownModal]);
+
+  // 处理文件上传
+  const handleFileUpload = async (files) => {
+    try {
+      const { audioFile, enableTranscription } = files;
+      const title = audioFile.name.replace(/\.[^/.]+$/, '');
+      
+      await episodeService.uploadEpisode(audioFile, title, null);
+      
+      // 上传成功后刷新列表
+      await fetchEpisodes();
+      
+      // 关闭弹框
+      setIsModalOpen(false);
+    } catch (err) {
+      console.error('[EpisodeListPage] 上传失败:', err);
+      // 错误处理：可以显示错误提示，但这里先保持简单
+      throw err;
+    }
+  };
+
+  // 处理弹框关闭
+  const handleModalClose = () => {
+    setIsModalOpen(false);
+  };
 
   if (loading) {
     return (
@@ -63,17 +105,49 @@ export default function EpisodeListPage() {
 
   if (episodes.length === 0) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Typography variant="h5" gutterBottom>
-          暂无 Episode
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-          请先通过后端 API 上传音频文件创建 Episode
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          API 端点：POST /api/episodes/upload
-        </Typography>
-      </Box>
+      <>
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            bgcolor: 'background.default',
+          }}
+        >
+          <Stack spacing={3} alignItems="center">
+            <Typography variant="h6" color="text.secondary">
+              您还未选择音频文件，点击按钮进行选择
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={<UploadFile />}
+              onClick={() => setIsModalOpen(true)}
+              sx={{
+                '&:hover': {
+                  bgcolor: 'primary.dark',
+                },
+                '&:active': {
+                  transform: 'scale(0.95)',
+                },
+              }}
+            >
+              音频和字幕选择
+            </Button>
+          </Stack>
+        </Box>
+
+        {/* 文件导入弹窗 */}
+        <FileImportModal
+          open={isModalOpen}
+          onClose={handleModalClose}
+          onConfirm={handleFileUpload}
+        />
+      </>
     );
   }
 
@@ -102,61 +176,78 @@ export default function EpisodeListPage() {
   };
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
-      <Typography variant="h4" gutterBottom>
-        Episode 列表
-      </Typography>
-      
-      <Stack spacing={2} sx={{ mt: 3 }}>
-        {episodes.map((episode) => (
-          <Card
-            key={episode.id}
-            sx={{
-              cursor: 'pointer',
-              '&:hover': {
-                bgcolor: 'action.hover',
-              },
-            }}
-            onClick={() => navigate(`/episodes/${episode.id}`)}
-          >
-            <CardContent>
-              <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="h6" gutterBottom>
-                    {episode.title}
-                  </Typography>
-                  <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      时长: {formatDuration(episode.duration)}
+    <>
+      <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
+        <Typography variant="h4" gutterBottom>
+          Episode 列表
+        </Typography>
+        
+        <Stack spacing={2} sx={{ mt: 3 }}>
+          {episodes.map((episode) => (
+            <Card
+              key={episode.id}
+              sx={{
+                cursor: 'pointer',
+                '&:hover': {
+                  bgcolor: 'action.hover',
+                },
+              }}
+              onClick={() => navigate(`/episodes/${episode.id}`)}
+            >
+              <CardContent>
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="h6" gutterBottom>
+                      {episode.title}
                     </Typography>
-                    <Chip
-                      label={episode.transcription_status}
-                      color={getStatusColor(episode.transcription_status)}
-                      size="small"
-                    />
-                    {episode.transcription_progress !== undefined && (
+                    <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
                       <Typography variant="body2" color="text.secondary">
-                        进度: {episode.transcription_progress.toFixed(1)}%
+                        时长: {formatDuration(episode.duration)}
                       </Typography>
-                    )}
-                  </Stack>
-                </Box>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(`/episodes/${episode.id}`);
-                  }}
-                >
-                  查看
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
-        ))}
-      </Stack>
-    </Box>
+                      <Chip
+                        label={episode.transcription_status}
+                        color={getStatusColor(episode.transcription_status)}
+                        size="small"
+                      />
+                      {episode.transcription_progress !== undefined && (
+                        <Typography variant="body2" color="text.secondary">
+                          进度: {episode.transcription_progress.toFixed(1)}%
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/episodes/${episode.id}`);
+                    }}
+                    sx={{
+                      '&:hover': {
+                        bgcolor: 'action.hover',
+                      },
+                      '&:active': {
+                        transform: 'scale(0.95)',
+                      },
+                    }}
+                  >
+                    查看
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
+          ))}
+        </Stack>
+      </Box>
+
+      {/* 文件导入弹窗 */}
+      <FileImportModal
+        open={isModalOpen}
+        onClose={handleModalClose}
+        onConfirm={handleFileUpload}
+      />
+    </>
   );
 }
 
