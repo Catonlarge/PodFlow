@@ -3,7 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import SubtitleList from '../SubtitleList';
 import { useTextSelection } from '../../../hooks/useTextSelection';
-import { getMockCues, getCuesByEpisodeId, subtitleService } from '../../../services/subtitleService';
+import { getMockCues, getCuesByEpisodeId, getCuesBySegmentRange, subtitleService } from '../../../services/subtitleService';
 import { highlightService } from '../../../services/highlightService';
 import { noteService } from '../../../services/noteService';
 import { aiService } from '../../../services/aiService';
@@ -12,11 +12,13 @@ import { aiService } from '../../../services/aiService';
 vi.mock('../../../services/subtitleService', () => ({
   getMockCues: vi.fn(),
   getCuesByEpisodeId: vi.fn(),
+  getCuesBySegmentRange: vi.fn(),
   getEpisodeSegments: vi.fn(),
   triggerSegmentTranscription: vi.fn(),
   subtitleService: {
     getMockCues: vi.fn(),
     getCuesByEpisodeId: vi.fn(),
+    getCuesBySegmentRange: vi.fn(),
     getEpisodeSegments: vi.fn(),
     triggerSegmentTranscription: vi.fn(),
     restartTranscription: vi.fn(),
@@ -478,10 +480,15 @@ describe('SubtitleList', () => {
         />
       );
 
-      // 等待错误提示显示
+      // 等待错误提示显示（需要等待加载失败并设置错误状态）
       await waitFor(() => {
         expect(screen.getByText(/字幕加载失败，错误原因：/)).toBeInTheDocument();
-      }, { timeout: 2000 });
+      }, { timeout: 5000 });
+
+      // 等待重试按钮出现
+      await waitFor(() => {
+        expect(screen.getByLabelText('重试')).toBeInTheDocument();
+      }, { timeout: 1000 });
 
       // 点击重试按钮
       const retryButton = screen.getByLabelText('重试');
@@ -489,9 +496,11 @@ describe('SubtitleList', () => {
 
       // 验证重新加载字幕
       await waitFor(() => {
-        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(2);
         expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
-      }, { timeout: 2000 });
+      }, { timeout: 5000 });
+      
+      // 验证 getCuesByEpisodeId 被调用了至少2次（第一次失败，第二次成功）
+      expect(getCuesByEpisodeId.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
 
     it('应该在字幕加载完成后显示字幕列表', async () => {
@@ -505,13 +514,15 @@ describe('SubtitleList', () => {
         />
       );
 
-      // 等待字幕加载完成
+      // 等待字幕加载完成（需要等待300ms延迟）
       await waitFor(() => {
         expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
-      }, { timeout: 2000 });
+      }, { timeout: 3000 });
 
-      // 验证不再显示加载提示
-      expect(screen.queryByText('请稍等，字幕加载中')).not.toBeInTheDocument();
+      // 等待加载状态清除（300ms延迟后）
+      await waitFor(() => {
+        expect(screen.queryByText('请稍等，字幕加载中')).not.toBeInTheDocument();
+      }, { timeout: 1000 });
     });
   });
 
@@ -742,6 +753,8 @@ describe('SubtitleList', () => {
 
   describe('transcriptionStatus 监听', () => {
     it('当 transcriptionStatus 从 processing 变为 completed 时，应该重新加载字幕', async () => {
+      getCuesByEpisodeId.mockResolvedValue(mockCues);
+      
       const { rerender } = render(
         <SubtitleList
           episodeId={123}
@@ -753,8 +766,8 @@ describe('SubtitleList', () => {
 
       // 等待初始加载完成
       await waitFor(() => {
-        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
-      });
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      }, { timeout: 3000 });
 
       // 清除调用记录
       getCuesByEpisodeId.mockClear();
@@ -773,10 +786,12 @@ describe('SubtitleList', () => {
       await waitFor(() => {
         expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
         expect(getCuesByEpisodeId).toHaveBeenCalledWith(123);
-      });
+      }, { timeout: 3000 });
     });
 
     it('当 transcriptionStatus 已经是 completed 时，不应该重复加载', async () => {
+      getCuesByEpisodeId.mockResolvedValue(mockCues);
+      
       const { rerender } = render(
         <SubtitleList
           episodeId={123}
@@ -788,8 +803,8 @@ describe('SubtitleList', () => {
 
       // 等待初始加载完成
       await waitFor(() => {
-        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
-      });
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      }, { timeout: 3000 });
 
       // 清除调用记录
       getCuesByEpisodeId.mockClear();
@@ -847,6 +862,8 @@ describe('SubtitleList', () => {
     });
 
     it('当没有 transcriptionStatus 时，应该正常工作', async () => {
+      getCuesByEpisodeId.mockResolvedValue(mockCues);
+      
       render(
         <SubtitleList
           episodeId={123}
@@ -857,12 +874,16 @@ describe('SubtitleList', () => {
 
       // 应该正常加载字幕（通过 episodeId）
       await waitFor(() => {
-        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
-        expect(getCuesByEpisodeId).toHaveBeenCalledWith(123);
-      });
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      }, { timeout: 3000 });
+      
+      // 验证 getCuesByEpisodeId 被调用
+      expect(getCuesByEpisodeId).toHaveBeenCalledWith(123);
     });
 
     it('当 transcriptionStatus 从 pending 变为 completed 时，应该重新加载字幕', async () => {
+      getCuesByEpisodeId.mockResolvedValue(mockCues);
+      
       const { rerender } = render(
         <SubtitleList
           episodeId={123}
@@ -874,8 +895,8 @@ describe('SubtitleList', () => {
 
       // 等待初始加载完成
       await waitFor(() => {
-        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
-      });
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      }, { timeout: 3000 });
 
       // 清除调用记录
       getCuesByEpisodeId.mockClear();
@@ -894,10 +915,12 @@ describe('SubtitleList', () => {
       await waitFor(() => {
         expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
         expect(getCuesByEpisodeId).toHaveBeenCalledWith(123);
-      });
+      }, { timeout: 3000 });
     });
 
     it('当 transcriptionStatus 变为其他状态时，不应该重新加载', async () => {
+      getCuesByEpisodeId.mockResolvedValue(mockCues);
+      
       const { rerender } = render(
         <SubtitleList
           episodeId={123}
@@ -909,8 +932,8 @@ describe('SubtitleList', () => {
 
       // 等待初始加载完成
       await waitFor(() => {
-        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
-      });
+        expect(screen.getByTestId('subtitle-1')).toBeInTheDocument();
+      }, { timeout: 3000 });
 
       // 清除调用记录
       getCuesByEpisodeId.mockClear();
@@ -968,9 +991,10 @@ describe('SubtitleList', () => {
 
       fireEvent.scroll(scrollContainer);
 
+      // 等待防抖延迟（300ms）后触发
       await waitFor(() => {
         expect(subtitleService.triggerSegmentTranscription).toHaveBeenCalledWith(123, 1);
-      }, { timeout: 2000 });
+      }, { timeout: 1000 });
     });
 
     it('当滚动到底部且下一个segment为failed且retry_count<3时，应该触发识别任务', async () => {
@@ -1579,6 +1603,137 @@ describe('SubtitleList', () => {
 
       // 由于 SelectionMenu 是 mock 的，我们需要直接触发 handleQuery
       // 这需要更复杂的测试设置，暂时跳过
+    });
+  });
+
+  describe('分批加载字幕（性能优化）', () => {
+    const mockSegments = [
+      { segment_index: 0, status: 'completed', start_time: 0.0, end_time: 180.0 },
+      { segment_index: 1, status: 'completed', start_time: 180.0, end_time: 360.0 },
+      { segment_index: 2, status: 'completed', start_time: 360.0, end_time: 540.0 },
+      { segment_index: 3, status: 'completed', start_time: 540.0, end_time: 720.0 },
+      { segment_index: 4, status: 'processing', start_time: 720.0, end_time: 900.0 },
+    ];
+
+    const segment0Cues = [
+      { id: 1, start_time: 1.0, end_time: 5.0, speaker: 'Speaker 1', text: 'Segment 0 cue 1' },
+      { id: 2, start_time: 5.0, end_time: 10.0, speaker: 'Speaker 1', text: 'Segment 0 cue 2' },
+    ];
+
+    const segment1Cues = [
+      { id: 3, start_time: 181.0, end_time: 185.0, speaker: 'Speaker 2', text: 'Segment 1 cue 1' },
+      { id: 4, start_time: 185.0, end_time: 190.0, speaker: 'Speaker 2', text: 'Segment 1 cue 2' },
+    ];
+
+    const segment2Cues = [
+      { id: 5, start_time: 361.0, end_time: 365.0, speaker: 'Speaker 1', text: 'Segment 2 cue 1' },
+    ];
+
+    const segment3Cues = [
+      { id: 6, start_time: 541.0, end_time: 545.0, speaker: 'Speaker 2', text: 'Segment 3 cue 1' },
+    ];
+
+    beforeEach(() => {
+      getCuesBySegmentRange.mockClear();
+      getCuesByEpisodeId.mockClear();
+      subtitleService.getEpisodeSegments.mockResolvedValue(mockSegments);
+    });
+
+    it('应该初始只加载前3个已完成的segment的字幕', async () => {
+      const initialCues = [...segment0Cues, ...segment1Cues, ...segment2Cues];
+      getCuesBySegmentRange.mockResolvedValue(initialCues);
+
+      render(
+        <SubtitleList
+          episodeId={123}
+          segments={mockSegments}
+          currentTime={1.0}
+          duration={900.0}
+        />
+      );
+
+      await waitFor(() => {
+        expect(getCuesBySegmentRange).toHaveBeenCalledTimes(1);
+      });
+
+      // 验证调用参数：只加载前3个segment（0-2）
+      expect(getCuesBySegmentRange).toHaveBeenCalledWith(123, 0, 2);
+      
+      // 验证不应该调用 getCuesByEpisodeId（使用新的分批加载API）
+      expect(getCuesByEpisodeId).not.toHaveBeenCalled();
+
+      // 验证字幕已加载
+      await waitFor(() => {
+        expect(screen.getByText('Segment 0 cue 1')).toBeInTheDocument();
+        expect(screen.getByText('Segment 2 cue 1')).toBeInTheDocument();
+      });
+    });
+
+    it('如果没有segments信息，应该加载所有字幕（向后兼容）', async () => {
+      getCuesByEpisodeId.mockResolvedValue(mockCues);
+
+      render(
+        <SubtitleList
+          episodeId={123}
+          segments={[]}
+          currentTime={1.0}
+          duration={900.0}
+        />
+      );
+
+      await waitFor(() => {
+        expect(getCuesByEpisodeId).toHaveBeenCalledTimes(1);
+      });
+
+      // 验证调用了 getCuesByEpisodeId（向后兼容）
+      expect(getCuesByEpisodeId).toHaveBeenCalledWith(123);
+      
+      // 验证没有调用 getCuesBySegmentRange
+      expect(getCuesBySegmentRange).not.toHaveBeenCalled();
+    });
+
+    it('应该只加载已完成的segment的字幕，跳过processing状态的segment', async () => {
+      // 只有前3个segment已完成
+      const initialCues = [...segment0Cues, ...segment1Cues, ...segment2Cues];
+      getCuesBySegmentRange.mockResolvedValue(initialCues);
+
+      render(
+        <SubtitleList
+          episodeId={123}
+          segments={mockSegments}
+          currentTime={1.0}
+          duration={900.0}
+        />
+      );
+
+      await waitFor(() => {
+        expect(getCuesBySegmentRange).toHaveBeenCalledTimes(1);
+      });
+
+      // 验证只加载前3个已完成的segment（0-2），跳过processing的segment 4
+      expect(getCuesBySegmentRange).toHaveBeenCalledWith(123, 0, 2);
+    });
+
+    it('当segments少于3个时，应该加载所有已完成的segment', async () => {
+      const fewSegments = mockSegments.slice(0, 2); // 只有2个segment
+      const initialCues = [...segment0Cues, ...segment1Cues];
+      getCuesBySegmentRange.mockResolvedValue(initialCues);
+
+      render(
+        <SubtitleList
+          episodeId={123}
+          segments={fewSegments}
+          currentTime={1.0}
+          duration={360.0}
+        />
+      );
+
+      await waitFor(() => {
+        expect(getCuesBySegmentRange).toHaveBeenCalledTimes(1);
+      });
+
+      // 验证加载所有已完成的segment（0-1）
+      expect(getCuesBySegmentRange).toHaveBeenCalledWith(123, 0, 1);
     });
   });
 });

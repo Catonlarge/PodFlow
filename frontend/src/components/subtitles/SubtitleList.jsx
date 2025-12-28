@@ -99,6 +99,9 @@ export default function SubtitleList({
   const previousTranscriptionStatusRef = useRef(transcriptionStatus || null);
   const loadingProgressIntervalRef = useRef(null);
   const lastLoadedSegmentIndexRef = useRef(-1); // 记录已加载的最后一个segment索引（初始为-1）
+  const isLoadingSubtitlesRef = useRef(false); // 防止重复加载字幕
+  const lastLoadedEpisodeIdRef = useRef(null); // 记录已加载的 episodeId，避免重复加载
+  const hasErrorRef = useRef(false); // 跟踪是否已经设置了错误状态，避免被重置
 
   // 使用外部滚动容器或内部滚动容器
   // 当使用外部滚动容器时，containerRef 指向外部容器；否则使用内部容器
@@ -674,10 +677,20 @@ export default function SubtitleList({
   // 优先级：propsCues > episodeId > mock 数据
   useEffect(() => {
     // 清理之前的加载进度定时器
+    // 注意：如果当前已经是错误状态，不要重置它
     if (loadingProgressIntervalRef.current) {
       clearInterval(loadingProgressIntervalRef.current);
       loadingProgressIntervalRef.current = null;
     }
+    
+    // 如果当前是错误状态且 episodeId 没有变化，不要重置错误状态
+    // 这允许用户在错误状态下点击重试按钮
+    if (hasErrorRef.current && lastLoadedEpisodeIdRef.current === episodeId && !propsCues) {
+      return;
+    }
+    
+    // 重置错误标记（新的加载开始时）
+    hasErrorRef.current = false;
     
     if (propsCues) {
       // 如果传入了 cues prop，直接使用
@@ -688,7 +701,36 @@ export default function SubtitleList({
         setSubtitleLoadingProgress(0);
         setSubtitleLoadingError(null);
       });
+      lastLoadedEpisodeIdRef.current = null; // 重置，因为使用 propsCues
+      isLoadingSubtitlesRef.current = false;
+      
+      // 如果有 segments 信息，根据已完成的 segment 数量推断 lastLoadedSegmentIndexRef
+      // 假设传入的 cues 对应前 N 个已完成的 segment
+      if (segments && segments.length > 0) {
+        const completedSegments = segments
+          .filter(s => s.status === 'completed')
+          .sort((a, b) => a.segment_index - b.segment_index);
+        
+        // 如果已完成的 segment 数量 > 0，假设已加载到最后一个已完成的 segment
+        if (completedSegments.length > 0) {
+          lastLoadedSegmentIndexRef.current = completedSegments[completedSegments.length - 1].segment_index;
+        } else {
+          lastLoadedSegmentIndexRef.current = -1;
+        }
+      } else {
+        lastLoadedSegmentIndexRef.current = -1;
+      }
     } else if (episodeId) {
+      // 如果 episodeId 没有变化且正在加载，跳过重复加载
+      // 但如果 propsCues 或 segments 变化，允许重新加载
+      if (lastLoadedEpisodeIdRef.current === episodeId && isLoadingSubtitlesRef.current && !hasErrorRef.current) {
+        return;
+      }
+      
+      // 标记为正在加载
+      isLoadingSubtitlesRef.current = true;
+      lastLoadedEpisodeIdRef.current = episodeId;
+      
       // 根据PRD：字幕加载过程中，在英文字幕区域中间显示提示"请稍等，字幕加载中"和进度条
       setSubtitleLoadingState('loading');
       setSubtitleLoadingProgress(0);
@@ -698,11 +740,16 @@ export default function SubtitleList({
       const startTime = Date.now();
       const loadDuration = 2000; // 假设加载需要2秒
       
-      loadingProgressIntervalRef.current = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min((elapsed / loadDuration) * 100, 99);
-        setSubtitleLoadingProgress(progress);
+      // 保存 interval ID，以便在错误时能够清理
+      const intervalId = setInterval(() => {
+        // 检查是否仍在加载状态，如果已经变为错误状态，停止更新
+        if (loadingProgressIntervalRef.current === intervalId) {
+          const elapsed = Date.now() - startTime;
+          const progress = Math.min((elapsed / loadDuration) * 100, 99);
+          setSubtitleLoadingProgress(progress);
+        }
       }, 100);
+      loadingProgressIntervalRef.current = intervalId;
       
       // 如果有 episodeId，根据是否有 segments 信息决定加载策略
       // 如果有 segments 信息，只加载前3个segment的字幕（性能优化）
@@ -747,24 +794,37 @@ export default function SubtitleList({
             setCues(initialCues);
             setSubtitleLoadingState(null);
             setSubtitleLoadingProgress(0);
+            isLoadingSubtitlesRef.current = false;
           }, 300);
         } catch (error) {
-          // 清理进度定时器
-          if (loadingProgressIntervalRef.current) {
-            clearInterval(loadingProgressIntervalRef.current);
+          // 立即清理进度定时器（必须在设置错误状态之前）
+          // 使用保存的 intervalId 确保清理正确的定时器
+          const currentIntervalId = loadingProgressIntervalRef.current;
+          if (currentIntervalId) {
+            clearInterval(currentIntervalId);
             loadingProgressIntervalRef.current = null;
           }
           
           console.error('[SubtitleList] 加载字幕失败:', error);
-          setSubtitleLoadingState('error');
-          setSubtitleLoadingProgress(0);
-          setSubtitleLoadingError(error.response?.data?.detail || error.message || '字幕加载失败，请重试');
+          
+          // 使用函数式更新确保状态正确设置，避免被其他状态更新覆盖
+          const errorMessage = error.response?.data?.detail || error.message || '字幕加载失败，请重试';
+          
+          // 批量更新状态，确保原子性（React 18 会自动批处理）
+          // 设置错误标记，防止 useEffect 重置状态
+          hasErrorRef.current = true;
+          setSubtitleLoadingProgress(0); // 先重置进度
+          setSubtitleLoadingError(errorMessage); // 设置错误消息
+          setSubtitleLoadingState('error'); // 最后设置错误状态
+          isLoadingSubtitlesRef.current = false;
         }
       };
       
       loadInitialSubtitles();
     } else {
       // 既没有 cues 也没有 episodeId，使用 mock 数据
+      lastLoadedEpisodeIdRef.current = null;
+      isLoadingSubtitlesRef.current = false;
       getMockCues().then((mockCues) => {
         setCues(mockCues);
         setSubtitleLoadingState(null);
@@ -780,6 +840,7 @@ export default function SubtitleList({
         loadingProgressIntervalRef.current = null;
       }
     };
+    // 注意：不包含 subtitleLoadingState 在依赖项中，避免错误状态被重置
   }, [propsCues, episodeId, segments]);
 
   // 记录已加载 highlights 的 episodeId，避免重复加载
@@ -852,6 +913,11 @@ export default function SubtitleList({
     const previousStatus = previousTranscriptionStatusRef.current;
     const currentStatus = transcriptionStatus;
     
+    // 只在状态真正变化时才处理
+    if (previousStatus === currentStatus) {
+      return;
+    }
+    
     if (
       previousStatus !== 'completed' 
       && currentStatus === 'completed' 
@@ -859,8 +925,12 @@ export default function SubtitleList({
       && episodeId
     ) {
       console.log('[SubtitleList] 转录已完成，重新加载字幕数据（前3个segment）');
-      // 重置已加载的segment索引
+      // 重置已加载的segment索引和加载标记
       lastLoadedSegmentIndexRef.current = -1;
+      // 注意：不要重置 lastLoadedEpisodeIdRef.current，避免触发加载字幕的 useEffect
+      // 而是直接在这里加载，避免重复调用
+      isLoadingSubtitlesRef.current = false;
+      hasErrorRef.current = false; // 重置错误标记
       
       // 重新加载前3个segment的字幕（性能优化）
       const loadInitialSubtitles = async () => {
@@ -882,6 +952,8 @@ export default function SubtitleList({
               
               if (initialCues && initialCues.length > 0) {
                 setCues(initialCues);
+                // 更新 lastLoadedEpisodeIdRef，避免加载字幕的 useEffect 重复调用
+                lastLoadedEpisodeIdRef.current = episodeId;
               }
             }
           } else {
@@ -889,6 +961,8 @@ export default function SubtitleList({
             const allCues = await getCuesByEpisodeId(episodeId);
             if (allCues && allCues.length > 0) {
               setCues(allCues);
+              // 更新 lastLoadedEpisodeIdRef，避免加载字幕的 useEffect 重复调用
+              lastLoadedEpisodeIdRef.current = episodeId;
             }
           }
           
@@ -1051,7 +1125,8 @@ export default function SubtitleList({
     }
     
     // 获取下一个segment索引（基于已加载的最后一个segment索引）
-    const nextSegmentIndex = lastLoadedSegmentIndexRef.current + 1;
+    // 如果 lastLoadedSegmentIndexRef.current 为 -1，说明还没有加载任何segment，从0开始
+    const nextSegmentIndex = lastLoadedSegmentIndexRef.current === -1 ? 0 : lastLoadedSegmentIndexRef.current + 1;
     const nextSegment = segments.find(s => s.segment_index === nextSegmentIndex);
     
     if (!nextSegment) {
@@ -1268,6 +1343,11 @@ export default function SubtitleList({
           <IconButton
             onClick={async () => {
               // 重新加载字幕
+              // 重置加载标记，允许重新加载
+              lastLoadedEpisodeIdRef.current = null;
+              isLoadingSubtitlesRef.current = false;
+              hasErrorRef.current = false; // 重置错误标记
+              
               setSubtitleLoadingState('loading');
               setSubtitleLoadingProgress(0);
               setSubtitleLoadingError(null);
@@ -1301,9 +1381,12 @@ export default function SubtitleList({
                   setCues(reloadedCues);
                   setSubtitleLoadingState(null);
                   setSubtitleLoadingProgress(0);
+                  lastLoadedEpisodeIdRef.current = episodeId;
+                  isLoadingSubtitlesRef.current = false;
                 } catch (error) {
                   setSubtitleLoadingState('error');
                   setSubtitleLoadingError(error.response?.data?.detail || error.message || '字幕加载失败，请重试');
+                  isLoadingSubtitlesRef.current = false;
                 }
               }
             }}
