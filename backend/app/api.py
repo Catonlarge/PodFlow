@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.models import get_db, Episode, TranscriptCue, AudioSegment, Highlight, Note, AIQueryRecord
-from app.config import AUDIO_STORAGE_PATH, DEFAULT_LANGUAGE
+from app.config import AUDIO_STORAGE_PATH, DEFAULT_LANGUAGE, DEFAULT_AI_PROVIDER
 from app.utils.file_utils import (
     calculate_md5_async,
     get_audio_duration,
@@ -27,6 +27,7 @@ from app.utils.file_utils import (
     is_valid_audio_header,
 )
 from app.tasks import run_transcription_task
+from app.services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
 
@@ -1406,5 +1407,185 @@ async def get_notes_by_episode(
         }
         for n in notes
     ]
+
+
+# ==================== AI 查询 ====================
+
+class AIQueryRequest(BaseModel):
+    """AI 查询请求模型"""
+    highlight_id: int = Field(..., description="划线 ID")
+    provider: Optional[str] = Field(None, description="AI 提供商（可选，默认从 config 获取）")
+
+
+def build_context_text(highlight: Highlight, db: Session) -> Optional[str]:
+    """
+    构建相邻 2-3 个 TranscriptCue 的文本作为上下文
+    
+    Args:
+        highlight: Highlight 对象
+        db: 数据库会话
+    
+    Returns:
+        str: 上下文文本（相邻 cue 的文本拼接），如果没有上下文则返回 None
+    """
+    # 获取当前 cue
+    current_cue = db.query(TranscriptCue).filter(TranscriptCue.id == highlight.cue_id).first()
+    if not current_cue:
+        return None
+    
+    # 获取同一 episode 的所有 cues，按 start_time 排序
+    all_cues = db.query(TranscriptCue).filter(
+        TranscriptCue.episode_id == highlight.episode_id
+    ).order_by(TranscriptCue.start_time.asc()).all()
+    
+    # 找到当前 cue 的索引
+    current_index = None
+    for i, cue in enumerate(all_cues):
+        if cue.id == current_cue.id:
+            current_index = i
+            break
+    
+    if current_index is None:
+        return None
+    
+    # 获取前后各 1-2 个 cue（优先取 2 个，如果不够则取可用的）
+    context_cues = []
+    
+    # 向前取 2 个（如果不够则取可用的）
+    for i in range(max(0, current_index - 2), current_index):
+        context_cues.append(all_cues[i])
+    
+    # 当前 cue
+    context_cues.append(current_cue)
+    
+    # 向后取 2 个（如果不够则取可用的）
+    for i in range(current_index + 1, min(len(all_cues), current_index + 3)):
+        context_cues.append(all_cues[i])
+    
+    # 拼接文本
+    if len(context_cues) <= 1:
+        return None  # 只有一个 cue，不需要上下文
+    
+    context_texts = [cue.text for cue in context_cues]
+    return " ".join(context_texts)
+
+
+@router.post("/ai/query")
+async def query_ai(
+    request: AIQueryRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    AI 查询接口
+    
+    功能：
+    1. 检查缓存（基于 highlight_id）
+    2. 如果无缓存，创建 AIQueryRecord（status="processing"）
+    3. 调用 AI 服务查询
+    4. 保存结果到 AIQueryRecord（status="completed" 或 "failed"）
+    5. 返回结构化 JSON 对象
+    
+    参数:
+        request: AIQueryRequest（包含 highlight_id 和可选的 provider）
+        db: 数据库会话
+        
+    返回:
+        {
+            "query_id": 1,
+            "status": "completed",  // processing/completed/failed
+            "response": {  // 结构化 JSON 对象（不是字符串）
+                "type": "word",  // word/phrase/sentence（由 AI 判断）
+                "content": {
+                    "phonetic": "/ˌserənˈdɪpəti/",
+                    "definition": "意外发现珍宝的运气；机缘凑巧",
+                    "explanation": "..."
+                }
+            }
+        }
+    """
+    import json
+    
+    # Step 1: 验证 highlight_id 存在
+    highlight = db.query(Highlight).filter(Highlight.id == request.highlight_id).first()
+    if not highlight:
+        raise HTTPException(status_code=404, detail=f"Highlight {request.highlight_id} not found")
+    
+    # Step 2: 检查缓存（基于 highlight_id）
+    existing = db.query(AIQueryRecord).filter(
+        AIQueryRecord.highlight_id == request.highlight_id,
+        AIQueryRecord.status == "completed"
+    ).first()
+    
+    if existing:
+        # 解析 JSON 并返回结构化数据
+        try:
+            response_json = json.loads(existing.response_text)
+            logger.info(f"返回缓存查询结果: query_id={existing.id}, highlight_id={request.highlight_id}")
+            return {
+                "query_id": existing.id,
+                "status": "completed",
+                "response": response_json
+            }
+        except json.JSONDecodeError as e:
+            logger.error(f"缓存 JSON 解析失败: {e}, query_id={existing.id}")
+            # 如果缓存 JSON 损坏，继续执行新查询
+    
+    # Step 3: 创建 AIQueryRecord（status="processing"）
+    provider = request.provider or DEFAULT_AI_PROVIDER
+    
+    # 构建上下文
+    context_text = build_context_text(highlight, db)
+    
+    ai_record = AIQueryRecord(
+        highlight_id=highlight.id,
+        query_text=highlight.highlighted_text,
+        context_text=context_text,
+        status="processing",
+        provider=provider
+    )
+    db.add(ai_record)
+    db.commit()
+    db.refresh(ai_record)
+    
+    logger.info(f"创建 AI 查询记录: query_id={ai_record.id}, highlight_id={highlight.id}, text={highlight.highlighted_text[:50]}...")
+    
+    # Step 4: 调用 AI 服务
+    try:
+        ai_service = AIService()
+        response_json = ai_service.query(
+            text=highlight.highlighted_text,
+            context=context_text,
+            provider=provider
+        )
+        
+        # Step 5: 保存结果
+        ai_record.response_text = json.dumps(response_json, ensure_ascii=False)
+        ai_record.detected_type = response_json.get("type")
+        ai_record.status = "completed"
+        db.commit()
+        
+        logger.info(f"AI 查询成功: query_id={ai_record.id}, type={response_json.get('type')}")
+        
+        return {
+            "query_id": ai_record.id,
+            "status": "completed",
+            "response": response_json
+        }
+        
+    except ValueError as e:
+        # JSON 解析失败或格式不符合规范
+        ai_record.status = "failed"
+        ai_record.error_message = str(e)
+        db.commit()
+        logger.error(f"AI 查询失败（格式错误）: query_id={ai_record.id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI 查询失败：{str(e)}")
+        
+    except Exception as e:
+        # API 调用失败、网络错误等
+        ai_record.status = "failed"
+        ai_record.error_message = str(e)
+        db.commit()
+        logger.error(f"AI 查询失败（API 错误）: query_id={ai_record.id}, error={str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"AI 查询失败：{str(e)}")
 
 

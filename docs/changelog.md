@@ -17,6 +17,11 @@
   - 修复测试断言以适配新的 API 调用方式（使用 `call_kwargs` 获取关键字参数）
   - 修复网络错误测试，统一异常处理为 `Exception` 类型
 
+- **工具脚本** (`backend/app/utils/test_gemini_api.py`)：
+  - 新增 Gemini API 验证脚本，用于快速测试 AI 服务是否正常工作
+  - 支持命令行参数指定查询文本
+  - 包含完整的格式验证和结果展示
+
 **参考文档**：https://ai.google.dev/gemini-api/docs/quickstart
 
 ---
