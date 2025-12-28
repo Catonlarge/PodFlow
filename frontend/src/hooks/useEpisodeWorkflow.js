@@ -323,9 +323,6 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
   // --- Action: 上传文件 ---
   const handleUpload = useCallback(async (files) => {
     const { audioFile, enableTranscription } = files;
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:297',message:'handleUpload entry',data:{enableTranscription,currentEpisodeId:episodeId,currentProcessingState:processingState},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     
     // 关键修复：如果启用了字幕识别，立即设置 processingState 为 'recognize'
     // 这样在 navigate 之前，旧页面也能显示 Overlay，避免闪烁
@@ -333,16 +330,10 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
       setProcessingState('recognize');
       setProgress(0);
       setProcessingError(null);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:305',message:'processingState set to recognize immediately (enableTranscription=true)',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
     } else {
       setProcessingState('upload');
       setProgress(0);
       setProcessingError(null);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:312',message:'processingState set to upload',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
     }
 
     try {
@@ -369,31 +360,18 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
       localStorage.setItem(LOCAL_STORAGE_KEY, newId);
       
       const transcriptionStatus = response.status || response.transcription_status;
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:323',message:'upload completed, processing response',data:{newId,transcriptionStatus,isDuplicate:response.is_duplicate,currentEpisodeId:episodeId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       
       if (response.is_duplicate && newId === episodeId) {
         // 重复且相同，直接刷新状态
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:329',message:'duplicate file, refreshing data',data:{newId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         fetchEpisodeData(newId, false);
       } else {
         // 新文件或不同文件，需要跳转
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:333',message:'new file, preparing to navigate',data:{newId,transcriptionStatus},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
-        
         // 关键修复：先设置 processingState，确保 Overlay 能立即显示
         // 然后再清空旧状态和设置新状态，避免页面闪烁
         if (transcriptionStatus === 'processing' || transcriptionStatus === 'pending') {
           // 先设置 processingState 为 'recognize'，确保 Overlay 立即显示
           setProcessingState('recognize');
           setProgress(0);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:343',message:'processingState set to recognize first',data:{newId,transcriptionStatus},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
         } else if (transcriptionStatus === 'completed') {
           setProcessingState(null);
           setProgress(0);
@@ -404,9 +382,6 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
         
         // 然后设置新的 episodeId（这会触发组件重新渲染，但此时 processingState 已经设置好了）
         setEpisodeId(newId);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:356',message:'episodeId set, clearing old state',data:{newId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         
         // 最后清空旧状态（此时 Overlay 已经显示，不会导致闪烁）
         setEpisode(null);
@@ -414,9 +389,6 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
         // 设置 navigate 标记和时间戳，避免在 navigate 后立即清除 Overlay
         justNavigatedRef.current = true;
         navigateTimeRef.current = Date.now();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:366',message:'old state cleared, navigating with justNavigatedRef=true',data:{newId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         
         // 最后调用 navigate
         navigate(`/episodes/${newId}`, { replace: true });
@@ -432,22 +404,11 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
   // --- Action: 暂停/继续识别 ---
   const togglePause = useCallback(async () => {
     if (!episodeId) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:445',message:'togglePause called but no episodeId',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
       return;
     }
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:449',message:'togglePause entry',data:{episodeId,currentIsPaused:isPaused,currentProcessingState:processingState},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
-      
       if (isPaused) {
         // 当前已暂停，点击继续（重新开始识别）
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:453',message:'resuming transcription',data:{episodeId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
-        
         // 清除之前的错误状态
         setProcessingError(null);
         setProcessingState('recognize');
@@ -465,33 +426,17 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
           const segmentDuration = firstSegment ? firstSegment.duration : 180;
           const recognitionDuration = segmentDuration * 0.1 * 1000;
           startFakeProgress(recognitionDuration);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:470',message:'transcription resumed, progress started',data:{episodeId,recognitionDuration},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
         } catch (err) {
           // 如果获取 segment 失败，使用默认值
           startFakeProgress(18000);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:475',message:'failed to get segments, using default duration',data:{episodeId,error:err.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
         }
       } else {
         // 当前正在识别，点击暂停（取消识别任务）
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:480',message:'pausing transcription',data:{episodeId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
-        
         await subtitleService.cancelTranscription(episodeId);
         setIsPaused(true);
         stopFakeProgress();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:485',message:'transcription paused',data:{episodeId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
       }
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:489',message:'togglePause error',data:{episodeId,error:err.message,errorResponse:err.response?.data,isPaused},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
       setProcessingError(err.response?.data?.detail || err.message || '操作失败，请重试');
       // 确保状态正确
       setProcessingState('recognize');
@@ -534,16 +479,9 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
   // --- Action: 重试字幕识别 ---
   const retryTranscription = useCallback(async () => {
     if (!episodeId) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:512',message:'retryTranscription called but no episodeId',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       return;
     }
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:517',message:'retryTranscription entry',data:{episodeId,currentIsPaused:isPaused,currentError:processingError},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
-      
       // 清除错误状态
       setProcessingError(null);
       setProcessingState('recognize');
@@ -562,20 +500,11 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
         const segmentDuration = firstSegment ? firstSegment.duration : 180;
         const recognitionDuration = segmentDuration * 0.1 * 1000;
         startFakeProgress(recognitionDuration);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:535',message:'retryTranscription success, progress started',data:{episodeId,recognitionDuration},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
       } catch (err) {
         // 如果获取 segment 失败，使用默认值
         startFakeProgress(18000);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:540',message:'failed to get segments in retryTranscription, using default',data:{episodeId,error:err.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
       }
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:544',message:'retryTranscription error',data:{episodeId,error:err.message,errorResponse:err.response?.data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       setProcessingError(err.response?.data?.detail || err.message || '重试失败，请稍后再试');
       setProcessingState('recognize');
     }
@@ -599,9 +528,6 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
     actions: {
       upload: handleUpload,
       retryUpload: () => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useEpisodeWorkflow.js:570',message:'retryUpload called',data:{episodeId,currentProcessingState:processingState,currentError:processingError},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         setProcessingError(null);
       },
       retryFetch,
