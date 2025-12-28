@@ -4,6 +4,66 @@
 
 ---
 
+## [2025-01-XX] [fix] - 修复 AI 服务以适配新的 Google GenAI SDK API
+
+**变更内容**：
+- **AI 服务修复** (`backend/app/services/ai_service.py`)：
+  - 从旧的 `genai.GenerativeModel` API 迁移到新的 `genai.Client` API
+  - 使用 `client.models.generate_content(model="...", contents="...")` 替代 `model.generate_content(...)`
+  - 保持向后兼容，功能不变
+
+- **测试用例更新** (`backend/tests/test_ai_service.py`)：
+  - 更新所有 mock 从 `genai.GenerativeModel` 到 `genai.Client`
+  - 修复测试断言以适配新的 API 调用方式（使用 `call_kwargs` 获取关键字参数）
+  - 修复网络错误测试，统一异常处理为 `Exception` 类型
+
+**参考文档**：https://ai.google.dev/gemini-api/docs/quickstart
+
+---
+
+## [2025-01-XX] [feat] - 实现 AI 查询服务（Task 4.1）
+
+**变更内容**：
+- **AI 服务实现** (`backend/app/services/ai_service.py`)：
+  - 实现 `AIService` 类，提供统一的 AI 查询接口
+  - 使用 Google Gemini API（`gemini-2.5-flash` 模型）
+  - 自动判断查询类型（word/phrase/sentence），无需用户指定
+  - 完整的系统提示词（包含 Role、Task、Constraints、Output Format、Few-Shot Examples）
+  - JSON 响应解析（支持 Markdown 代码块格式）
+  - 完善的错误处理（API 调用失败、JSON 解析失败、格式验证失败）
+  - 详细的日志记录
+
+- **API 路由实现** (`backend/app/api.py`)：
+  - 新增 `POST /api/ai/query` 路由
+  - 查询缓存机制（基于 `highlight_id`，避免重复查询）
+  - 上下文构建函数（获取相邻 2-3 个 TranscriptCue 的文本）
+  - 创建和管理 `AIQueryRecord`（status: processing/completed/failed）
+  - 返回结构化 JSON 对象（不是字符串）
+
+- **测试用例** (`backend/tests/test_ai_service.py`)：
+  - API key 验证测试
+  - 统一查询接口测试（有/无上下文）
+  - JSON 响应解析测试（正常格式、Markdown 代码块）
+  - 类型检测测试（word/phrase/sentence）
+  - 格式验证测试（缺少字段、无效值）
+  - 上下文构建测试
+  - 错误处理测试（API 超时、网络错误）
+  - 真实 API 调用集成测试（验证 API key 有效性）
+
+- **依赖更新** (`backend/requirements.txt`)：
+  - 添加 `google-generativeai>=0.8.0` 依赖
+
+**技术细节**：
+- 使用 `unittest.mock` 模拟 Gemini API 调用（避免测试时消耗成本）
+- 保留 1 个真实 API 调用的集成测试（验证 API key 有效性）
+- 上下文构建策略：获取当前 cue 的前后各 1-2 个 cue，拼接文本
+- 错误处理策略：捕获所有异常，更新 `AIQueryRecord.status = "failed"`，记录 `error_message`
+
+**影响范围**：
+- 前端可以调用 `POST /api/ai/query` 进行 AI 查询
+- 查询结果自动缓存，相同 `highlight_id` 的查询直接返回缓存
+- 支持上下文传递，提高专有名词识别准确率
+
 ## [2025-12-28] [fix] - 修复 useNotePosition 测试文件中的 Vitest API 使用错误
 
 **变更内容**：
