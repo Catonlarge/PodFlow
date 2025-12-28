@@ -558,6 +558,33 @@ describe('SubtitleRow', () => {
       expect(handleHighlightClick).toHaveBeenCalledWith(mockHighlights[0]);
     });
 
+    it('应该在点击划线源时不触发 onClick（音频播放）', async () => {
+      const user = userEvent.setup();
+      const handleHighlightClick = vi.fn();
+      const handleCueClick = vi.fn(); // 音频播放回调
+
+      render(
+        <SubtitleRow
+          cue={mockCue}
+          index={0}
+          isHighlighted={false}
+          isPast={false}
+          highlights={mockHighlights}
+          onHighlightClick={handleHighlightClick}
+          onClick={handleCueClick}
+        />
+      );
+
+      // 点击 highlight 文本
+      const highlightedElement = screen.getByText('This');
+      await user.click(highlightedElement);
+      
+      // 应该触发 onHighlightClick，但不应该触发 onClick
+      expect(handleHighlightClick).toHaveBeenCalledTimes(1);
+      expect(handleHighlightClick).toHaveBeenCalledWith(mockHighlights[0]);
+      expect(handleCueClick).not.toHaveBeenCalled();
+    });
+
     it('应该支持多个划线', () => {
       const multipleHighlights = [
         {

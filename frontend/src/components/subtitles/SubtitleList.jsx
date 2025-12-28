@@ -8,6 +8,8 @@ import { useTextSelection } from '../../hooks/useTextSelection';
 import { getMockCues, getCuesByEpisodeId, subtitleService } from '../../services/subtitleService';
 import { highlightService } from '../../services/highlightService';
 import { noteService } from '../../services/noteService';
+import { aiService } from '../../services/aiService';
+import AICard from './AICard';
 
 /**
  * SubtitleList 组件
@@ -39,6 +41,7 @@ import { noteService } from '../../services/noteService';
  * @param {boolean} [props.isLoading] - 是否处于加载状态
  * @param {string} [props.transcriptionStatus] - 转录状态（pending/processing/completed/failed），用于在识别完成后触发字幕重新加载
  * @param {Array} [props.segments] - Segment 状态数组，用于显示底部状态提示
+ * @param {Function} [props.onNoteCreate] - 创建笔记成功后的回调函数 () => void
  */
 export default function SubtitleList({
   cues: propsCues,
@@ -53,6 +56,7 @@ export default function SubtitleList({
   isLoading = false,
   transcriptionStatus,
   segments = [],
+  onNoteCreate,
 }) {
   const [cues, setCues] = useState(propsCues || []);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -65,6 +69,22 @@ export default function SubtitleList({
   const [internalHighlights, setInternalHighlights] = useState([]);
   const [highlightError, setHighlightError] = useState(null);
   const [highlightErrorOpen, setHighlightErrorOpen] = useState(false);
+  
+  // AI 查询相关状态
+  const [aiCardState, setAiCardState] = useState({
+    isVisible: false,
+    anchorPosition: null,
+    queryText: null,
+    responseData: null,
+    isLoading: false,
+    queryId: null,
+    highlightId: null, // 存储用于查询的 highlight_id
+  });
+  const aiCardAnchorElementRef = useRef(null);
+  const aiCardHighlightIdRef = useRef(null); // 用于存储 highlightId，避免闭包问题
+  const isQueryingRef = useRef(false); // 防止重复调用 AI 查询
+  const [aiQueryError, setAiQueryError] = useState(null);
+  const [aiQueryErrorOpen, setAiQueryErrorOpen] = useState(false);
   
   // 使用 props 传入的 highlights，如果没有则使用内部状态
   // 注意：如果 props 传入了 highlights，优先使用 props（父组件管理状态）
@@ -271,16 +291,265 @@ export default function SubtitleList({
   }, [episodeId, affectedCues, highlights, generateUUID, clearSelection]);
 
   // 处理 AI 查询回调
-  const handleQuery = useCallback(() => {
-    // TODO: 后续 Task 4.3 实现 AI 查询功能
-    // 暂时使用占位逻辑
-    console.log('[SubtitleList] AI 查询操作:', {
-      selectedText,
-      selectionRange,
-      affectedCues,
+  const handleQuery = useCallback(async () => {
+    console.log('[SubtitleList] handleQuery 被调用', { episodeId, affectedCuesLength: affectedCues?.length, selectedText });
+    
+    // 防止重复调用
+    if (isQueryingRef.current) {
+      console.warn('[SubtitleList] AI 查询正在进行中，忽略重复调用');
+      return;
+    }
+    
+    if (!episodeId || !affectedCues || affectedCues.length === 0 || !selectedText) {
+      console.warn('[SubtitleList] 无法进行 AI 查询：缺少必要参数');
+      clearSelection();
+      return;
+    }
+
+    // 标记为正在查询
+    isQueryingRef.current = true;
+
+    try {
+      console.log('[SubtitleList] handleQuery 开始执行，准备显示 AICard');
+      // Step 1: 计算 anchorPosition
+      let computedAnchorPosition = null;
+      try {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          computedAnchorPosition = {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          };
+        }
+      } catch (error) {
+        console.error('[SubtitleList] 计算锚点位置失败:', error);
+      }
+      
+      // 如果 computedAnchorPosition 仍然为 null，使用默认位置（屏幕中心）
+      if (!computedAnchorPosition) {
+        computedAnchorPosition = {
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+        };
+      }
+
+      // 获取划线源的 DOM 元素引用（用于 IntersectionObserver）
+      let anchorElement = null;
+      if (affectedCues.length > 0) {
+        const firstCue = affectedCues[0].cue;
+        const cueElement = subtitleRefs.current[firstCue.id]?.current;
+        if (cueElement) {
+          anchorElement = cueElement;
+        }
+      }
+
+      // Step 2: ✨ 立即显示 AICard（Loading 状态），不等待 API
+      // 注意：此时还没有 highlightId，不能进行"添加到笔记"操作，但这对于 Loading 状态是可以接受的
+      console.log('[SubtitleList] 设置 AICard 状态为可见', { computedAnchorPosition, selectedText });
+      setAiCardState({
+        isVisible: true,
+        anchorPosition: computedAnchorPosition,
+        queryText: selectedText,
+        responseData: null,
+        isLoading: true, // 显示转圈
+        queryId: null,
+        highlightId: null, // 暂时为 null，创建 Highlight 后再更新
+      });
+      aiCardAnchorElementRef.current = anchorElement;
+      console.log('[SubtitleList] AICard 状态已设置');
+
+      // Step 3: 构建高亮数据
+      const isCrossCue = affectedCues.length > 1;
+      const highlightGroupId = isCrossCue ? generateUUID() : null;
+
+      const highlightsToCreate = affectedCues.map((affectedCue) => {
+        const cue = affectedCue.cue;
+        const startOffset = affectedCue.startOffset;
+        const endOffset = affectedCue.endOffset;
+        const highlightedText = cue.text.substring(startOffset, endOffset);
+
+        return {
+          cue_id: cue.id,
+          start_offset: startOffset,
+          end_offset: endOffset,
+          highlighted_text: highlightedText,
+          color: '#9C27B0', // 紫色，与 PRD 一致
+        };
+      });
+
+      // Step 4: 调用 API 创建高亮
+      const highlightResponse = await highlightService.createHighlights(
+        episodeId,
+        highlightsToCreate,
+        highlightGroupId
+      );
+
+      if (!highlightResponse || !highlightResponse.highlight_ids || highlightResponse.highlight_ids.length === 0) {
+        throw new Error('创建划线失败：服务器返回无效数据');
+      }
+
+      // 使用第一个 Highlight ID 进行查询（单 cue 时只有一个，跨 cue 时使用第一个）
+      const highlightId = highlightResponse.highlight_ids[0];
+      
+      // 更新 ref，确保后续操作能拿到 ID
+      aiCardHighlightIdRef.current = highlightId;
+
+      // 更新本地 highlights 状态（显示下划线）
+      const newHighlights = highlightsToCreate.map((h, index) => ({
+        id: highlightResponse.highlight_ids[index],
+        cue_id: h.cue_id,
+        start_offset: h.start_offset,
+        end_offset: h.end_offset,
+        highlighted_text: h.highlighted_text,
+        color: h.color,
+        highlight_group_id: highlightGroupId,
+      }));
+      setInternalHighlights((prev) => [...prev, ...newHighlights]);
+
+      // Step 5: 调用 AI 查询 API
+      const queryResponse = await aiService.queryAI(highlightId);
+
+      // Step 6: 更新 AICard（显示结果）
+      setAiCardState((prev) => ({
+        ...prev,
+        responseData: queryResponse.response,
+        isLoading: false,
+        queryId: queryResponse.query_id,
+        highlightId: highlightId, // 补全 highlightId，现在可以添加到笔记了
+      }));
+
+      // 清除文本选择（但保持 AICard 显示）
+      clearSelection();
+    } catch (error) {
+      console.error('[SubtitleList] AI 查询失败:', error);
+      console.error('[SubtitleList] 错误详情:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      
+      // 显示错误提示
+      const errorMessage = error.response?.data?.detail || error.message || 'AI 查询失败，请重试';
+      setAiQueryError(errorMessage);
+      setAiQueryErrorOpen(true);
+      
+      // 关闭 AICard
+      setAiCardState({
+        isVisible: false,
+        anchorPosition: null,
+        queryText: null,
+        responseData: null,
+        isLoading: false,
+        queryId: null,
+        highlightId: null,
+      });
+      aiCardAnchorElementRef.current = null;
+      aiCardHighlightIdRef.current = null;
+      
+      // 清除文本选择
+      clearSelection();
+    } finally {
+      // 重置查询状态，允许下次查询
+      isQueryingRef.current = false;
+    }
+  }, [episodeId, affectedCues, selectedText, generateUUID, clearSelection]);
+
+  // 处理添加到笔记
+  const handleAddToNote = useCallback(async (responseData, queryId) => {
+    if (!episodeId || !responseData || !queryId) {
+      console.warn('[SubtitleList] 无法添加到笔记：缺少必要参数');
+      return;
+    }
+
+    try {
+      // Step 1: 根据 responseData.type 格式化笔记内容
+      let noteContent = '';
+      
+      if (responseData.type === 'word' || responseData.type === 'phrase') {
+        // word/phrase 类型：definition + explanation
+        const parts = [];
+        if (responseData.content.definition) {
+          parts.push(responseData.content.definition);
+        }
+        if (responseData.content.explanation) {
+          parts.push(responseData.content.explanation);
+        }
+        noteContent = parts.join('\n');
+      } else if (responseData.type === 'sentence') {
+        // sentence 类型：translation + highlight_vocabulary
+        const parts = [];
+        if (responseData.content.translation) {
+          parts.push(responseData.content.translation);
+        }
+        if (responseData.content.highlight_vocabulary && responseData.content.highlight_vocabulary.length > 0) {
+          parts.push('\n难点词汇：');
+          responseData.content.highlight_vocabulary.forEach((vocab) => {
+            parts.push(`- ${vocab.term}: ${vocab.definition}`);
+          });
+        }
+        noteContent = parts.join('\n');
+      }
+
+      // Step 2: 使用存储的 highlightId（从 ref 获取，避免闭包问题）
+      const currentHighlightId = aiCardHighlightIdRef.current;
+      if (!currentHighlightId) {
+        throw new Error('找不到对应的划线记录 ID');
+      }
+
+      // Step 3: 创建 Note
+      const noteResponse = await noteService.createNote(
+        episodeId,
+        currentHighlightId,
+        'ai_card',
+        noteContent,
+        queryId
+      );
+
+      // Step 4: 关闭 AICard
+      setAiCardState({
+        isVisible: false,
+        anchorPosition: null,
+        queryText: null,
+        responseData: null,
+        isLoading: false,
+        queryId: null,
+        highlightId: null,
+      });
+      aiCardAnchorElementRef.current = null;
+
+      // Step 5: 通知父组件刷新笔记列表
+      if (onNoteCreate) {
+        onNoteCreate();
+      }
+
+      // Step 6: 更新 highlights（下划线已经显示，无需额外更新）
+      // Note: highlights 已经在 handleQuery 中更新，这里不需要再次更新
+    } catch (error) {
+      console.error('[SubtitleList] 添加到笔记失败:', error);
+      
+      // 显示错误提示
+      const errorMessage = error.response?.data?.detail || error.message || '添加到笔记失败，请重试';
+      setAiQueryError(errorMessage);
+      setAiQueryErrorOpen(true);
+    }
+  }, [episodeId, onNoteCreate]);
+
+  // 处理关闭 AICard
+  const handleCloseAICard = useCallback(() => {
+    setAiCardState({
+      isVisible: false,
+      anchorPosition: null,
+      queryText: null,
+      responseData: null,
+      isLoading: false,
+      queryId: null,
+      highlightId: null,
     });
-    clearSelection();
-  }, [selectedText, selectionRange, affectedCues, clearSelection]);
+    aiCardAnchorElementRef.current = null;
+    aiCardHighlightIdRef.current = null;
+  }, []);
 
   // 处理记录想法回调
   const handleThought = useCallback(() => {
@@ -297,13 +566,6 @@ export default function SubtitleList({
   // 加载字幕数据
   // 优先级：propsCues > episodeId > mock 数据
   useEffect(() => {
-    console.log('[DEBUG SubtitleList] useEffect触发，检查字幕数据', {
-      hasPropsCues: !!propsCues,
-      propsCuesLength: propsCues?.length || 0,
-      episodeId,
-      timestamp: new Date().toISOString(),
-    });
-    
     // 清理之前的加载进度定时器
     if (loadingProgressIntervalRef.current) {
       clearInterval(loadingProgressIntervalRef.current);
@@ -312,9 +574,6 @@ export default function SubtitleList({
     
     if (propsCues) {
       // 如果传入了 cues prop，直接使用
-      console.log('[DEBUG SubtitleList] 使用propsCues，不触发加载状态', {
-        cuesLength: propsCues.length,
-      });
       // 使用 requestAnimationFrame 避免在 effect 中同步调用 setState
       requestAnimationFrame(() => {
         setCues(propsCues);
@@ -324,9 +583,6 @@ export default function SubtitleList({
       });
     } else if (episodeId) {
       // 根据PRD：字幕加载过程中，在英文字幕区域中间显示提示"请稍等，字幕加载中"和进度条
-      console.log('[DEBUG SubtitleList] 没有propsCues，触发加载状态', {
-        episodeId,
-      });
       setSubtitleLoadingState('loading');
       setSubtitleLoadingProgress(0);
       setSubtitleLoadingError(null);
@@ -395,40 +651,57 @@ export default function SubtitleList({
     };
   }, [propsCues, episodeId]);
 
+  // 记录已加载 highlights 的 episodeId，避免重复加载
+  const loadedHighlightsEpisodeIdRef = useRef(null);
+  
   // 加载已有 highlights（当 episodeId 变化时）
   useEffect(() => {
     // 如果使用 props 传入的 highlights，不加载
-    if ((highlights && highlights.length > 0) || !episodeId) {
+    if (highlights && highlights.length > 0) {
       return;
     }
+    
+    // 如果没有 episodeId，不加载
+    if (!episodeId) {
+      return;
+    }
+    
+    // 如果已经加载过这个 episodeId 的 highlights，不重复加载
+    if (loadedHighlightsEpisodeIdRef.current === episodeId) {
+      return;
+    }
+
+    // 标记为正在加载
+    loadedHighlightsEpisodeIdRef.current = episodeId;
 
     // 从 API 加载 highlights
     highlightService.getHighlightsByEpisode(episodeId)
       .then((loadedHighlights) => {
-        // 过滤出 underline 类型的笔记对应的 highlights
-        // 先获取所有笔记，然后过滤出 underline 类型
+        // 获取所有笔记（不管类型），找出所有有笔记的 highlights
+        // 只要笔记存在，对应的 highlight 就应该显示下划线
         return noteService.getNotesByEpisode(episodeId)
           .then((notes) => {
-            // 找出所有 underline 类型的笔记对应的 highlight_id
-            const underlineHighlightIds = new Set(
-              notes
-                .filter(note => note.note_type === 'underline')
-                .map(note => note.highlight_id)
+            // 找出所有笔记对应的 highlight_id（不管笔记类型）
+            const noteHighlightIds = new Set(
+              notes.map(note => note.highlight_id)
             );
 
-            // 只保留 underline 类型的 highlights
-            const underlineHighlights = loadedHighlights.filter(h => 
-              underlineHighlightIds.has(h.id)
+            // 保留所有有笔记的 highlights（不管笔记类型）
+            // 这样所有类型的笔记（ai_card、thought、underline）对应的下划线都会显示
+            const highlightsWithNotes = loadedHighlights.filter(h => 
+              noteHighlightIds.has(h.id)
             );
 
-            setInternalHighlights(underlineHighlights);
+            setInternalHighlights(highlightsWithNotes);
           });
       })
       .catch((error) => {
         console.error('[SubtitleList] 加载 highlights 失败:', error);
+        // 网络错误（后端未运行）时，保持标记，避免无限重试
+        // 其他错误也保持标记，避免频繁重试
         // 不显示错误提示，避免干扰用户（highlights 加载失败不影响主要功能）
       });
-  }, [episodeId, highlights]);
+  }, [episodeId]); // 移除 highlights 依赖，避免因数组引用变化导致无限循环
 
   // 监听转录状态变化：当状态变为 completed 时，重新加载字幕；当状态变为 failed 时，显示错误提示
   useEffect(() => {
@@ -576,37 +849,6 @@ export default function SubtitleList({
         const elementHeight = elementRect.height;
         
         const scrollingRef = externalIsUserScrollingRef || internalIsUserScrollingRef;
-        console.log('[SubtitleList Auto-Scroll Debug]', {
-          currentSubtitleIndex,
-          isUserScrolling: scrollingRef.current,
-          isInteracting,
-          isInViewport,
-          containerInfo: {
-            scrollTop: containerScrollTop,
-            height: containerHeight,
-            width: containerWidth,
-            top: containerRect.top,
-            bottom: containerRect.bottom,
-            left: containerRect.left,
-            right: containerRect.right,
-          },
-          elementInfo: {
-            top: elementRect.top,
-            bottom: elementRect.bottom,
-            left: elementRect.left,
-            right: elementRect.right,
-            height: elementHeight,
-            width: elementRect.width,
-            topRelativeToContainer: elementTopRelativeToContainer,
-          },
-          positionCalculation: {
-            elementTopOffset: elementRect.top - containerRect.top,
-            elementBottomOffset: elementRect.bottom - containerRect.bottom,
-            containerTop: containerRect.top,
-            containerBottom: containerRect.bottom,
-            targetPositionRatio: (elementRect.top - containerRect.top) / containerHeight,
-          },
-        });
 
         // 只有当高亮字幕不在可见区域时，才自动滚动
         if (!isInViewport) {
@@ -618,14 +860,6 @@ export default function SubtitleList({
           const scrollTarget = elementTopRelativeToContainer - containerHeight / 3;
           const finalScrollTarget = Math.max(0, scrollTarget);
 
-          console.log('[SubtitleList Auto-Scroll Action]', {
-            elementTopRelativeToContainer,
-            containerHeight,
-            scrollTarget,
-            finalScrollTarget,
-            scrollBehavior: 'smooth',
-          });
-
           container.scrollTo({
             top: finalScrollTarget,
             behavior: 'smooth',
@@ -636,14 +870,6 @@ export default function SubtitleList({
           const expectedPositionRatio = 1 / 3;
           const positionDiff = currentPositionRatio - expectedPositionRatio;
           
-          console.log('[SubtitleList Auto-Scroll Skip]', {
-            reason: 'Element is in viewport',
-            currentPositionRatio: currentPositionRatio.toFixed(3),
-            expectedPositionRatio: expectedPositionRatio.toFixed(3),
-            positionDiff: positionDiff.toFixed(3),
-            elementTopOffset: elementRect.top - containerRect.top,
-            containerHeight,
-          });
         }
       }
     }
@@ -1156,6 +1382,20 @@ export default function SubtitleList({
         />
       )}
 
+      {/* AI 查询卡片 */}
+      {aiCardState.isVisible && (
+        <AICard
+          anchorPosition={aiCardState.anchorPosition}
+          anchorElementRef={aiCardAnchorElementRef}
+          queryText={aiCardState.queryText}
+          responseData={aiCardState.responseData}
+          isLoading={aiCardState.isLoading}
+          onAddToNote={handleAddToNote}
+          onClose={handleCloseAICard}
+          queryId={aiCardState.queryId}
+        />
+      )}
+
       {/* 错误提示 Snackbar */}
       <Snackbar
         open={highlightErrorOpen}
@@ -1169,6 +1409,22 @@ export default function SubtitleList({
           sx={{ width: '100%' }}
         >
           {highlightError}
+        </Alert>
+      </Snackbar>
+
+      {/* AI 查询错误提示 Snackbar */}
+      <Snackbar
+        open={aiQueryErrorOpen}
+        autoHideDuration={6000}
+        onClose={() => setAiQueryErrorOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setAiQueryErrorOpen(false)}
+          severity="error"
+          sx={{ width: '100%' }}
+        >
+          {aiQueryError}
         </Alert>
       </Snackbar>
     </Box>

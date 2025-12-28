@@ -48,7 +48,6 @@ export function useAudio({ audioUrl, onTimeUpdate, onDurationChange, initialVolu
       return;
     }
 
-    console.log('[useAudio] 更新音频源:', audioUrl);
     
     setCurrentTime(0);
     setDuration(0);
@@ -75,7 +74,6 @@ export function useAudio({ audioUrl, onTimeUpdate, onDurationChange, initialVolu
       if (onDurationChange) {
         onDurationChange(newDuration);
       }
-      console.log('[useAudio] 音频元数据加载完成，时长:', newDuration);
     };
 
     const handleTimeUpdate = () => {
@@ -88,20 +86,17 @@ export function useAudio({ audioUrl, onTimeUpdate, onDurationChange, initialVolu
 
     const handlePlay = () => {
       setIsPlaying(true);
-      console.log('[useAudio] 开始播放');
       triggerInteraction();
     };
 
     const handlePause = () => {
       setIsPlaying(false);
-      console.log('[useAudio] 暂停播放');
       triggerInteraction();
     };
 
     const handleEnded = () => {
       setIsPlaying(false);
       setCurrentTime(0);
-      console.log('[useAudio] 播放结束');
       triggerInteraction();
     };
 

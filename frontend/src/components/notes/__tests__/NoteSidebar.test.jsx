@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { createRef } from 'react';
 import NoteSidebar from '../NoteSidebar';
 import { noteService } from '../../../services/noteService';
 import { highlightService } from '../../../services/highlightService';
@@ -478,6 +479,120 @@ describe('NoteSidebar', () => {
       await waitFor(() => {
         expect(onNoteDelete).toHaveBeenCalledWith(1);
       });
+
+      // 验证刷新列表（应该重新调用 getNotesByEpisode）
+      await waitFor(() => {
+        expect(noteService.getNotesByEpisode).toHaveBeenCalledTimes(2);
+      });
+    });
+  });
+
+  describe('refreshNotes 方法', () => {
+    it('应该可以通过 ref 调用 refreshNotes 方法刷新笔记列表', async () => {
+      const ref = createRef();
+      const initialNotes = [mockNotes[0]];
+      const updatedNotes = [mockNotes[0], mockNotes[1]];
+
+      noteService.getNotesByEpisode.mockResolvedValueOnce(initialNotes);
+      highlightService.getHighlightsByEpisode.mockResolvedValueOnce([mockHighlights[0]]);
+
+      render(<NoteSidebar ref={ref} episodeId={1} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('note-card-1')).toBeInTheDocument();
+        expect(screen.queryByTestId('note-card-2')).not.toBeInTheDocument();
+      });
+
+      noteService.getNotesByEpisode.mockResolvedValueOnce(updatedNotes);
+      highlightService.getHighlightsByEpisode.mockResolvedValueOnce([
+        mockHighlights[0],
+        mockHighlights[1],
+      ]);
+
+      if (ref.current && ref.current.refreshNotes) {
+        await ref.current.refreshNotes();
+      }
+
+      await waitFor(() => {
+        expect(screen.getByTestId('note-card-1')).toBeInTheDocument();
+        expect(screen.getByTestId('note-card-2')).toBeInTheDocument();
+      });
+
+      expect(noteService.getNotesByEpisode).toHaveBeenCalledTimes(2);
+      expect(noteService.getNotesByEpisode).toHaveBeenNthCalledWith(2, 1);
+    });
+
+    it('应该在 refreshNotes 后自动展开侧边栏（如果用户未主动操作）', async () => {
+      const ref = createRef();
+      const initialNotes = [mockNotes[0]];
+      const updatedNotes = [mockNotes[0], mockNotes[1]];
+
+      noteService.getNotesByEpisode.mockResolvedValueOnce(initialNotes);
+      highlightService.getHighlightsByEpisode.mockResolvedValueOnce([mockHighlights[0]]);
+
+      render(<NoteSidebar ref={ref} episodeId={1} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('note-card-1')).toBeInTheDocument();
+      });
+
+      noteService.getNotesByEpisode.mockResolvedValueOnce(updatedNotes);
+      highlightService.getHighlightsByEpisode.mockResolvedValueOnce([
+        mockHighlights[0],
+        mockHighlights[1],
+      ]);
+
+      if (ref.current && ref.current.refreshNotes) {
+        await ref.current.refreshNotes();
+      }
+
+      await waitFor(() => {
+        expect(screen.getByTestId('note-card-1')).toBeInTheDocument();
+        expect(screen.getByTestId('note-card-2')).toBeInTheDocument();
+      });
+    });
+
+    it('应该在没有 episodeId 时 refreshNotes 不执行任何操作', async () => {
+      const ref = createRef();
+
+      render(<NoteSidebar ref={ref} episodeId={null} />);
+
+      if (ref.current && ref.current.refreshNotes) {
+        await ref.current.refreshNotes();
+      }
+
+      expect(noteService.getNotesByEpisode).not.toHaveBeenCalled();
+      expect(highlightService.getHighlightsByEpisode).not.toHaveBeenCalled();
+    });
+
+    it('应该处理 refreshNotes 时的错误', async () => {
+      const ref = createRef();
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      noteService.getNotesByEpisode.mockResolvedValueOnce([mockNotes[0]]);
+      highlightService.getHighlightsByEpisode.mockResolvedValueOnce([mockHighlights[0]]);
+
+      render(<NoteSidebar ref={ref} episodeId={1} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('note-card-1')).toBeInTheDocument();
+      });
+
+      const error = new Error('刷新失败');
+      noteService.getNotesByEpisode.mockRejectedValueOnce(error);
+
+      if (ref.current && ref.current.refreshNotes) {
+        await ref.current.refreshNotes();
+      }
+
+      await waitFor(() => {
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('[NoteSidebar] 刷新笔记列表失败:'),
+          error
+        );
+      });
+
+      consoleErrorSpy.mockRestore();
     });
   });
 });

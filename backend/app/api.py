@@ -1551,7 +1551,19 @@ async def query_ai(
     
     # Step 4: 调用 AI 服务
     try:
-        ai_service = AIService()
+        try:
+            ai_service = AIService()
+        except ValueError as e:
+            # AI 服务初始化失败（通常是 API Key 未配置）
+            logger.error(f"AI 服务初始化失败: {e}")
+            ai_record.status = "failed"
+            ai_record.error_message = str(e)
+            db.commit()
+            raise HTTPException(
+                status_code=500,
+                detail=f"AI 服务配置错误：{str(e)}。请检查 GEMINI_API_KEY 环境变量是否已设置。"
+            )
+        
         response_json = ai_service.query(
             text=highlight.highlighted_text,
             context=context_text,

@@ -15,7 +15,7 @@
  * @module components/notes/NoteSidebar
  */
 
-import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle, useMemo, useCallback } from 'react';
 import { Box, Stack, IconButton, Skeleton, Alert, Typography } from '@mui/material';
 import { ArrowForward, StickyNote2 } from '@mui/icons-material';
 import { noteService } from '../../services/noteService';
@@ -120,17 +120,6 @@ const NoteSidebar = forwardRef(function NoteSidebar({
   // 用户是否主动操作过展开/收缩状态
   const hasUserInteractedRef = useRef(false);
   
-  // 调试：监听外部状态变化
-  useEffect(() => {
-    console.log('[NoteSidebar] externalIsExpanded 变化:', externalIsExpanded);
-    console.log('[NoteSidebar] internalIsExpanded 当前值:', internalIsExpanded);
-    console.log('[NoteSidebar] isExpanded 最终值:', isExpanded);
-  }, [externalIsExpanded, internalIsExpanded, isExpanded]);
-  
-  // 调试：监听渲染时的展开状态
-  useEffect(() => {
-    console.log('[NoteSidebar] 渲染内容容器，isExpanded:', isExpanded);
-  }, [isExpanded]);
   
   // 记录已加载的 episodeId，避免重复加载
   const loadedEpisodeIdRef = useRef(null);
@@ -205,9 +194,8 @@ const NoteSidebar = forwardRef(function NoteSidebar({
       return;
     }
     
-    // 如果已经加载过这个 episodeId 的数据，且数据存在，就不重新加载
-    if (loadedEpisodeIdRef.current === episodeId && notes.length >= 0) {
-      console.log('[NoteSidebar] 数据已加载，跳过重新加载');
+    // 如果已经加载过这个 episodeId 的数据，就不重新加载
+    if (loadedEpisodeIdRef.current === episodeId) {
       // 清除错误状态，避免展开时显示错误提示
       if (error) {
         setError(null);
@@ -289,7 +277,7 @@ const NoteSidebar = forwardRef(function NoteSidebar({
       .finally(() => {
         setLoading(false);
       });
-  }, [episodeId, onExpandedChange]);
+  }, [episodeId]); // 移除 onExpandedChange 依赖，避免无限循环（onExpandedChange 在 useEffect 内部使用，不需要作为依赖）
   
   // 处理收缩按钮点击（如果外部控制状态，则只通知外部；否则更新内部状态）
   const handleCollapse = () => {
@@ -323,25 +311,40 @@ const NoteSidebar = forwardRef(function NoteSidebar({
     console.log('[NoteSidebar] handleExpand 完成');
   };
   
+  // 刷新笔记列表（公共方法，供内部和外部调用）
+  const refreshNotes = useCallback(async () => {
+    if (!episodeId) {
+      return;
+    }
+    
+    try {
+      const [notesData, highlightsData] = await Promise.all([
+        noteService.getNotesByEpisode(episodeId),
+        highlightService.getHighlightsByEpisode(episodeId)
+      ]);
+      
+      const displayNotes = notesData.filter(n => n.note_type !== 'underline');
+      const highlightMap = new Map(highlightsData.map(h => [h.id, h]));
+      
+      setNotes(displayNotes);
+      setHighlights(highlightMap);
+      loadedEpisodeIdRef.current = episodeId; // 更新已加载标记
+      
+      // 如果有新笔记，自动展开
+      if (displayNotes.length > 0 && !hasUserInteractedRef.current) {
+        if (externalIsExpanded === undefined) {
+          setInternalIsExpanded(true);
+        }
+        onExpandedChange?.(true);
+      }
+    } catch (err) {
+      console.error('[NoteSidebar] 刷新笔记列表失败:', err);
+    }
+  }, [episodeId, externalIsExpanded, onExpandedChange]);
+
   // 处理笔记更新
   const handleUpdateNote = async (noteId, content) => {
-    // 刷新列表（重新加载数据）
-    if (episodeId) {
-      try {
-        const [notesData, highlightsData] = await Promise.all([
-          noteService.getNotesByEpisode(episodeId),
-          highlightService.getHighlightsByEpisode(episodeId)
-        ]);
-        
-        const displayNotes = notesData.filter(n => n.note_type !== 'underline');
-        const highlightMap = new Map(highlightsData.map(h => [h.id, h]));
-        
-        setNotes(displayNotes);
-        setHighlights(highlightMap);
-      } catch (err) {
-        console.error('[NoteSidebar] 刷新笔记列表失败:', err);
-      }
-    }
+    await refreshNotes();
   };
 
   // 处理笔记删除
@@ -363,6 +366,7 @@ const NoteSidebar = forwardRef(function NoteSidebar({
         
         setNotes(displayNotes);
         setHighlights(highlightMap);
+        loadedEpisodeIdRef.current = episodeId;
         
         // 如果删除后没有笔记了，自动收缩
         if (displayNotes.length === 0) {
@@ -383,6 +387,15 @@ const NoteSidebar = forwardRef(function NoteSidebar({
     const dateB = new Date(b.created_at);
     return dateA - dateB;
   });
+  
+  // 暴露 ref 给父组件（用于双向链接和刷新）
+  // 必须在所有条件返回之前调用，确保 hooks 调用顺序一致
+  useImperativeHandle(ref, () => ({
+    // 返回容器引用，用于 DOM 查询
+    getContainer: () => noteSidebarRef.current,
+    // 刷新笔记列表，供外部调用
+    refreshNotes: refreshNotes,
+  }), [refreshNotes]);
   
   // 渲染加载状态（只在真正需要加载时显示，避免展开时的闪烁）
   // 如果数据已经加载过（loadedEpisodeIdRef.current === episodeId），就不显示 loading
@@ -424,12 +437,6 @@ const NoteSidebar = forwardRef(function NoteSidebar({
     );
   }
   
-  // 暴露 ref 给父组件（用于双向链接）
-  useImperativeHandle(ref, () => ({
-    // 返回容器引用，用于 DOM 查询
-    getContainer: () => noteSidebarRef.current,
-  }), []);
-  
   return (
     <Box
       ref={noteSidebarRef}
@@ -439,6 +446,7 @@ const NoteSidebar = forwardRef(function NoteSidebar({
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
+        zIndex: 1, // 确保笔记卡片在音频播放器之上
       }}
     >
       {/* 收缩按钮（向右箭头图标，PRD 377行） */}
@@ -524,11 +532,12 @@ const NoteSidebar = forwardRef(function NoteSidebar({
           sx={{
             width: '100%',
             height: '100%',
+            maxHeight: '100%', // 明确限制最大高度
             px: 3, // 距离左右边缘 24px（PRD 390行）
             py: 2,
-            overflowY: 'auto',
-            overflowX: 'hidden',
+            overflow: 'visible', // 允许笔记卡片超出容器可见，避免在页面放大时被裁剪
             position: 'relative', // 为绝对定位的笔记卡片提供定位上下文
+            boxSizing: 'border-box', // 确保 padding 包含在高度内
           }}
         >
           {sortedNotes.length === 0 ? (
@@ -556,7 +565,14 @@ const NoteSidebar = forwardRef(function NoteSidebar({
               sx={{
                 width: '100%',
                 position: 'relative',
-                minHeight: '100%', // 确保容器至少占满高度
+                height: '100%', // 占满父容器高度
+                maxHeight: '100%', // 明确限制最大高度
+                minHeight: 0, // 防止容器被撑高
+                overflow: 'visible', // 允许笔记卡片超出容器可见，避免在页面放大时被裁剪
+                contain: 'layout style size', // 使用 contain 属性，避免绝对定位子元素影响父容器高度和大小
+                isolation: 'isolate', // 创建新的层叠上下文，进一步隔离绝对定位子元素
+                zIndex: 1, // 确保笔记卡片在音频播放器之上
+                boxSizing: 'border-box', // 确保容器高度不受绝对定位子元素影响
               }}
             >
               {sortedNotes.map((note) => {
@@ -578,8 +594,12 @@ const NoteSidebar = forwardRef(function NoteSidebar({
                       left: 0,
                       right: 0,
                       width: '100%',
-                      mb: 2, // 笔记卡片之间的间距
+                      maxWidth: '100%', // 确保不超出容器宽度
+                      height: 'auto', // 确保容器高度只包含内容
+                      maxHeight: '50vh', // 限制最大高度，与 NoteCard 的 maxHeight 保持一致
                       transition: 'top 0.1s ease-out', // 平滑的位置更新
+                      zIndex: 1001, // 确保笔记卡片在音频播放器（zIndex 1000）之上
+                      overflow: 'visible', // 允许 NoteCard 内部的滚动条显示
                     }}
                   >
                     <NoteCard

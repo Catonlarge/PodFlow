@@ -6,9 +6,11 @@ PodFlow FastAPI 应用入口
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 import uvicorn
 
 from app.utils.hardware_patch import apply_rtx5070_patches
@@ -113,6 +115,56 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# 允许前端跨域访问
+# 注意：CORS 中间件必须在路由注册之前添加，才能正确处理 OPTIONS 预检请求
+# 当 allow_origins=["*"] 时，不能同时设置 allow_credentials=True
+# 因此明确指定开发环境的前端地址
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # Vite 开发服务器
+        "http://127.0.0.1:5173",  # Vite 开发服务器（IP 形式）
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 全局异常处理器：确保所有错误响应都包含 CORS 头
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    全局异常处理器
+    
+    确保所有异常响应都包含 CORS 头，避免浏览器 CORS 错误
+    """
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse
+    
+    # 如果是 HTTPException，使用其状态码和详情
+    if isinstance(exc, HTTPException):
+        status_code = exc.status_code
+        detail = exc.detail
+    else:
+        # 其他异常统一返回 500
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        detail = str(exc) if logger.level <= logging.DEBUG else "Internal server error"
+        logger.error(f"未处理的异常: {exc}", exc_info=True)
+    
+    # 创建响应，CORS 中间件会自动添加 CORS 头
+    response = JSONResponse(
+        status_code=status_code,
+        content={"detail": detail}
+    )
+    
+    # 手动添加 CORS 头（确保即使中间件失效也能工作）
+    origin = request.headers.get("origin")
+    if origin and origin in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    
+    return response
+
 # 注册 API 路由
 app.include_router(api_router, prefix="/api")
 
@@ -131,17 +183,6 @@ sample_audio_path = (backend_dir / "data" / "sample_audio").resolve()
 sample_audio_path.mkdir(parents=True, exist_ok=True)
 logger.info(f"[System] 示例音频静态文件服务路径: {sample_audio_path}")
 app.mount("/static/sample_audio", StaticFiles(directory=str(sample_audio_path)), name="sample_audio")
-
-# 允许前端跨域访问
-# 注意：对于本地工具（Local-First）来说，允许所有来源是安全的
-# 如果部署到公网，建议收紧此权限，指定具体的允许来源
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # 开发模式允许所有
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 @app.get("/")

@@ -71,12 +71,15 @@ button:focus-visible {
 @keyframes noteCardFlash {
   0%, 100% {
     background-color: transparent;
+    box-shadow: none;
   }
   50% {
-    background-color: rgba(156, 39, 176, 0.2); /* 紫色半透明 */
+    background-color: rgba(156, 39, 176, 0.3); /* 紫色半透明，更明显 */
+    box-shadow: 0 0 12px rgba(156, 39, 176, 0.6); /* 添加阴影效果，让闪烁更明显 */
   }
 }
 
 .note-card-flash {
   animation: noteCardFlash 0.6s ease-in-out;
+  border-radius: 4px; /* 添加圆角，让闪烁效果更美观 */
 }

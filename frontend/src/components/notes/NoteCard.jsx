@@ -76,11 +76,13 @@ export default function NoteCard({ note, highlight, onUpdate, onDelete, onClick 
   
   const cardRef = useRef(null);
   const textareaRef = useRef(null);
+  const cardContentRef = useRef(null);
 
   // 当note.content变化时，更新editedContent
   useEffect(() => {
     setEditedContent(note.content || '');
   }, [note.content]);
+
 
   // 点击外部提交编辑
   useEffect(() => {
@@ -193,10 +195,16 @@ export default function NoteCard({ note, highlight, onUpdate, onDelete, onClick 
         onClick={handleCardClick}
         sx={{
           minHeight: '40px',
-          maxHeight: '50vh',
+          maxHeight: '50vh', // PRD 395行：最大为用户屏幕的一半
+          // 关键：不设置 height，让 Card 根据内容自适应，但不超过 maxHeight
+          // 当内容超出 maxHeight 时，Card 会被限制在 maxHeight，CardContent 会滚动
           display: 'flex',
           flexDirection: 'column',
           cursor: onClick ? 'pointer' : 'default',
+          overflow: 'hidden', // 确保 Card 本身不滚动，只有 CardContent 滚动
+          boxSizing: 'border-box', // 确保 padding 和 border 包含在高度内
+          // 使用 contain 属性，确保 Card 的高度计算不受子元素影响
+          contain: 'layout style',
           '&:hover': {
             bgcolor: 'action.hover',
           },
@@ -245,16 +253,35 @@ export default function NoteCard({ note, highlight, onUpdate, onDelete, onClick 
             borderBottom: '1px solid',
             borderColor: 'divider',
             py: 1,
+            flexShrink: 0, // 确保 CardHeader 不会被压缩
           }}
         />
 
         {/* 内容区 */}
         <CardContent
+          ref={cardContentRef}
           sx={{
-            flex: 1,
-            overflowY: 'auto',
+            flex: '1 1 0%', // 使用 0% 作为 flex-basis，确保 flex 子元素能够正确收缩
+            overflowY: 'auto', // PRD 395行：当内容超过最大高度时，出现垂直滚动条
             overflowX: 'hidden',
+            minHeight: 0, // 重要：允许 flex 子元素缩小，确保滚动条能正常工作
+            maxHeight: 'calc(50vh - 60px)', // 明确设置最大高度：50vh 减去 CardHeader 的高度（约 60px）
             py: 1.5,
+            boxSizing: 'border-box', // 确保 padding 包含在高度内
+            // 自定义滚动条样式，使其更明显
+            '&::-webkit-scrollbar': {
+              width: '8px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: 'transparent',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '4px',
+              '&:hover': {
+                background: 'rgba(0, 0, 0, 0.3)',
+              },
+            },
             '&:last-child': {
               pb: 1.5,
             },

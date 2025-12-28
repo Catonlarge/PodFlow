@@ -39,7 +39,7 @@ export function useNotePosition({ highlights = [], cues = [], scrollContainerRef
    * @returns {number|null} offsetTop 值，如果找不到元素则返回 null
    */
   const calculatePosition = useCallback((highlight) => {
-    if (!scrollContainerRef?.current || !highlight?.cue_id) {
+    if (!scrollContainerRef?.current || !highlight?.cue_id || !noteSidebarRef?.current) {
       return null;
     }
     
@@ -52,16 +52,47 @@ export function useNotePosition({ highlights = [], cues = [], scrollContainerRef
       return null;
     }
     
-    // 2. 使用 getBoundingClientRect() 获取元素位置
-    const elementRect = subtitleElement.getBoundingClientRect();
-    const containerRect = scrollContainerRef.current.getBoundingClientRect();
+    // 2. 找到笔记内容容器（note-sidebar-content）
+    const noteContentContainer = noteSidebarRef.current.querySelector(
+      '[data-testid="note-sidebar-content"]'
+    );
     
-    // 3. 计算相对于滚动容器的 offsetTop
-    // offsetTop = 元素顶部相对于容器顶部的距离 + 容器的 scrollTop
-    const offsetTop = elementRect.top - containerRect.top + scrollContainerRef.current.scrollTop;
+    if (!noteContentContainer) {
+      return null;
+    }
+    
+    // 3. 计算相对于笔记内容容器的位置（不受页面缩放影响）
+    // 使用 getBoundingClientRect() 直接计算相对位置，这样在页面缩放时也能保持稳定
+    // 因为两个元素都按相同比例缩放，它们的相对位置保持不变
+    const elementRect = subtitleElement.getBoundingClientRect();
+    const noteContentRect = noteContentContainer.getBoundingClientRect();
+    
+    // 检查容器是否已经渲染完成（尺寸不为 0）
+    // 如果容器还没有渲染完成，返回 null，等待下次更新
+    // 注意：即使容器高度为 0，只要宽度不为 0，也认为容器已经渲染完成
+    // 因为容器可能是空的，但位置信息仍然有效
+    if (noteContentRect.width === 0 && noteContentRect.height === 0) {
+      // 容器还没有渲染完成，返回 null，等待下次更新
+      return null;
+    }
+    
+    // 直接计算两个元素之间的相对位置（相对于视口）
+    // 这个相对位置在页面缩放时保持不变，因为两个元素都按相同比例缩放
+    let offsetTop = elementRect.top - noteContentRect.top;
+    
+    // 5. 边界检查：不限制位置，让笔记卡片始终跟随划线源
+    // 即使位置超出容器，也保持原位置，由父容器的 overflow: visible 处理可见性
+    // 这样可以确保笔记卡片始终与划线源对齐，不会因为页面缩放而飘散或重叠
+    
+    // 7. 如果计算出的位置仍然异常，可能是计算错误，返回 null
+    // 正常情况下，offsetTop 应该在合理范围内（比如 -1000 到 10000 之间）
+    if (offsetTop < -1000 || offsetTop > 10000) {
+      console.warn('[useNotePosition] 计算出的位置值异常:', { offsetTop, elementRect, noteContentRect });
+      return null;
+    }
     
     return offsetTop;
-  }, [scrollContainerRef]);
+  }, [scrollContainerRef, noteSidebarRef]);
   
   /**
    * 批量更新所有 Highlight 的位置
@@ -103,17 +134,30 @@ export function useNotePosition({ highlights = [], cues = [], scrollContainerRef
     }, 100); // 100ms 节流
   }, [updatePositions]);
   
+  // 使用 useMemo 稳定 cues 的引用（基于长度和 ID 列表）
+  const cuesKey = useMemo(() => {
+    if (!cues || !Array.isArray(cues) || cues.length === 0) return '';
+    return cues.map(c => c?.id ?? '').filter(Boolean).join(',');
+  }, [cues]);
+  
+  // 使用 useMemo 稳定 highlights 的引用（基于长度和 ID 列表）
+  const highlightsKey = useMemo(() => {
+    if (!highlights || !Array.isArray(highlights) || highlights.length === 0) return '';
+    return highlights.map(h => h?.id ?? '').filter(Boolean).join(',');
+  }, [highlights]);
+  
   /**
    * 初始计算位置（当 highlights 或 cues 变化时）
+   * 使用稳定的 key 而不是直接依赖数组，避免因数组引用变化导致频繁触发
    */
   useEffect(() => {
     // 延迟执行，确保 DOM 已渲染
     const timer = setTimeout(() => {
       updatePositions();
-    }, 0);
+    }, 100); // 增加延迟，减少触发频率
     
     return () => clearTimeout(timer);
-  }, [highlights, cues, updatePositions]);
+  }, [cuesKey, highlightsKey, updatePositions]);
   
   /**
    * 监听左侧滚动容器的滚动事件
@@ -136,17 +180,28 @@ export function useNotePosition({ highlights = [], cues = [], scrollContainerRef
   }, [scrollContainerRef, throttledUpdate]);
   
   /**
-   * 监听窗口大小变化（可能导致位置变化）
+   * 监听窗口大小变化和页面缩放（可能导致位置变化）
    */
   useEffect(() => {
     const handleResize = () => {
       throttledUpdate();
     };
     
+    // 监听窗口大小变化
     window.addEventListener('resize', handleResize, { passive: true });
+    
+    // 监听页面缩放事件（使用 visualViewport API，更准确）
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleResize);
+      window.visualViewport.addEventListener('scroll', handleResize);
+    }
     
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleResize);
+        window.visualViewport.removeEventListener('scroll', handleResize);
+      }
     };
   }, [throttledUpdate]);
   

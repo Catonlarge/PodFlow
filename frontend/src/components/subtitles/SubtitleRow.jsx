@@ -420,7 +420,17 @@ const SubtitleRow = forwardRef(function SubtitleRow({
                 <React.Fragment key={`highlight-${part.highlightId}-${partIndex}`}>
                   <Box
                     component="span"
+                    data-highlight-id={part.highlightId}
+                    onMouseDown={(e) => {
+                      // 阻止 mousedown 事件冒泡，防止触发外层的拖拽检测
+                      e.stopPropagation();
+                    }}
+                    onMouseUp={(e) => {
+                      // 阻止 mouseup 事件冒泡，防止触发外层的音频播放
+                      e.stopPropagation();
+                    }}
                     onClick={(e) => {
+                      // 阻止 click 事件冒泡
                       e.stopPropagation();
                       if (onHighlightClick) {
                         const highlight = highlights.find(h => h.id === part.highlightId);

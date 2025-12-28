@@ -4,6 +4,207 @@
 
 ---
 
+## [2025-01-28] [fix] - 修复笔记卡片在页面放大时消失或被隐藏的问题
+
+**变更内容**：
+- **优化容器可见性** (`frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 将 `note-sidebar-content` 和 `note-sidebar-list` 的 `overflow` 设置为 `visible`，允许笔记卡片超出容器可见
+  - 现在当页面放大时，笔记卡片不会消失或被隐藏，即使位置超出容器边界也能正常显示
+- **简化位置计算逻辑** (`frontend/src/hooks/useNotePosition.js`)：
+  - 移除未使用的边界检查代码，保持笔记卡片始终跟随划线源
+  - 使用 `getBoundingClientRect()` 计算相对位置，页面缩放时相对位置保持不变
+
+**技术要点**：
+- 使用 `overflow: visible` 允许绝对定位的笔记卡片超出容器边界可见
+- 当页面放大时，即使计算出的位置超出容器，笔记卡片也能正常显示
+
+## [2025-01-XX] [fix] - 修复笔记卡片在页面缩放时位置飘散的问题
+
+**变更内容**：
+- **修复位置计算逻辑** (`frontend/src/hooks/useNotePosition.js`)：
+  - 添加容器渲染完成检查，确保 `noteContentContainer` 已渲染完成后再计算位置
+  - 如果容器尺寸为 0（宽度和高度都为 0），返回 `null` 等待下次更新，避免使用错误的位置值
+  - 简化位置计算逻辑，直接使用 `getBoundingClientRect()` 计算两个元素的相对位置
+  - 移除边界检查逻辑，让笔记卡片始终跟随各自的划线源，不会因为页面缩放而重叠
+- **优化容器可见性** (`frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 将 `note-sidebar-content` 和 `note-sidebar-list` 的 `overflow` 设置为 `visible`，允许笔记卡片超出容器可见
+  - 现在当页面放大时，笔记卡片不会消失或被隐藏，也不会因为位置计算错误而飘散
+
+**技术要点**：
+- 使用 `getBoundingClientRect()` 计算相对位置，页面缩放时两个元素按相同比例缩放，相对位置保持不变
+- 检查容器渲染状态，避免在容器未渲染完成时使用错误的位置值（`noteContentRect.top = 0`）
+- 使用 `overflow: visible` 允许绝对定位的笔记卡片超出容器边界可见
+
+## [2025-01-XX] [fix] - 修复点击划线源和笔记卡片时滚动位置不一致的问题
+
+**变更内容**：
+- **统一滚动定位逻辑** (`frontend/src/components/layout/MainLayout.jsx`)：
+  - 修复 `handleHighlightClick` 函数，现在点击划线源时也会滚动到对应的字幕行位置（与点击笔记卡片一致）
+  - 统一使用 `scrollIntoView({ block: 'center' })` 方法，确保两个操作都定位到屏幕中央
+  - 优先使用 highlight 元素进行滚动定位，如果找不到则使用字幕行
+  - 保持双向链接功能：点击划线源时仍然会触发笔记卡片的闪烁高亮效果
+  - 现在点击划线源和点击笔记卡片时，界面会滚动到相同的位置（对应的字幕行/划线源），并且都定位在屏幕中央
+
+**技术要点**：
+- 使用 `scrollIntoView({ block: 'center' })` 确保元素定位到屏幕中央
+- 统一滚动目标：两个操作都滚动到字幕行位置，而不是分别滚动到不同位置
+- 保持代码一致性，使用相同的滚动逻辑
+
+## [2025-01-XX] [fix] - 优化笔记卡片内容区域滚动功能
+
+**变更内容**：
+- **优化笔记卡片内容区域滚动** (`frontend/src/components/notes/NoteCard.jsx`)：
+  - 为 Card 组件添加 `boxSizing: 'border-box'`，确保 padding 和 border 包含在高度计算内
+  - 将 CardContent 的 `flex: 1` 改为 `flex: '1 1 auto'`，更好地控制 flex 子元素的增长和收缩
+  - 为 CardContent 添加 `maxHeight: '100%'` 和 `boxSizing: 'border-box'`，确保不超过父容器高度
+  - 添加自定义滚动条样式，使滚动条在需要时更明显（宽度 8px，半透明背景，hover 时加深）
+  - 现在当网页放大导致笔记卡片内容不能直接展示时，笔记卡片内部可以正常滚动查看所有内容
+
+**技术要点**：
+- `boxSizing: 'border-box'` 确保高度计算包含 padding 和 border
+- `flex: '1 1 auto'` 允许 flex 子元素根据内容增长，但不超过父容器限制
+- 自定义滚动条样式提升用户体验，特别是在内容超出时
+
+## [2025-01-XX] [fix] - 修复点击划线时笔记卡片闪烁效果
+
+**变更内容**：
+- **修复点击划线时笔记卡片闪烁效果** (`frontend/src/components/layout/MainLayout.jsx`, `frontend/src/index.css`)：
+  - 修复 `handleHighlightClick` 函数，现在会在笔记卡片容器和 NoteCard 元素本身都添加闪烁效果
+  - 增强 CSS 动画效果，添加阴影和更明显的背景色，让闪烁效果更明显
+  - 由于笔记边栏现在不能独立滚动，改为在主滚动容器中滚动到笔记卡片位置
+  - 现在点击划线时，对应的笔记卡片会高亮闪烁，提供清晰的视觉反馈
+
+**技术要点**：
+- 在容器和卡片本身都添加闪烁效果，让效果更明显
+- 使用 `box-shadow` 增强视觉效果
+- 在主滚动容器中滚动，因为笔记边栏现在不能独立滚动
+
+## [2025-01-XX] [fix] - 修复笔记卡片内容区域滚动问题
+
+**变更内容**：
+- **修复笔记卡片内容区域滚动** (`frontend/src/components/notes/NoteCard.jsx`, `frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 为 NoteCard 的 Card 组件添加 `overflow: 'hidden'`，确保 Card 本身不滚动，只有 CardContent 滚动
+  - 为 CardContent 添加 `minHeight: 0`，这是 flex 布局中让子元素能够正确滚动的关键属性
+  - 为笔记卡片外层容器添加 `overflow: 'visible'`，允许 NoteCard 内部的滚动条显示
+  - 为笔记卡片外层容器添加 `maxHeight: '50vh'`，与 NoteCard 的 maxHeight 保持一致
+  - 现在当页面放大导致笔记卡片内容不能直接展示时，笔记卡片内部可以滚动查看所有内容
+
+**技术要点**：
+- 在 flex 布局中，`minHeight: 0` 是让 flex 子元素能够正确滚动的关键
+- Card 组件使用 `overflow: 'hidden'` 确保只有 CardContent 滚动
+- CardContent 使用 `overflowY: 'auto'` 实现内容区域的滚动
+
+## [2025-01-XX] [fix] - 进一步修复笔记卡片容器高度异常问题
+
+**变更内容**：
+- **进一步修复笔记卡片容器高度异常** (`frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 为 `note-sidebar-content` 容器添加 `maxHeight: '100%'` 和 `boxSizing: 'border-box'`，明确限制最大高度
+  - 为 `note-sidebar-list` 容器添加 `minHeight: 0`，防止容器被撑高
+  - 将 `contain` 属性从 `'layout style'` 改为 `'layout style size'`，更严格地限制容器大小
+  - 添加 `isolation: 'isolate'`，创建新的层叠上下文，进一步隔离绝对定位子元素
+
+- **优化位置计算逻辑** (`frontend/src/hooks/useNotePosition.js`)：
+  - 添加位置值验证，如果计算出的位置值异常（小于 -1000 或大于 10000），返回 null
+  - 添加警告日志，便于调试位置计算问题
+
+**技术要点**：
+- 使用 `contain: 'layout style size'` 更严格地限制容器大小
+- 使用 `isolation: 'isolate'` 创建新的层叠上下文
+- 添加 `minHeight: 0` 防止容器被撑高
+- 添加位置值验证，避免异常值导致容器高度问题
+
+## [2025-01-XX] [fix] - 修复笔记边栏滚动和容器高度问题
+
+**变更内容**：
+- **修复笔记边栏独立滚动问题** (`frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 将 `note-sidebar-content` 容器的 `overflowY: 'visible'` 改为 `overflow: 'hidden'`，完全禁用滚动
+  - 将 `note-sidebar-list` 容器的 `height: 'auto'` 改为 `height: '100%'`，并添加 `overflow: 'hidden'`，禁用滚动
+  - 添加 `contain: 'layout style'` CSS属性，避免绝对定位子元素影响父容器高度
+  - 现在笔记边栏不能独立滚动，笔记卡片会跟随字幕滚动
+
+- **修复笔记卡片位置计算逻辑** (`frontend/src/hooks/useNotePosition.js`)：
+  - 修复位置计算，移除不必要的 `scrollTop` 累加
+  - 现在只计算字幕元素和笔记内容容器的相对位置（`elementRect.top - noteContentRect.top`）
+  - 因为两个元素都在同一个滚动上下文中，不需要加上 scrollTop
+
+**技术要点**：
+- 使用 `overflow: 'hidden'` 完全禁用笔记边栏的滚动
+- 使用 `contain: 'layout style'` 避免绝对定位子元素影响父容器高度
+- 位置计算需要相对于正确的父容器，且不需要累加 scrollTop（因为都在同一个滚动上下文）
+
+## [2025-01-XX] [fix] - 修复笔记卡片外层容器高度异常和位置计算问题
+
+**变更内容**：
+- **修复笔记卡片外层容器高度异常** (`frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 移除包裹 NoteCard 的 Box 容器的 `mb: 2`（margin-bottom），因为绝对定位的元素不需要 margin-bottom
+  - 将笔记列表容器的 `minHeight: '100%'` 改为 `height: 'auto'` 和 `minHeight: 0`，避免容器高度过大
+  - 添加 `height: 'auto'` 到笔记卡片容器，确保容器高度只包含 NoteCard 的实际内容高度
+
+- **修复笔记卡片位置计算逻辑** (`frontend/src/hooks/useNotePosition.js`)：
+  - 修改位置计算逻辑，现在计算的是相对于笔记内容容器（note-sidebar-content）的位置，而不是左侧字幕容器
+  - 这样确保笔记卡片的位置是相对于正确的父容器计算的，避免位置偏移导致容器出现在不合理的位置
+
+**技术要点**：
+- 绝对定位的元素不需要 margin-bottom，因为已经脱离了文档流
+- 使用 `height: 'auto'` 和 `minHeight: 0` 确保容器高度由内容决定，不会有多余的空间
+- 位置计算需要相对于正确的父容器，确保笔记卡片能正确对齐到对应的 highlight 位置
+
+## [2025-01-XX] [fix] - 修复笔记卡片外层容器高度异常的问题
+
+**变更内容**：
+- **修复笔记卡片外层容器高度异常** (`frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 移除包裹 NoteCard 的 Box 容器的 `mb: 2`（margin-bottom），因为绝对定位的元素不需要 margin-bottom
+  - 添加 `height: 'auto'`，确保容器高度只包含 NoteCard 的实际内容高度
+  - 修复了笔记卡片上半部分出现额外容器高度的问题
+
+**技术要点**：
+- 绝对定位的元素不需要 margin-bottom，因为已经脱离了文档流
+- 使用 `height: 'auto'` 确保容器高度由内容决定，不会有多余的空间
+
+## [2025-01-XX] [fix] - 修复笔记区域下半截被音频播放器遮罩覆盖的问题
+
+**变更内容**：
+- **修复笔记区域下半截被音频播放器遮罩覆盖** (`frontend/src/components/layout/MainLayout.jsx`, `frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 音频播放器使用 `position: fixed` 和 `zIndex: 1000`，覆盖了整个屏幕底部
+  - 给笔记区域容器设置 `zIndex: 1001`，确保在音频播放器之上
+  - 给笔记卡片容器和单个笔记卡片也设置 `zIndex: 1001`，确保它们不会被音频播放器覆盖
+  - 现在笔记卡片在下半截位置时也能正常显示，不会被音频播放器遮罩覆盖
+
+**技术要点**：
+- 使用 z-index 层级管理，确保笔记区域（zIndex 1001）在音频播放器（zIndex 1000）之上
+- 笔记卡片使用绝对定位，需要设置 z-index 才能正确显示在音频播放器之上
+
+## [2025-01-XX] [fix] - 修复刷新页面后下划线样式丢失的问题
+
+**变更内容**：
+- **修复刷新页面后下划线样式丢失** (`frontend/src/components/subtitles/SubtitleList.jsx`)：
+  - 修改 highlights 加载逻辑，加载所有有笔记的 highlights（不管笔记类型）
+  - 之前只加载 `underline` 类型的笔记对应的 highlights，导致 `ai_card` 和 `thought` 类型的笔记对应的下划线在刷新后丢失
+  - 现在只要笔记存在（不管是什么类型），对应的 highlight 都会显示下划线
+  - 只有删除笔记卡片时，下划线样式才会消失
+
+**技术要点**：
+- 使用 `noteHighlightIds` Set 收集所有笔记的 highlight_id（不管笔记类型）
+- 过滤出所有有笔记的 highlights，确保所有类型的笔记对应的下划线都能正确显示
+
+## [2025-01-XX] [fix] - 修复笔记卡片交互问题
+
+**变更内容**：
+- **修复点击笔记卡片时高亮整个highlight区域** (`frontend/src/components/layout/MainLayout.jsx`, `frontend/src/components/subtitles/SubtitleRow.jsx`)：
+  - 在SubtitleRow中给highlight的span元素添加`data-highlight-id`属性，方便查找
+  - 修改MainLayout的handleNoteClick逻辑，找到highlight对应的span元素并高亮（而不是高亮整个字幕行）
+  - 使用闪烁效果（背景色 + 阴影）让高亮更明显
+
+- **修复笔记卡片独立滚动问题** (`frontend/src/components/notes/NoteSidebar.jsx`)：
+  - 将NoteSidebar内容容器的`overflowY`从`'auto'`改为`'visible'`，让笔记区域不能独立滚动
+  - 笔记卡片使用绝对定位，位置根据左侧字幕滚动容器的offsetTop计算
+  - 当左侧字幕滚动时，笔记卡片会跟随移动，始终与对应的highlight区域对齐
+
+**技术要点**：
+- 使用`data-highlight-id`属性实现精确的DOM查找
+- 通过`overflowY: 'visible'`禁用笔记区域的独立滚动
+- 笔记卡片位置通过`useNotePosition` Hook实时计算，确保与字幕同步
+
 ## [2025-12-28] [feat] - 实现 AI 查询卡片组件（Task 4.2）
 
 **变更内容**：

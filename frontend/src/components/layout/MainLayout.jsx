@@ -82,24 +82,20 @@ export default function MainLayout({
   // 笔记侧边栏展开/收缩状态（用于控制收缩/展开按钮显示）
   const [isNoteSidebarExpanded, setIsNoteSidebarExpanded] = useState(false);
   
-  // 调试：监听状态变化
-  useEffect(() => {
-    console.log('[MainLayout] isNoteSidebarExpanded 状态变化:', isNoteSidebarExpanded);
-  }, [isNoteSidebarExpanded]);
+  // 处理笔记侧边栏展开/收缩状态变化（使用 useCallback 避免无限循环）
+  const handleNoteSidebarExpandedChange = useCallback((expanded) => {
+    setIsNoteSidebarExpanded(expanded);
+  }, []);
   
-  // 处理收缩按钮点击（添加调试信息）
+  // 处理收缩按钮点击
   const handleCollapseSidebar = useCallback(() => {
-    console.log('[MainLayout] 收缩按钮被点击，当前状态:', isNoteSidebarExpanded);
     setIsNoteSidebarExpanded(false);
-    console.log('[MainLayout] 收缩按钮点击后，新状态:', false);
-  }, [isNoteSidebarExpanded]);
+  }, []);
   
-  // 处理展开按钮点击（添加调试信息）
+  // 处理展开按钮点击
   const handleExpandSidebar = useCallback(() => {
-    console.log('[MainLayout] 展开按钮被点击，当前状态:', isNoteSidebarExpanded);
     setIsNoteSidebarExpanded(true);
-    console.log('[MainLayout] 展开按钮点击后，新状态:', true);
-  }, [isNoteSidebarExpanded]);
+  }, []);
 
   // 处理主体区域滚动（用于 SubtitleList 的用户滚动检测）
   const handleMainScroll = useCallback(() => {
@@ -177,7 +173,7 @@ export default function MainLayout({
       return;
     }
     
-    // 2. 找到对应的 SubtitleRow DOM 元素
+    // 2. 找到对应的 SubtitleRow DOM 元素（用于滚动定位）
     const subtitleElement = mainScrollRef.current.querySelector(
       `[data-subtitle-id="${targetCue.id}"]`
     );
@@ -187,83 +183,128 @@ export default function MainLayout({
       return;
     }
     
-    // 3. 滚动到该元素位置（使用 scrollIntoView）
-    subtitleElement.scrollIntoView({
+    // 3. 找到对应的 highlight span 元素（用于高亮）
+    const highlightElement = mainScrollRef.current.querySelector(
+      `[data-highlight-id="${highlight.id}"]`
+    );
+    
+    // 4. 滚动到字幕行位置（使用 scrollIntoView）
+    // 优先使用 highlight 元素进行滚动定位，如果找不到则使用字幕行
+    const scrollTargetElement = highlightElement || subtitleElement;
+    scrollTargetElement.scrollIntoView({
       behavior: 'smooth',
       block: 'center', // 滚动到屏幕中央
     });
     
-    // 4. 高亮显示该划线（添加临时高亮样式，1秒后移除）
-    const originalBgColor = subtitleElement.style.backgroundColor;
-    subtitleElement.style.backgroundColor = 'rgba(156, 39, 176, 0.2)'; // 紫色半透明
-    subtitleElement.style.transition = 'background-color 0.3s ease-in-out';
+    // 5. 高亮显示该划线区域（添加临时高亮样式，1秒后移除）
+    // 如果找到了highlight元素，高亮highlight；否则高亮整个字幕行
+    const targetElement = highlightElement || subtitleElement;
+    const originalBgColor = targetElement.style.backgroundColor;
+    const originalBoxShadow = targetElement.style.boxShadow;
+    
+    // 使用闪烁效果（背景色 + 阴影）
+    targetElement.style.backgroundColor = 'rgba(156, 39, 176, 0.3)'; // 紫色半透明
+    targetElement.style.boxShadow = '0 0 8px rgba(156, 39, 176, 0.5)'; // 紫色阴影
+    targetElement.style.transition = 'background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out';
+    targetElement.style.borderRadius = '2px'; // 添加圆角，让高亮更明显
     
     setTimeout(() => {
-      subtitleElement.style.backgroundColor = originalBgColor || '';
+      targetElement.style.backgroundColor = originalBgColor || '';
+      targetElement.style.boxShadow = originalBoxShadow || '';
       setTimeout(() => {
-        subtitleElement.style.transition = '';
+        targetElement.style.transition = '';
+        targetElement.style.borderRadius = '';
       }, 300);
     }, 1000);
   }, [cues]);
   
-  // 处理划线点击（双向链接逻辑：点击划线 → 右侧笔记滚动到对应位置）
+  // 处理划线点击（双向链接逻辑：点击划线 → 右侧笔记闪烁高亮，同时滚动到对应的字幕行位置）
   const handleHighlightClick = useCallback((highlight) => {
     if (!highlight || !noteSidebarRef.current) {
       console.warn('[MainLayout] 划线点击：缺少必要数据', { highlight });
       return;
     }
     
-    // 获取 NoteSidebar 容器（通过 ref 暴露的方法）
+    // 1. 触发笔记卡片闪烁效果（双向链接：点击划线 → 右侧笔记闪烁高亮）
     const noteSidebarContainer = noteSidebarRef.current.getContainer 
       ? noteSidebarRef.current.getContainer() 
       : noteSidebarRef.current;
     
-    if (!noteSidebarContainer) {
-      console.warn('[MainLayout] 划线点击：找不到笔记侧边栏容器', { highlight });
+    if (noteSidebarContainer) {
+      const noteCardContainer = noteSidebarContainer.querySelector(
+        `[data-note-highlight-id="${highlight.id}"]`
+      );
+      
+      if (noteCardContainer) {
+        const noteCardElement = noteCardContainer.querySelector(
+          `[data-testid^="note-card-"]`
+        );
+        
+        // 触发笔记卡片闪烁效果
+        if (noteCardContainer) {
+          noteCardContainer.classList.add('note-card-flash');
+          setTimeout(() => {
+            noteCardContainer.classList.remove('note-card-flash');
+          }, 600);
+        }
+        
+        if (noteCardElement) {
+          noteCardElement.classList.add('note-card-flash');
+          setTimeout(() => {
+            noteCardElement.classList.remove('note-card-flash');
+          }, 600);
+        }
+      }
+    }
+    
+    // 2. 滚动到对应的字幕行位置（与点击笔记卡片时的行为一致，都定位到屏幕中央）
+    if (!cues || !mainScrollRef.current) {
       return;
     }
     
-    // 1. 找到对应的 Note（通过 highlight_id）
-    // 注意：NoteSidebar 内部管理 notes 数据，我们需要通过 DOM 查找对应的 NoteCard
-    const noteCardElement = noteSidebarContainer.querySelector(
-      `[data-note-highlight-id="${highlight.id}"]`
-    );
-    
-    if (!noteCardElement) {
-      console.warn('[MainLayout] 划线点击：找不到对应的笔记卡片', { highlight });
+    // 根据 highlight.cue_id 找到对应的 TranscriptCue
+    const targetCue = cues.find(c => c.id === highlight.cue_id);
+    if (!targetCue) {
+      console.warn('[MainLayout] 划线点击：找不到对应的 cue', { highlight });
       return;
     }
     
-    // 2. 滚动右侧笔记区域到该 Note 位置
-    const noteSidebarContent = noteSidebarContainer.querySelector(
-      '[data-testid="note-sidebar-content"]'
+    // 找到对应的 SubtitleRow DOM 元素（用于滚动定位）
+    const subtitleElement = mainScrollRef.current.querySelector(
+      `[data-subtitle-id="${targetCue.id}"]`
     );
     
-    if (noteSidebarContent) {
-      // 计算 NoteCard 相对于滚动容器的位置
-      const cardRect = noteCardElement.getBoundingClientRect();
-      const containerRect = noteSidebarContent.getBoundingClientRect();
-      const scrollTop = noteSidebarContent.scrollTop;
-      const targetScrollTop = scrollTop + (cardRect.top - containerRect.top) - 100; // 留出 100px 的顶部空间
-      
-      noteSidebarContent.scrollTo({
-        top: Math.max(0, targetScrollTop),
-        behavior: 'smooth',
-      });
-      
-      // 3. 触发笔记卡片闪烁效果（通过添加 class）
-      noteCardElement.classList.add('note-card-flash');
-      setTimeout(() => {
-        noteCardElement.classList.remove('note-card-flash');
-      }, 600);
+    if (!subtitleElement) {
+      console.warn('[MainLayout] 划线点击：找不到对应的字幕元素', { targetCue });
+      return;
     }
-  }, []);
+    
+    // 找到对应的 highlight span 元素（用于滚动定位和高亮）
+    const highlightElement = mainScrollRef.current.querySelector(
+      `[data-highlight-id="${highlight.id}"]`
+    );
+    
+    // 使用 scrollIntoView 滚动到屏幕中央，与 handleNoteClick 保持一致
+    // 优先使用 highlight 元素进行滚动定位，如果找不到则使用字幕行
+    const scrollTargetElement = highlightElement || subtitleElement;
+    scrollTargetElement.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center', // 滚动到屏幕中央
+    });
+  }, [cues]);
 
   // 处理笔记删除
   const handleNoteDelete = useCallback((noteId) => {
     // 删除笔记后，NoteSidebar 内部会自动刷新列表
     // 这里可以添加额外的清理逻辑（如清除缓存）
     console.log('[MainLayout] 笔记删除:', noteId);
+  }, []);
+
+  // 处理笔记创建（用于刷新 NoteSidebar 列表）
+  const handleNoteCreate = useCallback(() => {
+    if (noteSidebarRef.current && noteSidebarRef.current.refreshNotes) {
+      noteSidebarRef.current.refreshNotes();
+    }
   }, []);
 
   return (
@@ -450,6 +491,7 @@ export default function MainLayout({
             transcriptionStatus={transcriptionStatus}
             segments={segments}
             onHighlightClick={handleHighlightClick}
+            onNoteCreate={handleNoteCreate}
           />
         </Box>
 
@@ -470,6 +512,7 @@ export default function MainLayout({
             overflow: 'visible',
             position: 'relative',
             boxSizing: 'border-box',
+            zIndex: 1001, // 确保在音频播放器（zIndex 1000）之上，避免被遮罩覆盖
             transition: 'flex 0.2s ease-in-out, width 0.2s ease-in-out, max-width 0.2s ease-in-out, opacity 0.15s ease-in-out', // 使用更快的过渡，opacity 更快
             opacity: isNoteSidebarExpanded ? 1 : 0, // 收缩时透明度为0
             pointerEvents: isNoteSidebarExpanded ? 'auto' : 'none', // 收缩时禁用交互
@@ -482,10 +525,7 @@ export default function MainLayout({
             onNoteClick={handleNoteClick}
             onNoteDelete={handleNoteDelete}
             isExpanded={isNoteSidebarExpanded}
-            onExpandedChange={(expanded) => {
-              console.log('[MainLayout] NoteSidebar onExpandedChange 回调，新状态:', expanded);
-              setIsNoteSidebarExpanded(expanded);
-            }}
+            onExpandedChange={handleNoteSidebarExpandedChange}
             scrollContainerRef={mainScrollRef}
             cues={cues}
           />
