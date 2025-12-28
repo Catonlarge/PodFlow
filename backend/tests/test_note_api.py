@@ -639,8 +639,8 @@ class TestNoteAPI:
         assert response.status_code == 404
         assert "episode" in response.json()["detail"].lower()
     
-    def test_delete_note_preserves_ai_query_record(self, client, db_session):
-        """测试删除 Note 不影响 AIQueryRecord（反向关联）"""
+    def test_delete_note_cascades_to_highlight_and_ai_query_record(self, client, db_session):
+        """测试删除 Note 时，如果没有其他 notes，会级联删除 Highlight 和 AIQueryRecord"""
         # Arrange: 创建 Episode、Highlight、AIQueryRecord 和 Note
         episode = Episode(
             title="Test Episode",
@@ -704,6 +704,7 @@ class TestNoteAPI:
         db_session.refresh(note)
         
         ai_query_id = ai_query.id
+        highlight_id = highlight.id
         note_id = note.id
         
         # Act: DELETE /api/notes/{id}
@@ -716,8 +717,11 @@ class TestNoteAPI:
         deleted_note = db_session.query(Note).filter_by(id=note_id).first()
         assert deleted_note is None
         
-        # 验证 AIQueryRecord 保留（反向关联）
-        preserved_ai_query = db_session.query(AIQueryRecord).filter_by(id=ai_query_id).first()
-        assert preserved_ai_query is not None
-        assert preserved_ai_query.id == ai_query_id
+        # 验证 Highlight 已删除（因为没有其他 notes）
+        deleted_highlight = db_session.query(Highlight).filter_by(id=highlight_id).first()
+        assert deleted_highlight is None
+        
+        # 验证 AIQueryRecord 已级联删除
+        deleted_ai_query = db_session.query(AIQueryRecord).filter_by(id=ai_query_id).first()
+        assert deleted_ai_query is None
 

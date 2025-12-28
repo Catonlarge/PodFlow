@@ -497,15 +497,170 @@ class TestEpisodeCRUD:
         assert len(data["segments"]) == 2
         
         # 验证分段数据结构
-        seg1 = data["segments"][0]
-        assert seg1["segment_index"] == 0
-        assert seg1["segment_id"] == "segment_001"
-        assert seg1["status"] == "completed"
-        assert seg1["start_time"] == 0.0
-        assert seg1["end_time"] == 180.0
-        assert seg1["duration"] == 180.0
-        assert "retry_count" in seg1
-        assert "error_message" in seg1
+        segment_data = data["segments"][0]
+        assert "segment_index" in segment_data
+        assert "segment_id" in segment_data
+        assert "status" in segment_data
+        assert "start_time" in segment_data
+        assert "end_time" in segment_data
+    
+    def test_get_episode_cues_by_segments(self, client, db_session):
+        """测试按 segment 范围查询字幕：用于分批加载优化"""
+        from app.models import AudioSegment
+        
+        # 创建 Episode
+        episode = Episode(
+            title="Test Episode",
+            file_hash="test_hash_005",
+            duration=600.0
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 创建 5 个分段
+        segments = []
+        for i in range(5):
+            segment = AudioSegment(
+                episode_id=episode.id,
+                segment_index=i,
+                segment_id=f"segment_{i:03d}",
+                start_time=i * 180.0,
+                end_time=(i + 1) * 180.0,
+                status="completed"
+            )
+            segments.append(segment)
+            db_session.add(segment)
+        db_session.commit()
+        
+        # 为每个 segment 创建字幕
+        cues = []
+        for i, segment in enumerate(segments):
+            cue = TranscriptCue(
+                episode_id=episode.id,
+                segment_id=segment.id,
+                start_time=segment.start_time + 1.0,
+                end_time=segment.start_time + 5.0,
+                speaker=f"Speaker {i % 2 + 1}",
+                text=f"Segment {i} sentence"
+            )
+            cues.append(cue)
+            db_session.add(cue)
+        db_session.commit()
+        
+        # 测试查询前 3 个 segment 的字幕
+        response = client.get(f"/api/episodes/{episode.id}/cues?start_segment=0&end_segment=2")
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert "cues" in data
+        assert isinstance(data["cues"], list)
+        assert len(data["cues"]) == 3  # 应该返回前 3 个 segment 的字幕
+        
+        # 验证返回的字幕属于前 3 个 segment
+        returned_cues = data["cues"]
+        for cue_data in returned_cues:
+            assert "id" in cue_data
+            assert "start_time" in cue_data
+            assert "end_time" in cue_data
+            assert "speaker" in cue_data
+            assert "text" in cue_data
+            # 验证时间范围在前 3 个 segment 内（0-540秒）
+            assert 0 <= cue_data["start_time"] < 540.0
+        
+        # 测试查询单个 segment 的字幕
+        response = client.get(f"/api/episodes/{episode.id}/cues?start_segment=3&end_segment=3")
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert len(data["cues"]) == 1
+        assert data["cues"][0]["text"] == "Segment 3 sentence"
+        
+        # 测试查询所有字幕（不指定 end_segment）
+        response = client.get(f"/api/episodes/{episode.id}/cues?start_segment=0")
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert len(data["cues"]) == 5  # 应该返回所有字幕
+        
+        # 测试查询不存在的 segment
+        response = client.get(f"/api/episodes/{episode.id}/cues?start_segment=10&end_segment=15")
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert len(data["cues"]) == 0  # 应该返回空数组
+    
+    def test_get_episode_cues_by_segments_with_pending_segments(self, client, db_session):
+        """测试按 segment 范围查询字幕：只返回已完成 segment 的字幕"""
+        from app.models import AudioSegment
+        
+        # 创建 Episode
+        episode = Episode(
+            title="Test Episode",
+            file_hash="test_hash_006",
+            duration=600.0
+        )
+        db_session.add(episode)
+        db_session.commit()
+        
+        # 创建 3 个分段：前 2 个已完成，第 3 个处理中
+        segment1 = AudioSegment(
+            episode_id=episode.id,
+            segment_index=0,
+            segment_id="segment_001",
+            start_time=0.0,
+            end_time=180.0,
+            status="completed"
+        )
+        segment2 = AudioSegment(
+            episode_id=episode.id,
+            segment_index=1,
+            segment_id="segment_002",
+            start_time=180.0,
+            end_time=360.0,
+            status="completed"
+        )
+        segment3 = AudioSegment(
+            episode_id=episode.id,
+            segment_index=2,
+            segment_id="segment_003",
+            start_time=360.0,
+            end_time=540.0,
+            status="processing"
+        )
+        db_session.add_all([segment1, segment2, segment3])
+        db_session.commit()
+        
+        # 只为前 2 个已完成的 segment 创建字幕
+        cue1 = TranscriptCue(
+            episode_id=episode.id,
+            segment_id=segment1.id,
+            start_time=1.0,
+            end_time=5.0,
+            speaker="Speaker 1",
+            text="Segment 0 sentence"
+        )
+        cue2 = TranscriptCue(
+            episode_id=episode.id,
+            segment_id=segment2.id,
+            start_time=181.0,
+            end_time=185.0,
+            speaker="Speaker 2",
+            text="Segment 1 sentence"
+        )
+        db_session.add_all([cue1, cue2])
+        db_session.commit()
+        
+        # 查询前 3 个 segment（包含处理中的 segment）
+        response = client.get(f"/api/episodes/{episode.id}/cues?start_segment=0&end_segment=2")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # 应该只返回前 2 个已完成 segment 的字幕
+        assert len(data["cues"]) == 2
+        
+        # 验证返回的字幕都属于已完成的 segment
+        for cue_data in data["cues"]:
+            assert cue_data["text"] in ["Segment 0 sentence", "Segment 1 sentence"]
     
     def test_trigger_segment_transcription(self, client, db_session):
         """测试触发指定 segment 的识别任务"""

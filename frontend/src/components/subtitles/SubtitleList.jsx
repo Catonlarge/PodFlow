@@ -423,7 +423,13 @@ export default function SubtitleList({
       setInternalHighlights((prev) => [...prev, ...newHighlights]);
 
       // Step 5: 调用 AI 查询 API
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:426',message:'准备调用AI查询API',data:{highlightId,episodeId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
       const queryResponse = await aiService.queryAI(highlightId);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:427',message:'AI查询API调用成功',data:{queryId:queryResponse?.query_id,status:queryResponse?.status,responseType:queryResponse?.response?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
 
       // Step 6: 更新 AICard（显示结果）
       setAiCardState((prev) => ({
@@ -437,6 +443,9 @@ export default function SubtitleList({
       // 清除文本选择（但保持 AICard 显示）
       clearSelection();
     } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:439',message:'AI查询失败，进入错误处理',data:{errorMessage:error?.message,errorStatus:error?.response?.status,errorDetail:error?.response?.data?.detail,errorData:error?.response?.data,errorStack:error?.stack,highlightId:aiCardHighlightIdRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
       console.error('[SubtitleList] AI 查询失败:', error);
       console.error('[SubtitleList] 错误详情:', {
         message: error.message,
@@ -449,7 +458,31 @@ export default function SubtitleList({
                             error.response?.data?.detail?.includes('超时') ||
                             error.message?.includes('超时');
       
-      if (isTimeoutError) {
+      // 判断是否为配额超限错误（HTTP 429 或错误信息包含"配额"）
+      const isQuotaExceeded = error.response?.status === 429 || 
+                              error.response?.data?.detail?.includes('配额') ||
+                              error.response?.data?.detail?.includes('quota');
+      
+      if (isQuotaExceeded) {
+        // 配额超限错误：显示 Snackbar 提示，关闭 AICard，保留 highlight（允许用户稍后重试）
+        const errorMessage = error.response?.data?.detail || 'AI 查询配额已用完，请稍后重试';
+        setAiQueryError(errorMessage);
+        setAiQueryErrorOpen(true);
+        
+        // 关闭 AICard（但保留 highlight，允许用户稍后重试）
+        setAiCardState({
+          isVisible: false,
+          anchorPosition: null,
+          queryText: null,
+          responseData: null,
+          isLoading: false,
+          queryId: null,
+          highlightId: null,
+        });
+        aiCardAnchorElementRef.current = null;
+        // 注意：不删除 highlight，保留划线以便用户稍后重试
+        isQueryingRef.current = false; // 重置查询状态，允许重试
+      } else if (isTimeoutError) {
         // 超时错误：先显示 AICard 显示"AI查询失败"提示，然后自动消失
         setAiCardState((prev) => ({
           ...prev,
@@ -583,7 +616,33 @@ export default function SubtitleList({
         queryId
       );
 
-      // Step 4: 关闭 AICard
+      // Step 4: 获取对应的 highlight 信息（用于直接添加到状态）
+      const currentHighlight = effectiveHighlights.find(h => h.id === currentHighlightId);
+      
+      // Step 5: 构建新笔记数据（用于直接添加到状态）
+      const newNoteData = {
+        id: noteResponse.id,
+        highlight_id: currentHighlightId,
+        content: noteContent,
+        note_type: 'ai_card',
+        origin_ai_query_id: queryId,
+        created_at: noteResponse.created_at || new Date().toISOString(),
+        updated_at: noteResponse.created_at || new Date().toISOString(),
+      };
+      
+      const newHighlightData = currentHighlight ? {
+        id: currentHighlight.id,
+        cue_id: currentHighlight.cue_id,
+        highlighted_text: currentHighlight.highlighted_text,
+        start_offset: currentHighlight.start_offset,
+        end_offset: currentHighlight.end_offset,
+        color: currentHighlight.color,
+        highlight_group_id: currentHighlight.highlight_group_id,
+        created_at: currentHighlight.created_at || new Date().toISOString(),
+        updated_at: currentHighlight.updated_at || new Date().toISOString(),
+      } : null;
+
+      // Step 6: 关闭 AICard
       setAiCardState({
         isVisible: false,
         anchorPosition: null,
@@ -595,9 +654,19 @@ export default function SubtitleList({
       });
       aiCardAnchorElementRef.current = null;
 
-      // Step 5: 通知父组件刷新笔记列表
+      // Step 7: 通知父组件添加新笔记（直接添加到状态，避免数据库查询延迟）
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:599',message:'创建笔记成功，准备调用onNoteCreate',data:{noteResponseId:noteResponse?.id,hasOnNoteCreate:!!onNoteCreate,episodeId,highlightId:currentHighlightId,newNoteData,newHighlightData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       if (onNoteCreate) {
-        onNoteCreate();
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:600',message:'调用onNoteCreate回调，传递新笔记数据',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        onNoteCreate(newNoteData, newHighlightData);
+      } else {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:600',message:'onNoteCreate回调不存在',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
       }
 
       // Step 6: 更新 highlights（下划线已经显示，无需额外更新）

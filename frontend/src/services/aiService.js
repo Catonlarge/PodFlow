@@ -36,6 +36,9 @@ import api from '../api';
  *   }
  */
 export async function queryAI(highlightId, provider = null) {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'aiService.js:38',message:'开始AI查询',data:{highlightId,provider},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+  // #endregion
   try {
     const requestBody = {
       highlight_id: highlightId,
@@ -45,9 +48,18 @@ export async function queryAI(highlightId, provider = null) {
       requestBody.provider = provider;
     }
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'aiService.js:48',message:'发送AI查询请求',data:{requestBody},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
     const response = await api.post('/api/ai/query', requestBody);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'aiService.js:49',message:'AI查询成功',data:{queryId:response?.query_id,status:response?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
     return response;
   } catch (error) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'aiService.js:51',message:'AI查询失败',data:{errorMessage:error?.message,errorStatus:error?.response?.status,errorDetail:error?.response?.data?.detail,errorData:error?.response?.data,errorStack:error?.stack},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
     console.error('[aiService] AI 查询失败:', error);
     throw error;
   }

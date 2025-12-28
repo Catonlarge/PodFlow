@@ -100,12 +100,10 @@ vi.mock('../../../services/aiService', () => ({
 
 // Mock AICard
 vi.mock('../AICard', () => ({
-  default: ({ isVisible, isLoading, responseData, queryText, onAddToNote, anchorPosition, queryId }) => {
+  default: ({ isLoading, responseData, queryText, onAddToNote, anchorPosition, queryId }) => {
     // 实际 AICard 组件会检查 anchorPosition，如果为 null 则不渲染
-    // 但为了测试，我们只检查 isVisible（因为 anchorPosition 可能为 null 但仍然应该显示）
-    // 注意：实际组件会检查 anchorPosition，但测试中我们简化处理
-    if (!isVisible) return null;
-    // 如果 anchorPosition 为 null，仍然渲染（测试环境）
+    // 在测试中，如果 anchorPosition 为 null，仍然渲染（测试环境）
+    // 注意：SubtitleList 通过条件渲染控制是否显示 AICard，所以这里不需要检查 isVisible
     return (
       <div data-testid="ai-card">
         {isLoading && <div data-testid="ai-card-loading">Loading...</div>}

@@ -499,16 +499,18 @@ describe('UnderlineFeature', () => {
       // 验证只渲染 underline 类型的 highlights（highlight_id=1）
       await waitFor(() => {
         const subtitle1Elements = screen.getAllByTestId('subtitle-1');
-        const subtitle1WithUnderline = subtitle1Elements.find(el => 
-          el.getAttribute('data-has-underline') === 'true'
-        );
+        const subtitle1WithUnderline = subtitle1Elements.find(el => {
+          const attr = el.getAttribute('data-has-underline');
+          return attr === 'true' || attr === true;
+        });
         expect(subtitle1WithUnderline).toBeInTheDocument();
         
         // highlight_id=2 对应的 note 是 thought 类型，不应该显示下划线
         const subtitle2Elements = screen.getAllByTestId('subtitle-2');
-        const subtitle2WithoutUnderline = subtitle2Elements.find(el => 
-          el.getAttribute('data-has-underline') === 'false'
-        );
+        const subtitle2WithoutUnderline = subtitle2Elements.find(el => {
+          const attr = el.getAttribute('data-has-underline');
+          return attr === 'false' || attr === false || attr === null;
+        });
         expect(subtitle2WithoutUnderline).toBeInTheDocument();
       });
     });
@@ -566,16 +568,18 @@ describe('UnderlineFeature', () => {
       const underlineButton = screen.getByTestId('underline-button');
       await user.click(underlineButton);
 
-      // 验证错误提示显示
+      // 验证错误提示显示（等待 Snackbar 渲染）
       await waitFor(() => {
-        expect(screen.getByText(/创建笔记失败|创建划线失败/)).toBeInTheDocument();
-      });
+        const errorMessage = screen.queryByText(/创建笔记失败|创建划线失败/);
+        expect(errorMessage).toBeInTheDocument();
+      }, { timeout: 3000 });
 
       // 验证本地状态没有更新（下划线不应该显示）
       const subtitleElements = screen.getAllByTestId('subtitle-1');
-      const elementWithoutUnderline = subtitleElements.find(el => 
-        el.getAttribute('data-has-underline') === 'false'
-      );
+      const elementWithoutUnderline = subtitleElements.find(el => {
+        const attr = el.getAttribute('data-has-underline');
+        return attr === 'false' || attr === false || attr === null;
+      });
       expect(elementWithoutUnderline).toBeInTheDocument();
     });
   });

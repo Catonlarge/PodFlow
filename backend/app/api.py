@@ -1346,6 +1346,31 @@ async def create_note(
     db.commit()
     db.refresh(note)
     
+    # #region agent log
+    import json
+    import os
+    log_path = r'd:\programming_enviroment\learning-EnglishPod3\.cursor\debug.log'
+    try:
+        with open(log_path, 'a', encoding='utf-8') as f:
+            log_entry = {
+                'location': 'api.py:1346',
+                'message': '创建笔记成功，已commit',
+                'data': {
+                    'note_id': note.id,
+                    'episode_id': note.episode_id,
+                    'highlight_id': note.highlight_id,
+                    'note_type': note.note_type
+                },
+                'timestamp': int(__import__('time').time() * 1000),
+                'sessionId': 'debug-session',
+                'runId': 'run1',
+                'hypothesisId': 'D'
+            }
+            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+    except Exception:
+        pass
+    # #endregion
+    
     logger.info(
         f"创建了 Note (id={note.id}, type={note.note_type}, "
         f"episode_id={note.episode_id}, highlight_id={note.highlight_id})"
@@ -1428,11 +1453,11 @@ async def delete_note(
     db.commit()
     
     # 检查这个 highlight 是否还有其他关联的 notes
-    # 如果没有其他 notes 了，删除对应的 highlight
+    # 如果没有其他 notes 了，删除对应的 highlight（会级联删除 AIQueryRecord）
     remaining_notes_count = db.query(Note).filter(Note.highlight_id == highlight_id).count()
     
     if remaining_notes_count == 0:
-        # 没有其他 notes 了，删除对应的 highlight
+        # 没有其他 notes 了，删除对应的 highlight（会级联删除 AIQueryRecord）
         highlight = db.query(Highlight).filter(Highlight.id == highlight_id).first()
         if highlight:
             # 注意：这里只删除单个 highlight，不考虑 highlight_group_id
@@ -1488,6 +1513,31 @@ async def get_notes_by_episode(
     notes = db.query(Note).filter(
         Note.episode_id == episode_id
     ).order_by(Note.created_at.asc()).all()
+    
+    # #region agent log
+    import json
+    import os
+    log_path = r'd:\programming_enviroment\learning-EnglishPod3\.cursor\debug.log'
+    try:
+        with open(log_path, 'a', encoding='utf-8') as f:
+            log_entry = {
+                'location': 'api.py:1488',
+                'message': 'get_notes_by_episode查询结果',
+                'data': {
+                    'episode_id': episode_id,
+                    'notes_count': len(notes),
+                    'note_ids': [n.id for n in notes],
+                    'notes': [{'id': n.id, 'highlight_id': n.highlight_id, 'note_type': n.note_type} for n in notes]
+                },
+                'timestamp': int(__import__('time').time() * 1000),
+                'sessionId': 'debug-session',
+                'runId': 'run1',
+                'hypothesisId': 'D'
+            }
+            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+    except Exception:
+        pass
+    # #endregion
     
     # 序列化返回
     return [
@@ -1646,10 +1696,52 @@ async def query_ai(
     
     # Step 4: 调用 AI 服务
     try:
+        # #region agent log
+        import json
+        import os
+        log_path = r'd:\programming_enviroment\learning-EnglishPod3\.cursor\debug.log'
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                log_entry = {
+                    'location': 'api.py:1698',
+                    'message': '准备调用AI服务',
+                    'data': {
+                        'highlight_id': highlight.id,
+                        'highlighted_text': highlight.highlighted_text[:50],
+                        'has_context': bool(context_text),
+                        'provider': provider,
+                        'has_gemini_key': bool(os.getenv('GEMINI_API_KEY'))
+                    },
+                    'timestamp': int(__import__('time').time() * 1000),
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'G'
+                }
+                f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        
         try:
             ai_service = AIService()
         except ValueError as e:
             # AI 服务初始化失败（通常是 API Key 未配置）
+            # #region agent log
+            try:
+                with open(log_path, 'a', encoding='utf-8') as f:
+                    log_entry = {
+                        'location': 'api.py:1701',
+                        'message': 'AI服务初始化失败',
+                        'data': {'error': str(e)},
+                        'timestamp': int(__import__('time').time() * 1000),
+                        'sessionId': 'debug-session',
+                        'runId': 'run1',
+                        'hypothesisId': 'G'
+                    }
+                    f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+            except Exception:
+                pass
+            # #endregion
             logger.error(f"AI 服务初始化失败: {e}")
             ai_record.status = "failed"
             ai_record.error_message = str(e)
@@ -1659,11 +1751,52 @@ async def query_ai(
                 detail=f"AI 服务配置错误：{str(e)}。请检查 GEMINI_API_KEY 环境变量是否已设置。"
             )
         
+        # #region agent log
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                log_entry = {
+                    'location': 'api.py:1712',
+                    'message': '调用AI服务query方法',
+                    'data': {
+                        'text': highlight.highlighted_text[:50],
+                        'has_context': bool(context_text),
+                        'context_length': len(context_text) if context_text else 0
+                    },
+                    'timestamp': int(__import__('time').time() * 1000),
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'G'
+                }
+                f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        
         response_json = ai_service.query(
             text=highlight.highlighted_text,
             context=context_text,
             provider=provider
         )
+        
+        # #region agent log
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                log_entry = {
+                    'location': 'api.py:1718',
+                    'message': 'AI服务query方法调用成功',
+                    'data': {
+                        'response_type': response_json.get('type'),
+                        'has_content': bool(response_json.get('content'))
+                    },
+                    'timestamp': int(__import__('time').time() * 1000),
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'G'
+                }
+                f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+        # #endregion
         
         # Step 5: 保存结果
         ai_record.response_text = json.dumps(response_json, ensure_ascii=False)
@@ -1681,6 +1814,22 @@ async def query_ai(
         
     except TimeoutError as e:
         # 超时错误
+        # #region agent log
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                log_entry = {
+                    'location': 'api.py:1732',
+                    'message': 'AI查询超时',
+                    'data': {'error': str(e), 'query_id': ai_record.id},
+                    'timestamp': int(__import__('time').time() * 1000),
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'G'
+                }
+                f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+        # #endregion
         ai_record.status = "failed"
         ai_record.error_message = str(e)
         db.commit()
@@ -1688,6 +1837,22 @@ async def query_ai(
         raise HTTPException(status_code=504, detail=f"AI 查询超时：{str(e)}")
     except ValueError as e:
         # JSON 解析失败或格式不符合规范
+        # #region agent log
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                log_entry = {
+                    'location': 'api.py:1739',
+                    'message': 'AI查询失败（格式错误）',
+                    'data': {'error': str(e), 'query_id': ai_record.id},
+                    'timestamp': int(__import__('time').time() * 1000),
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'G'
+                }
+                f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+        # #endregion
         ai_record.status = "failed"
         ai_record.error_message = str(e)
         db.commit()
@@ -1696,10 +1861,47 @@ async def query_ai(
         
     except Exception as e:
         # API 调用失败、网络错误等
+        error_str = str(e)
+        
+        # 检测429配额超限错误
+        is_quota_exceeded = '429' in error_str or 'RESOURCE_EXHAUSTED' in error_str or 'quota' in error_str.lower()
+        
+        # #region agent log
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                log_entry = {
+                    'location': 'api.py:1747',
+                    'message': 'AI查询失败（API错误）',
+                    'data': {'error': error_str, 'error_type': type(e).__name__, 'query_id': ai_record.id, 'is_quota_exceeded': is_quota_exceeded},
+                    'timestamp': int(__import__('time').time() * 1000),
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'G'
+                }
+                f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        
         ai_record.status = "failed"
-        ai_record.error_message = str(e)
+        ai_record.error_message = error_str
         db.commit()
-        logger.error(f"AI 查询失败（API 错误）: query_id={ai_record.id}, error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"AI 查询失败：{str(e)}")
+        logger.error(f"AI 查询失败（API 错误）: query_id={ai_record.id}, error={error_str}", exc_info=True)
+        
+        # 如果是配额超限，返回更友好的错误消息
+        if is_quota_exceeded:
+            # 尝试提取重试时间
+            import re
+            retry_match = re.search(r'Please retry in ([\d.]+)s', error_str)
+            retry_seconds = int(float(retry_match.group(1))) if retry_match else None
+            
+            if retry_seconds:
+                detail = f"AI 查询配额已用完（免费层每日限制20次）。请等待 {retry_seconds} 秒后重试，或升级到付费计划。"
+            else:
+                detail = "AI 查询配额已用完（免费层每日限制20次）。请稍后重试，或升级到付费计划。"
+            
+            raise HTTPException(status_code=429, detail=detail)
+        else:
+            raise HTTPException(status_code=500, detail=f"AI 查询失败：{error_str}")
 
 

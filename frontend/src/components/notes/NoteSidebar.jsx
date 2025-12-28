@@ -223,7 +223,8 @@ const NoteSidebar = forwardRef(function NoteSidebar({
         const highlightMap = new Map(highlightsData.map(h => [h.id, h]));
         
         // 开发模式：如果没有真实数据，使用mock数据（用于展示效果）
-        if (displayNotes.length === 0 && highlightsData.length === 0) {
+        // 注意：在测试环境中（process.env.NODE_ENV === 'test'），不使用 mock 数据
+        if (displayNotes.length === 0 && highlightsData.length === 0 && process.env.NODE_ENV !== 'test') {
           console.log('[NoteSidebar] 没有真实数据，使用mock数据展示效果');
           const mockDisplayNotes = mockNotes.filter(n => n.note_type !== 'underline');
           const mockHighlightMap = new Map(mockHighlights.map(h => [h.id, h]));
@@ -262,6 +263,15 @@ const NoteSidebar = forwardRef(function NoteSidebar({
       .catch((err) => {
         console.error('[NoteSidebar] 加载笔记数据失败，使用mock数据展示效果:', err);
         // 开发模式：加载失败时，使用mock数据（用于展示效果）
+        // 注意：在测试环境中（process.env.NODE_ENV === 'test'），显示错误而不是使用 mock 数据
+        if (process.env.NODE_ENV === 'test') {
+          setError(err);
+          setNotes([]);
+          setHighlights(new Map());
+          loadedEpisodeIdRef.current = episodeId;
+          return;
+        }
+        
         const mockDisplayNotes = mockNotes.filter(n => n.note_type !== 'underline');
         const mockHighlightMap = new Map(mockHighlights.map(h => [h.id, h]));
         
@@ -316,23 +326,47 @@ const NoteSidebar = forwardRef(function NoteSidebar({
   };
   
   // 刷新笔记列表（公共方法，供内部和外部调用）
-  const refreshNotes = useCallback(async () => {
+  const refreshNotes = useCallback(async (delayMs = 100) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:329',message:'refreshNotes被调用',data:{episodeId,hasEpisodeId:!!episodeId,delayMs},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     if (!episodeId) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:330',message:'episodeId为空，提前返回',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       return;
     }
     
+    // 添加短暂延迟，确保数据库事务已提交（解决SQLite WAL模式的读取延迟问题）
+    if (delayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+    
     try {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:335',message:'开始获取笔记和划线数据',data:{episodeId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       const [notesData, highlightsData] = await Promise.all([
         noteService.getNotesByEpisode(episodeId),
         highlightService.getHighlightsByEpisode(episodeId)
       ]);
       
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:340',message:'获取到笔记和划线数据',data:{notesCount:notesData?.length,highlightsCount:highlightsData?.length,allNotes:notesData,allHighlights:highlightsData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       const displayNotes = notesData.filter(n => n.note_type !== 'underline');
       const highlightMap = new Map(highlightsData.map(h => [h.id, h]));
       
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:343',message:'准备更新状态',data:{displayNotesCount:displayNotes.length,highlightMapSize:highlightMap.size,displayNotes},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       setNotes(displayNotes);
       setHighlights(highlightMap);
       loadedEpisodeIdRef.current = episodeId; // 更新已加载标记
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:345',message:'状态已更新',data:{displayNotesCount:displayNotes.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       
       // 如果有新笔记，自动展开
       if (displayNotes.length > 0 && !hasUserInteractedRef.current) {
@@ -342,6 +376,9 @@ const NoteSidebar = forwardRef(function NoteSidebar({
         onExpandedChange?.(true);
       }
     } catch (err) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:354',message:'刷新笔记列表失败',data:{error:err?.message,errorStack:err?.stack},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       console.error('[NoteSidebar] 刷新笔记列表失败:', err);
     }
   }, [episodeId, externalIsExpanded, onExpandedChange]);
@@ -397,6 +434,51 @@ const NoteSidebar = forwardRef(function NoteSidebar({
     setFrontNoteHighlightId(highlightId);
   }, []);
 
+  // 直接添加新笔记到状态（用于创建笔记后立即显示，避免数据库查询延迟）
+  const addNoteDirectly = useCallback(async (noteData, highlightData) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:addNoteDirectly',message:'直接添加新笔记到状态',data:{noteData,highlightData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+    // #endregion
+    
+    if (!noteData || noteData.note_type === 'underline') {
+      // underline类型不显示，直接返回
+      return;
+    }
+    
+    // 添加新笔记到状态
+    setNotes((prev) => {
+      // 检查是否已存在（避免重复添加）
+      const exists = prev.some(n => n.id === noteData.id);
+      if (exists) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:addNoteDirectly',message:'笔记已存在，跳过添加',data:{noteId:noteData.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
+        return prev;
+      }
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:addNoteDirectly',message:'添加新笔记到状态',data:{prevCount:prev.length,newNoteId:noteData.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
+      return [...prev, noteData];
+    });
+    
+    // 添加对应的highlight到状态
+    if (highlightData) {
+      setHighlights((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(highlightData.id, highlightData);
+        return newMap;
+      });
+    }
+    
+    // 如果有新笔记，自动展开
+    if (!hasUserInteractedRef.current) {
+      if (externalIsExpanded === undefined) {
+        setInternalIsExpanded(true);
+      }
+      onExpandedChange?.(true);
+    }
+  }, [externalIsExpanded, onExpandedChange]);
+
   // 暴露 ref 给父组件（用于双向链接和刷新）
   // 必须在所有条件返回之前调用，确保 hooks 调用顺序一致
   useImperativeHandle(ref, () => ({
@@ -404,9 +486,11 @@ const NoteSidebar = forwardRef(function NoteSidebar({
     getContainer: () => noteSidebarRef.current,
     // 刷新笔记列表，供外部调用
     refreshNotes: refreshNotes,
+    // 直接添加新笔记到状态（用于创建笔记后立即显示）
+    addNoteDirectly: addNoteDirectly,
     // 提升笔记卡片到最前面（通过highlight_id）
     bringNoteToFront: bringNoteToFront,
-  }), [refreshNotes, bringNoteToFront]);
+  }), [refreshNotes, addNoteDirectly, bringNoteToFront]);
   
   // 渲染加载状态（只在真正需要加载时显示，避免展开时的闪烁）
   // 如果数据已经加载过（loadedEpisodeIdRef.current === episodeId），就不显示 loading
