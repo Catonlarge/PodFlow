@@ -72,3 +72,8 @@ AVAILABLE_PROVIDERS = [
     "claude-3-sonnet",
     "claude-3-opus"
 ]
+
+# AI 查询超时时间（秒）
+# - 超过此时间未返回结果，将触发超时错误
+# - 建议值：10-30 秒（根据网络环境和 AI 提供商调整）
+AI_QUERY_TIMEOUT = 30  # 默认 30 秒

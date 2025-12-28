@@ -6,10 +6,11 @@ AI 查询服务
 """
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from google import genai
 from typing import Optional, Dict
 
-from app.config import GEMINI_API_KEY, DEFAULT_AI_PROVIDER
+from app.config import GEMINI_API_KEY, DEFAULT_AI_PROVIDER, AI_QUERY_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -143,12 +144,24 @@ Assistant Output:
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
         
         try:
-            # 调用 Gemini API
-            logger.debug(f"Calling Gemini API with text: {text[:50]}...")
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=full_prompt
-            )
+            # 调用 Gemini API（带超时控制）
+            logger.debug(f"Calling Gemini API with text: {text[:50]}... (timeout={AI_QUERY_TIMEOUT}s)")
+            
+            # 使用线程池执行同步 API 调用，并设置超时
+            executor = ThreadPoolExecutor(max_workers=1)
+            try:
+                future = executor.submit(
+                    self.client.models.generate_content,
+                    model=self.model_name,
+                    contents=full_prompt
+                )
+                # 设置超时
+                response = future.result(timeout=AI_QUERY_TIMEOUT)
+            except FutureTimeoutError:
+                logger.error(f"AI 查询超时: 超过 {AI_QUERY_TIMEOUT} 秒未返回结果")
+                raise TimeoutError(f"AI 查询超时：超过 {AI_QUERY_TIMEOUT} 秒未返回结果，请稍后重试")
+            finally:
+                executor.shutdown(wait=False)
             
             if not response.text:
                 raise ValueError("AI 返回的响应为空")
@@ -184,6 +197,10 @@ Assistant Output:
             logger.info(f"AI 查询成功: type={result['type']}, text={text[:30]}...")
             return result
             
+        except TimeoutError:
+            # 超时错误
+            logger.error(f"AI 查询超时: 超过 {AI_QUERY_TIMEOUT} 秒未返回结果")
+            raise TimeoutError(f"AI 查询超时：超过 {AI_QUERY_TIMEOUT} 秒未返回结果，请稍后重试")
         except ValueError:
             # 重新抛出 ValueError（格式错误）
             raise

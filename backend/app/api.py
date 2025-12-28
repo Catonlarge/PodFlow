@@ -1603,6 +1603,13 @@ async def query_ai(
             "response": response_json
         }
         
+    except TimeoutError as e:
+        # 超时错误
+        ai_record.status = "failed"
+        ai_record.error_message = str(e)
+        db.commit()
+        logger.error(f"AI 查询超时: query_id={ai_record.id}, error={str(e)}")
+        raise HTTPException(status_code=504, detail=f"AI 查询超时：{str(e)}")
     except ValueError as e:
         # JSON 解析失败或格式不符合规范
         ai_record.status = "failed"

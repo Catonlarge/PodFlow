@@ -198,6 +198,15 @@ export default function AICard({
    * 渲染内容（根据 type 类型）
    */
   const renderContent = useCallback(() => {
+    // 错误状态：显示错误提示
+    if (isLoading === false && !responseData) {
+      return (
+        <Typography variant="body2" color="error" sx={{ textAlign: 'center', py: 2 }}>
+          AI查询失败
+        </Typography>
+      );
+    }
+
     if (!responseData || !responseData.content) {
       return null;
     }
@@ -341,12 +350,8 @@ export default function AICard({
             <Typography variant="body2" color="text.secondary">
               正在查询中...
             </Typography>
-          ) : responseData ? (
-            renderContent()
           ) : (
-            <Typography variant="body2" color="text.secondary">
-              暂无结果
-            </Typography>
+            renderContent()
           )}
         </CardContent>
       </Card>

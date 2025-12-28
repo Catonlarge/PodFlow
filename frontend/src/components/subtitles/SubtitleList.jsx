@@ -440,56 +440,85 @@ export default function SubtitleList({
         status: error.response?.status,
       });
       
-      // 显示错误提示
-      const errorMessage = error.response?.data?.detail || error.message || 'AI 查询失败，请重试';
-      setAiQueryError(errorMessage);
-      setAiQueryErrorOpen(true);
+      // 判断是否为超时错误（HTTP 504 或错误信息包含"超时"）
+      const isTimeoutError = error.response?.status === 504 || 
+                            error.response?.data?.detail?.includes('超时') ||
+                            error.message?.includes('超时');
       
-      // 关闭 AICard 并删除 highlight（如果已创建）
-      const errorHighlightId = aiCardHighlightIdRef.current;
-      
-      if (errorHighlightId) {
-        try {
-          // 使用函数式更新获取最新的 internalHighlights 状态，避免闭包问题
-          let highlightGroupId = null;
-          setInternalHighlights((prev) => {
-            // 从 internalHighlights 中找到对应的 highlight，获取 highlight_group_id
-            const highlightToDelete = prev.find(h => h.id === errorHighlightId);
-            highlightGroupId = highlightToDelete?.highlight_group_id;
-            // 先返回原状态，等 API 调用成功后再更新
-            return prev;
+      if (isTimeoutError) {
+        // 超时错误：先显示 AICard 显示"AI查询失败"提示，然后自动消失
+        setAiCardState((prev) => ({
+          ...prev,
+          responseData: null, // 设置为 null 以显示错误提示
+          isLoading: false,
+        }));
+        
+        // 3秒后自动关闭 AICard
+        setTimeout(() => {
+          setAiCardState({
+            isVisible: false,
+            anchorPosition: null,
+            queryText: null,
+            responseData: null,
+            isLoading: false,
+            queryId: null,
+            highlightId: null,
           });
-          
-          // 调用 API 删除 highlight（后端会自动处理按组删除）
-          await highlightService.deleteHighlight(errorHighlightId);
-          
-          // 从 internalHighlights 状态中移除对应的 highlight(s)
-          setInternalHighlights((prev) => {
-            if (highlightGroupId) {
-              // 跨 cue 划线：删除整组
-              return prev.filter(h => h.highlight_group_id !== highlightGroupId);
-            } else {
-              // 单 cue 划线：只删除当前 highlight
-              return prev.filter(h => h.id !== errorHighlightId);
-            }
-          });
-        } catch (deleteError) {
-          console.error('[SubtitleList] AI 查询失败后删除 highlight 失败:', deleteError);
-          // 即使删除失败，也继续关闭 AICard
+          aiCardAnchorElementRef.current = null;
+          // 注意：不删除 highlight，保留划线以便用户重试
+        }, 3000);
+      } else {
+        // 其他错误：显示 Snackbar 提示，关闭 AICard，删除 highlight
+        const errorMessage = error.response?.data?.detail || error.message || 'AI 查询失败，请重试';
+        setAiQueryError(errorMessage);
+        setAiQueryErrorOpen(true);
+        
+        // 关闭 AICard 并删除 highlight（如果已创建）
+        const errorHighlightId = aiCardHighlightIdRef.current;
+        
+        if (errorHighlightId) {
+          try {
+            // 使用函数式更新获取最新的 internalHighlights 状态，避免闭包问题
+            let highlightGroupId = null;
+            setInternalHighlights((prev) => {
+              // 从 internalHighlights 中找到对应的 highlight，获取 highlight_group_id
+              const highlightToDelete = prev.find(h => h.id === errorHighlightId);
+              highlightGroupId = highlightToDelete?.highlight_group_id;
+              // 先返回原状态，等 API 调用成功后再更新
+              return prev;
+            });
+            
+            // 调用 API 删除 highlight（后端会自动处理按组删除）
+            await highlightService.deleteHighlight(errorHighlightId);
+            
+            // 从 internalHighlights 状态中移除对应的 highlight(s)
+            setInternalHighlights((prev) => {
+              if (highlightGroupId) {
+                // 跨 cue 划线：删除整组
+                return prev.filter(h => h.highlight_group_id !== highlightGroupId);
+              } else {
+                // 单 cue 划线：只删除当前 highlight
+                return prev.filter(h => h.id !== errorHighlightId);
+              }
+            });
+          } catch (deleteError) {
+            console.error('[SubtitleList] AI 查询失败后删除 highlight 失败:', deleteError);
+            // 即使删除失败，也继续关闭 AICard
+          }
         }
+        
+        setAiCardState({
+          isVisible: false,
+          anchorPosition: null,
+          queryText: null,
+          responseData: null,
+          isLoading: false,
+          queryId: null,
+          highlightId: null,
+        });
+        aiCardAnchorElementRef.current = null;
+        aiCardHighlightIdRef.current = null;
       }
-      
-      setAiCardState({
-        isVisible: false,
-        anchorPosition: null,
-        queryText: null,
-        responseData: null,
-        isLoading: false,
-        queryId: null,
-        highlightId: null,
-      });
-      aiCardAnchorElementRef.current = null;
-      aiCardHighlightIdRef.current = null;
       
       // 清除文本选择
       clearSelection();
