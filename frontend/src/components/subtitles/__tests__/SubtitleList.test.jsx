@@ -8,6 +8,21 @@ import { highlightService } from '../../../services/highlightService';
 import { noteService } from '../../../services/noteService';
 import { aiService } from '../../../services/aiService';
 
+// Mock @tanstack/react-virtual
+const mockVirtualItems = [];
+const mockVirtualizer = {
+  getVirtualItems: vi.fn(() => mockVirtualItems),
+  getTotalSize: vi.fn(() => 1000),
+  scrollToIndex: vi.fn(),
+  getOffset: vi.fn((index) => index * 80),
+  getSize: vi.fn(() => 80),
+  measureElement: vi.fn(),
+};
+
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: vi.fn(() => mockVirtualizer),
+}));
+
 // Mock subtitleService
 vi.mock('../../../services/subtitleService', () => ({
   getMockCues: vi.fn(),
@@ -192,6 +207,21 @@ describe('SubtitleList', () => {
         },
       },
     });
+    
+    // 初始化虚拟滚动器 mock 数据
+    // processedItems 包含 speaker 标签和字幕行，所以数量会更多
+    // 为了测试通过，我们需要为所有可能的 processedItems 创建虚拟项
+    // 简化处理：为每个可能的索引创建虚拟项（假设最多有 mockCues.length * 2 个项）
+    mockVirtualItems.length = 0;
+    const maxItems = mockCues.length * 2 + 10; // 预留一些空间
+    for (let i = 0; i < maxItems; i++) {
+      mockVirtualItems.push({
+        index: i,
+        start: i * 80,
+        size: 80,
+        measureElement: vi.fn(),
+      });
+    }
   });
 
   describe('渲染', () => {

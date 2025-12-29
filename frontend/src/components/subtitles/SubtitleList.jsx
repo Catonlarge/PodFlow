@@ -1889,8 +1889,9 @@ export default function SubtitleList({
         data-subtitle-container={scrollContainerRef ? undefined : true}
         sx={{
           width: '100%',
-          height: scrollContainerRef ? 'auto' : '100%',
-          overflowY: scrollContainerRef ? 'visible' : 'auto',
+          height: scrollContainerRef ? `${virtualizer.getTotalSize()}px` : '100%',
+          minHeight: scrollContainerRef ? '100%' : 'auto',
+          overflowY: scrollContainerRef ? 'hidden' : 'auto',
           overflowX: 'hidden',
           boxSizing: 'border-box',
           position: 'relative',
