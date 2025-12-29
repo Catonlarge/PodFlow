@@ -158,6 +158,7 @@ export default function DeleteButton({
         <IconButton
           aria-label="删除划线笔记"
           onClick={handleDeleteClick}
+          size="small"
           sx={{
             color: 'grey.600',
             '&:hover': {

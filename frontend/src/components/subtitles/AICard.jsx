@@ -311,6 +311,7 @@ export default function AICard({
               <IconButton
                 aria-label="添加到笔记"
                 onClick={handleAddToNote}
+                size="small"
                 sx={{
                   color: 'grey.600',
                   '&:hover': {
