@@ -108,6 +108,7 @@ export default function SubtitleList({
   const internalContainerRef = useRef(null);
   const internalUserScrollTimeoutRef = useRef(null);
   const internalIsUserScrollingRef = useRef(false);
+  const isAutoScrollingRef = useRef(false); // <--- 新增：标记当前是否正在进行自动滚动
   const subtitleRefs = useRef({});
   const previousTranscriptionStatusRef = useRef(transcriptionStatus || null);
   const loadingProgressIntervalRef = useRef(null);
@@ -1276,6 +1277,50 @@ export default function SubtitleList({
     },
   });
 
+  // #region agent log
+  useEffect(() => {
+    if (virtualizer) {
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'SubtitleList.jsx:1277',
+          message: 'virtualizer object structure',
+          data: {
+            hasGetOffset: typeof virtualizer.getOffset === 'function',
+            hasGetOffsetForIndex: typeof virtualizer.getOffsetForIndex === 'function',
+            hasGetVirtualItems: typeof virtualizer.getVirtualItems === 'function',
+            hasScrollToIndex: typeof virtualizer.scrollToIndex === 'function',
+            hasGetTotalSize: typeof virtualizer.getTotalSize === 'function',
+            virtualizerKeys: Object.keys(virtualizer),
+            virtualizerType: typeof virtualizer,
+            isNull: virtualizer === null,
+            isUndefined: virtualizer === undefined,
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'A',
+        }),
+      }).catch(() => {});
+    } else {
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'SubtitleList.jsx:1277',
+          message: 'virtualizer is null or undefined',
+          data: { virtualizer },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'B',
+        }),
+      }).catch(() => {});
+    }
+  }, [virtualizer]);
+  // #endregion
+
   /**
    * 创建字幕行的 ref 回调（适配虚拟滚动）
    */
@@ -1327,26 +1372,27 @@ export default function SubtitleList({
         );
 
         if (!virtualItem) {
-          // 不在可视区域内，使用虚拟滚动器的 scrollToIndex 方法滚动
-          // 先滚动到该索引，然后手动调整到1/3位置
-          virtualizer.scrollToIndex(targetItemIndex, {
-            align: 'start',
-            behavior: 'smooth',
-          });
+          // --- 修改代码 START ---
           
-          // 延迟调整位置到1/3处（等待滚动完成）
+          // 1. 上锁：标记开始自动滚动
+          isAutoScrollingRef.current = true;
+
+          console.log(`[AutoScroll] 🔒 触发自动滚动 -> 索引: ${targetItemIndex}`);
+          
+          // 2. 直接使用库自带的 'center' (居中) 对齐
+          // 这比手动计算 1/3 位置要稳定得多，绝对不会滚到顶部去
+          virtualizer.scrollToIndex(targetItemIndex, {
+            align: 'center', 
+            behavior: 'smooth', 
+          });
+
+          // 3. 延迟解锁
+          // 等待滚动动画（通常 300-500ms）结束后再解锁
           setTimeout(() => {
-            const container = containerRef.current;
-            if (container) {
-              const containerHeight = container.clientHeight;
-              const itemOffset = virtualizer.getOffset(targetItemIndex, 'start');
-              const scrollTarget = itemOffset - containerHeight / 3;
-              container.scrollTo({
-                top: Math.max(0, scrollTarget),
-                behavior: 'smooth',
-              });
-            }
-          }, 100);
+            isAutoScrollingRef.current = false;
+            console.log('[AutoScroll] 🔓 解锁，恢复用户控制');
+          }, 800);          
+                    
         } else {
           // 在可视区域内，检查是否需要微调位置到1/3处
           const container = containerRef.current;
@@ -1361,8 +1407,81 @@ export default function SubtitleList({
               
               // 如果位置偏差较大（>10%），进行微调
               if (positionDiff > 0.1) {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    location: 'SubtitleList.jsx:1363',
+                    message: 'before getOffset call - in viewport adjustment',
+                    data: {
+                      targetItemIndex,
+                      positionDiff,
+                      hasGetOffsetForIndex: typeof virtualizer?.getOffsetForIndex === 'function',
+                      virtualizerType: typeof virtualizer,
+                    },
+                    timestamp: Date.now(),
+                    sessionId: 'debug-session',
+                    runId: 'run1',
+                    hypothesisId: 'A',
+                  }),
+                }).catch(() => {});
+                // #endregion
                 const containerHeight = containerRect.height;
-                const itemOffset = virtualizer.getOffset(targetItemIndex, 'start');
+                let itemOffset;
+                try {
+                  // 使用 getOffsetForIndex 方法获取指定索引的偏移量
+                  if (typeof virtualizer?.getOffsetForIndex === 'function') {
+                    itemOffset = virtualizer.getOffsetForIndex(targetItemIndex, 'start');
+                  } else {
+                    // 回退方案：通过 getVirtualItems 获取或手动计算
+                    const virtualItems = virtualizer?.getVirtualItems() || [];
+                    const virtualItem = virtualItems.find((item) => item.index === targetItemIndex);
+                    if (virtualItem) {
+                      itemOffset = virtualItem.start;
+                    } else {
+                      // 手动计算：基于估算高度
+                      itemOffset = targetItemIndex * 80; // 使用 estimateSize 的值
+                    }
+                  }
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      location: 'SubtitleList.jsx:1519',
+                      message: 'getOffsetForIndex result - in viewport',
+                      data: { itemOffset, targetItemIndex, method: 'getOffsetForIndex' },
+                      timestamp: Date.now(),
+                      sessionId: 'debug-session',
+                      runId: 'post-fix',
+                      hypothesisId: 'A',
+                    }),
+                  }).catch(() => {});
+                  // #endregion
+                } catch (error) {
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      location: 'SubtitleList.jsx:1519',
+                      message: 'getOffsetForIndex error - in viewport',
+                      data: {
+                        error: error.message,
+                        errorStack: error.stack,
+                        targetItemIndex,
+                      },
+                      timestamp: Date.now(),
+                      sessionId: 'debug-session',
+                      runId: 'post-fix',
+                      hypothesisId: 'A',
+                    }),
+                  }).catch(() => {});
+                  // #endregion
+                  // 回退方案：使用估算值
+                  itemOffset = targetItemIndex * 80;
+                }
                 const scrollTarget = itemOffset - containerHeight / 3;
                 container.scrollTo({
                   top: Math.max(0, scrollTarget),
@@ -1457,6 +1576,13 @@ export default function SubtitleList({
       // 如果使用外部滚动容器，滚动事件在外部处理
       return;
     }
+
+    // --- 新增代码 START ---
+    // 如果是自动滚动触发的 scroll 事件，直接忽略，不标记为用户滚动
+    if (isAutoScrollingRef.current) {
+      return;
+    }
+    // --- 新增代码 END ---
     
     // 只使用内部 ref，避免修改外部传入的 ref
     internalIsUserScrollingRef.current = true;
@@ -1918,6 +2044,8 @@ export default function SubtitleList({
               return (
                 <Box
                   key={`speaker-${item.cue.id}`}
+                  data-index={virtualItem.index} // ✨ 修复 1: 添加索引标识
+                  ref={virtualizer.measureElement} // ✨ 修复 2: 绑定测量 ref
                   sx={{
                     position: 'absolute',
                     top: 0,
@@ -1967,6 +2095,7 @@ export default function SubtitleList({
                 <Box
                   key={`subtitle-${item.cue.id}`}
                   data-index={virtualItem.index}
+                  ref={virtualizer.measureElement} // ✨ 修复 3: 绑定测量 ref (关键修复)
                   sx={{
                     position: 'absolute',
                     top: 0,
@@ -1976,8 +2105,7 @@ export default function SubtitleList({
                   }}
                 >
                   <SubtitleRow
-                    ref={(element) => {
-                      // 注册 ref（虚拟化器会自动测量元素高度，无需手动调用 measureElement）
+                    ref={(element) => {                      
                       if (element) {
                         createSubtitleRef(item.index)(element);
                       }

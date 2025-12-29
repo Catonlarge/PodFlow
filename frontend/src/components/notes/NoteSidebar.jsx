@@ -159,17 +159,19 @@ const NoteSidebar = forwardRef(function NoteSidebar({
       setError(null);
       setLoading(false);
       
-      // 自动展开（有笔记时）
-      if (displayNotes.length > 0 && !hasUserInteractedRef.current) {
-        if (externalIsExpanded === undefined) {
-          setInternalIsExpanded(true);
+      // 自动展开/收缩逻辑：有笔记时展开，无笔记时收缩
+      if (!hasUserInteractedRef.current) {
+        if (displayNotes.length > 0) {
+          if (externalIsExpanded === undefined) {
+            setInternalIsExpanded(true);
+          }
+          onExpandedChange?.(true);
+        } else {
+          if (externalIsExpanded === undefined) {
+            setInternalIsExpanded(false);
+          }
+          onExpandedChange?.(false);
         }
-        onExpandedChange?.(true);
-      } else {
-        if (externalIsExpanded === undefined) {
-          setInternalIsExpanded(false);
-        }
-        onExpandedChange?.(false);
       }
       return;
     }
@@ -184,16 +186,19 @@ const NoteSidebar = forwardRef(function NoteSidebar({
       setError(null);
       setLoading(false);
       
-      if (displayNotes.length > 0 && !hasUserInteractedRef.current) {
-        if (externalIsExpanded === undefined) {
-          setInternalIsExpanded(true);
+      // 自动展开/收缩逻辑：有笔记时展开，无笔记时收缩
+      if (!hasUserInteractedRef.current) {
+        if (displayNotes.length > 0) {
+          if (externalIsExpanded === undefined) {
+            setInternalIsExpanded(true);
+          }
+          onExpandedChange?.(true);
+        } else {
+          if (externalIsExpanded === undefined) {
+            setInternalIsExpanded(false);
+          }
+          onExpandedChange?.(false);
         }
-        onExpandedChange?.(true);
-      } else {
-        if (externalIsExpanded === undefined) {
-          setInternalIsExpanded(false);
-        }
-        onExpandedChange?.(false);
       }
       return;
     }
@@ -233,11 +238,19 @@ const NoteSidebar = forwardRef(function NoteSidebar({
           setHighlights(mockHighlightMap);
           loadedEpisodeIdRef.current = episodeId;
           
-          if (mockDisplayNotes.length > 0 && !hasUserInteractedRef.current) {
-            if (externalIsExpanded === undefined) {
-              setInternalIsExpanded(true);
+          // 自动展开/收缩逻辑：有笔记时展开，无笔记时收缩
+          if (!hasUserInteractedRef.current) {
+            if (mockDisplayNotes.length > 0) {
+              if (externalIsExpanded === undefined) {
+                setInternalIsExpanded(true);
+              }
+              onExpandedChange?.(true);
+            } else {
+              if (externalIsExpanded === undefined) {
+                setInternalIsExpanded(false);
+              }
+              onExpandedChange?.(false);
             }
-            onExpandedChange?.(true);
           }
           return;
         }
@@ -282,12 +295,19 @@ const NoteSidebar = forwardRef(function NoteSidebar({
         setError(null); // 不显示错误，直接使用mock数据
         loadedEpisodeIdRef.current = episodeId; // 记录已加载的 episodeId（使用mock数据）
         
-        // 自动展开（有mock数据时）
-        if (mockDisplayNotes.length > 0 && !hasUserInteractedRef.current) {
-          if (externalIsExpanded === undefined) {
-            setInternalIsExpanded(true);
+        // 自动展开/收缩逻辑：有笔记时展开，无笔记时收缩
+        if (!hasUserInteractedRef.current) {
+          if (mockDisplayNotes.length > 0) {
+            if (externalIsExpanded === undefined) {
+              setInternalIsExpanded(true);
+            }
+            onExpandedChange?.(true);
+          } else {
+            if (externalIsExpanded === undefined) {
+              setInternalIsExpanded(false);
+            }
+            onExpandedChange?.(false);
           }
-          onExpandedChange?.(true);
         }
       })
       .finally(() => {
@@ -351,12 +371,19 @@ const NoteSidebar = forwardRef(function NoteSidebar({
       setHighlights(highlightMap);
       loadedEpisodeIdRef.current = episodeId; // 更新已加载标记
       
-      // 如果有新笔记，自动展开
-      if (displayNotes.length > 0 && !hasUserInteractedRef.current) {
-        if (externalIsExpanded === undefined) {
-          setInternalIsExpanded(true);
+      // 自动展开/收缩逻辑：有笔记时展开，无笔记时收缩
+      if (!hasUserInteractedRef.current) {
+        if (displayNotes.length > 0) {
+          if (externalIsExpanded === undefined) {
+            setInternalIsExpanded(true);
+          }
+          onExpandedChange?.(true);
+        } else {
+          if (externalIsExpanded === undefined) {
+            setInternalIsExpanded(false);
+          }
+          onExpandedChange?.(false);
         }
-        onExpandedChange?.(true);
       }
     } catch (err) {
       console.error('[NoteSidebar] 刷新笔记列表失败:', err);
