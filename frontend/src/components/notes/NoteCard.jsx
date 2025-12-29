@@ -1,17 +1,13 @@
 /**
  * NoteCard 组件
- * 
- * 笔记卡片组件，包含展示态、编辑态、删除功能、双向链接触发等核心功能
- * 
- * 功能描述：
+ * * 笔记卡片组件，包含展示态、编辑态、删除功能、双向链接触发等核心功能
+ * * 功能描述：
  * - 显示单条笔记内容
  * - 包含展示态、编辑态、删除按钮逻辑
  * - 删除确认直接使用通用的<Modal>组件（不创建DeleteConfirmModal.jsx）
- * 
- * 相关PRD：
+ * * 相关PRD：
  * - PRD 6.2.4.h: 笔记卡片（403-424行）
- * 
- * @module components/notes/NoteCard
+ * * @module components/notes/NoteCard
  */
 
 import { useState, useRef, useEffect } from 'react';
@@ -31,8 +27,7 @@ import { noteService } from '../../services/noteService';
 
 /**
  * 简单的Markdown渲染（仅支持**加粗**语法）
- * 
- * @param {string} content - 原始内容
+ * * @param {string} content - 原始内容
  * @returns {string} 渲染后的HTML字符串
  */
 const renderMarkdown = (content) => {
@@ -43,8 +38,7 @@ const renderMarkdown = (content) => {
 
 /**
  * 过滤危险内容（防止JS注入）
- * 
- * @param {string} content - 原始内容
+ * * @param {string} content - 原始内容
  * @returns {string} 过滤后的内容
  */
 const sanitizeContent = (content) => {
@@ -59,8 +53,7 @@ const sanitizeContent = (content) => {
 
 /**
  * NoteCard 组件
- * 
- * @param {Object} props
+ * * @param {Object} props
  * @param {Object} props.note - 笔记数据
  * @param {Object} [props.highlight] - 关联的划线数据
  * @param {Function} [props.onUpdate] - 更新笔记回调 (noteId: number, content: string) => Promise<void>
@@ -196,6 +189,9 @@ export default function NoteCard({ note, highlight, onUpdate, onDelete, onClick 
         sx={{
           minHeight: '40px',
           maxHeight: '50vh', // PRD 395行：最大为用户屏幕的一半
+          // 关键修复：显式设置背景色为 background.paper (通常是不透明的白色或深色)
+          // 防止下面的卡片在重叠时透出来
+          bgcolor: 'background.paper', 
           // 关键：不设置 height，让 Card 根据内容自适应，但不超过 maxHeight
           // 当内容超出 maxHeight 时，Card 会被限制在 maxHeight，CardContent 会滚动
           display: 'flex',
@@ -206,7 +202,9 @@ export default function NoteCard({ note, highlight, onUpdate, onDelete, onClick 
           // 使用 contain 属性，确保 Card 的高度计算不受子元素影响
           contain: 'layout style',
           '&:hover': {
-            bgcolor: 'action.hover',
+            // 关键修复：不要使用 bgcolor: 'action.hover'，因为它是半透明的，会使卡片变透明
+            // 改为使用阴影增强来体现悬停效果，保持背景不透明
+            boxShadow: 6, 
           },
           '&:active': {
             transform: 'scale(0.98)',

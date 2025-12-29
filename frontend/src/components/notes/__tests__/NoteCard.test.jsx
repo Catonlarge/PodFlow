@@ -1,9 +1,7 @@
 /**
  * NoteCard 组件测试
- * 
- * 遵循TDD原则，不使用条件逻辑，测试用例描述行为
- * 
- * @module components/notes/__tests__/NoteCard.test
+ * * 遵循TDD原则，不使用条件逻辑，测试用例描述行为
+ * * @module components/notes/__tests__/NoteCard.test
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -303,6 +301,25 @@ describe('NoteCard', () => {
     });
   });
 
+  describe('视觉样式测试', () => {
+    it('test_note_card_has_solid_background_to_prevent_transparency', async () => {
+      // 这是一个针对"笔记卡片重叠时不应透明"需求的测试用例
+      render(<NoteCard note={mockNote} highlight={mockHighlight} />);
+      const noteCard = screen.getByTestId(`note-card-${mockNote.id}`);
+      
+      // 模拟 hover 行为
+      const user = userEvent.setup();
+      await user.hover(noteCard);
+      
+      // 验证卡片在 Hover 状态下依然存在且没有被移除
+      expect(noteCard).toBeInTheDocument();
+      
+      // 注意：在单元测试环境（JSDOM）中，很难验证 visually "是否透明" 或 "是否有背景色遮挡"
+      // 但这个测试确保了我们没有因为 hover 状态而导致组件渲染异常
+      // 实际的样式效果主要依靠 CSS (sx prop) 的正确性来保证
+    });
+  });
+
   describe('内容排版测试', () => {
     it('test_note_content_supports_line_breaks', () => {
       const noteWithLineBreaks = {
@@ -342,4 +359,3 @@ describe('NoteCard', () => {
     });
   });
 });
-

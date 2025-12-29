@@ -13,21 +13,16 @@ import AICard from './AICard';
 
 /**
  * SubtitleList 组件
- * 
- * 字幕列表容器组件，管理字幕列表的滚动和定位
- * 
- * 功能描述：
+ * * 字幕列表容器组件，管理字幕列表的滚动和定位
+ * * 功能描述：
  * - 字幕列表容器组件
  * - 管理字幕列表的滚动和定位
  * - 配合 useSubtitleSync 实现自动滚动到当前字幕
  * - 处理 speaker 分组显示
- * 
- * 相关PRD：
+ * * 相关PRD：
  * - PRD 6.2.4.1: 英文字幕区域
- * 
- * @module components/subtitles/SubtitleList
- * 
- * @param {Object} props
+ * * @module components/subtitles/SubtitleList
+ * * @param {Object} props
  * @param {Array} [props.cues] - 字幕数组（可选，无数据时使用 mock 数据）
  * @param {number} props.currentTime - 当前播放时间（秒）
  * @param {number} props.duration - 音频总时长（秒）
@@ -110,8 +105,7 @@ export default function SubtitleList({
 
   /**
    * 将技术性错误信息转换为用户友好的提示
-   * 
-   * @param {string} errorMessage - 原始错误信息
+   * * @param {string} errorMessage - 原始错误信息
    * @returns {string} 用户友好的错误提示
    */
   const formatUserFriendlyError = useCallback((errorMessage) => {
@@ -914,24 +908,23 @@ export default function SubtitleList({
     // 从 API 加载 highlights
     highlightService.getHighlightsByEpisode(episodeId)
       .then((loadedHighlights) => {
-        // 获取所有笔记，但只保留 underline 类型的 note 对应的 highlights
-        // 注意：只有 underline 类型的 note 才显示下划线
-        // thought 和 ai_card 类型的 note 不显示下划线（它们显示笔记卡片）
+        // 获取所有笔记，以确保 highlight 有对应的笔记（无论是 underline, thought, 还是 ai_card）
+        // 之前只保留 underline 类型的 note，导致 AI 查询和想法的划线在刷新后丢失
         return noteService.getNotesByEpisode(episodeId)
           .then((notes) => {
-            // 找出所有 underline 类型笔记对应的 highlight_id
-            const underlineNoteHighlightIds = new Set(
-              notes
-                .filter(note => note.note_type === 'underline')
-                .map(note => note.highlight_id)
+            // 找出所有有效笔记对应的 highlight_id
+            // 修改：不再仅限于 underline 类型，包含 ai_card 和 thought 类型
+            // 这样刷新页面后，AI查询和想法对应的划线也能正确显示
+            const validNoteHighlightIds = new Set(
+              notes.map(note => note.highlight_id)
             );
 
-            // 只保留 underline 类型笔记对应的 highlights
-            const highlightsWithUnderlineNotes = loadedHighlights.filter(h => 
-              underlineNoteHighlightIds.has(h.id)
+            // 只保留有对应笔记的 highlights
+            const validHighlights = loadedHighlights.filter(h => 
+              validNoteHighlightIds.has(h.id)
             );
 
-            setInternalHighlights(highlightsWithUnderlineNotes);
+            setInternalHighlights(validHighlights);
           });
       })
       .catch((error) => {
@@ -1044,8 +1037,7 @@ export default function SubtitleList({
   /**
    * 处理 speaker 分组，为每个新的 speaker 添加 speaker 标签
    * 根据 PRD 6.2.4.1，speaker 标签单独占据一行，显示在每个 speaker 开始说的第一句话的上面
-   * 
-   * @returns {Array} 处理后的数组，包含字幕和 speaker 标签
+   * * @returns {Array} 处理后的数组，包含字幕和 speaker 标签
    */
   const processedItems = useMemo(() => {
     if (!cues || cues.length === 0) {
@@ -1704,8 +1696,7 @@ export default function SubtitleList({
 
 /**
  * SubtitleListFooter 组件
- * 
- * 显示字幕列表底部的状态提示
+ * * 显示字幕列表底部的状态提示
  * 根据PRD d.x：
  * - 如果下一个segment正在识别中：显示"……请稍等，努力识别字幕中……"
  * - 如果segment识别失败且可重试，自动触发重试（最多3次）
