@@ -109,6 +109,7 @@ export default function SubtitleList({
   const internalUserScrollTimeoutRef = useRef(null);
   const internalIsUserScrollingRef = useRef(false);
   const isAutoScrollingRef = useRef(false); // <--- 新增：标记当前是否正在进行自动滚动
+  const scrollTickingRef = useRef(false); // 用于内部滚动节流的锁
   const subtitleRefs = useRef({});
   const previousTranscriptionStatusRef = useRef(transcriptionStatus || null);
   const loadingProgressIntervalRef = useRef(null);
@@ -510,6 +511,7 @@ export default function SubtitleList({
       setAiQueryError(errorMessage);
       setAiQueryErrorOpen(true);
       
+      /*
       // 关闭 AICard 并删除 highlight（如果已创建）
       const errorHighlightId = aiCardHighlightIdRef.current;
       
@@ -564,11 +566,28 @@ export default function SubtitleList({
         queryId: null,
         highlightId: null,
       });
+      
+
+
+
       aiCardAnchorElementRef.current = null;
       aiCardHighlightIdRef.current = null;
       aiCardHighlightDataRef.current = null;
       isQueryingRef.current = false; // 重置查询状态，允许重试
-      
+      */
+
+      // ✅ 添加这段代码：保持卡片显示，但进入错误状态
+      // 这样用户能看到 AICard 显示 "AI查询失败"
+      // 当用户点击外部关闭卡片时，会自动触发 handleCloseAICard，从而删除临时 highlight
+      setAiCardState((prev) => ({
+        ...prev,
+        isLoading: false,   // 停止转圈
+        responseData: null, // 置空数据，AICard 组件会根据 (!isLoading && !responseData) 渲染错误提示
+        // 注意：isVisible 保持为 true，anchorPosition 保持不变
+      }));
+
+      // =========== 修改结束 ===========      
+
       // 清除文本选择
       clearSelection();
     } finally {
@@ -1277,49 +1296,6 @@ export default function SubtitleList({
     },
   });
 
-  // #region agent log
-  useEffect(() => {
-    if (virtualizer) {
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'SubtitleList.jsx:1277',
-          message: 'virtualizer object structure',
-          data: {
-            hasGetOffset: typeof virtualizer.getOffset === 'function',
-            hasGetOffsetForIndex: typeof virtualizer.getOffsetForIndex === 'function',
-            hasGetVirtualItems: typeof virtualizer.getVirtualItems === 'function',
-            hasScrollToIndex: typeof virtualizer.scrollToIndex === 'function',
-            hasGetTotalSize: typeof virtualizer.getTotalSize === 'function',
-            virtualizerKeys: Object.keys(virtualizer),
-            virtualizerType: typeof virtualizer,
-            isNull: virtualizer === null,
-            isUndefined: virtualizer === undefined,
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'A',
-        }),
-      }).catch(() => {});
-    } else {
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'SubtitleList.jsx:1277',
-          message: 'virtualizer is null or undefined',
-          data: { virtualizer },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'B',
-        }),
-      }).catch(() => {});
-    }
-  }, [virtualizer]);
-  // #endregion
 
   /**
    * 创建字幕行的 ref 回调（适配虚拟滚动）
@@ -1383,7 +1359,7 @@ export default function SubtitleList({
           // 这比手动计算 1/3 位置要稳定得多，绝对不会滚到顶部去
           virtualizer.scrollToIndex(targetItemIndex, {
             align: 'center', 
-            behavior: 'smooth', 
+            behavior: 'auto', 
           });
 
           // 3. 延迟解锁
@@ -1391,105 +1367,11 @@ export default function SubtitleList({
           setTimeout(() => {
             isAutoScrollingRef.current = false;
             console.log('[AutoScroll] 🔓 解锁，恢复用户控制');
-          }, 800);          
+          }, 300);          
                     
         } else {
-          // 在可视区域内，检查是否需要微调位置到1/3处
-          const container = containerRef.current;
-          if (container) {
-            const containerRect = container.getBoundingClientRect();
-            const element = subtitleRefs.current[currentSubtitleIndex]?.current;
-            if (element) {
-              const elementRect = element.getBoundingClientRect();
-              const currentPositionRatio = (elementRect.top - containerRect.top) / containerRect.height;
-              const expectedPositionRatio = 1 / 3;
-              const positionDiff = Math.abs(currentPositionRatio - expectedPositionRatio);
-              
-              // 如果位置偏差较大（>10%），进行微调
-              if (positionDiff > 0.1) {
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    location: 'SubtitleList.jsx:1363',
-                    message: 'before getOffset call - in viewport adjustment',
-                    data: {
-                      targetItemIndex,
-                      positionDiff,
-                      hasGetOffsetForIndex: typeof virtualizer?.getOffsetForIndex === 'function',
-                      virtualizerType: typeof virtualizer,
-                    },
-                    timestamp: Date.now(),
-                    sessionId: 'debug-session',
-                    runId: 'run1',
-                    hypothesisId: 'A',
-                  }),
-                }).catch(() => {});
-                // #endregion
-                const containerHeight = containerRect.height;
-                let itemOffset;
-                try {
-                  // 使用 getOffsetForIndex 方法获取指定索引的偏移量
-                  if (typeof virtualizer?.getOffsetForIndex === 'function') {
-                    itemOffset = virtualizer.getOffsetForIndex(targetItemIndex, 'start');
-                  } else {
-                    // 回退方案：通过 getVirtualItems 获取或手动计算
-                    const virtualItems = virtualizer?.getVirtualItems() || [];
-                    const virtualItem = virtualItems.find((item) => item.index === targetItemIndex);
-                    if (virtualItem) {
-                      itemOffset = virtualItem.start;
-                    } else {
-                      // 手动计算：基于估算高度
-                      itemOffset = targetItemIndex * 80; // 使用 estimateSize 的值
-                    }
-                  }
-                  // #region agent log
-                  fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      location: 'SubtitleList.jsx:1519',
-                      message: 'getOffsetForIndex result - in viewport',
-                      data: { itemOffset, targetItemIndex, method: 'getOffsetForIndex' },
-                      timestamp: Date.now(),
-                      sessionId: 'debug-session',
-                      runId: 'post-fix',
-                      hypothesisId: 'A',
-                    }),
-                  }).catch(() => {});
-                  // #endregion
-                } catch (error) {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      location: 'SubtitleList.jsx:1519',
-                      message: 'getOffsetForIndex error - in viewport',
-                      data: {
-                        error: error.message,
-                        errorStack: error.stack,
-                        targetItemIndex,
-                      },
-                      timestamp: Date.now(),
-                      sessionId: 'debug-session',
-                      runId: 'post-fix',
-                      hypothesisId: 'A',
-                    }),
-                  }).catch(() => {});
-                  // #endregion
-                  // 回退方案：使用估算值
-                  itemOffset = targetItemIndex * 80;
-                }
-                const scrollTarget = itemOffset - containerHeight / 3;
-                container.scrollTo({
-                  top: Math.max(0, scrollTarget),
-                  behavior: 'smooth',
-                });
-              }
-            }
-          }
+          // 如果不在此处（即元素已经在屏幕内），什么都不做。
+          // 这能彻底避免画面“微抖”或与用户意图冲突。
         }
       }
     }
@@ -1571,83 +1453,106 @@ export default function SubtitleList({
    * 根据 PRD 6.2.4.1，用户使用滚轮操作屏幕时，停止滚动，用户鼠标没有动作之后5s，重新回到滚动状态
    * 同时检查是否滚动到底部，触发下一个segment的加载
    */
-  const handleScroll = useCallback(() => {
-    if (scrollContainerRef) {
-      // 如果使用外部滚动容器，滚动事件在外部处理
-      return;
-    }
+/**
+   * 监听用户滚动事件（仅当使用内部滚动容器时）
+   * 优化：使用 requestAnimationFrame 消除 "Violation" 警告
+   */
+const handleScroll = useCallback(() => {
+  // 1. 如果使用外部容器，这里不处理
+  if (scrollContainerRef) {
+    return;
+  }
 
-    // --- 新增代码 START ---
-    // 如果是自动滚动触发的 scroll 事件，直接忽略，不标记为用户滚动
-    if (isAutoScrollingRef.current) {
-      return;
-    }
-    // --- 新增代码 END ---
-    
-    // 只使用内部 ref，避免修改外部传入的 ref
-    internalIsUserScrollingRef.current = true;
+  // 2. 如果是代码控制的自动滚动，直接忽略，不标记为用户操作
+  if (isAutoScrollingRef.current) {
+    return;
+  }
 
-    // 清除之前的定时器
-    if (internalUserScrollTimeoutRef.current) {
-      clearTimeout(internalUserScrollTimeoutRef.current);
-    }
+  // 3. 节流逻辑：如果当前没有锁，才执行
+  if (!scrollTickingRef.current) {
+    // 上锁
+    scrollTickingRef.current = true;
 
-    // 5秒后恢复自动滚动
-    internalUserScrollTimeoutRef.current = setTimeout(() => {
-      internalIsUserScrollingRef.current = false;
-    }, 5000);
-    
-    // 检查是否滚动到底部（距离底部 < 100px）
-    const container = internalContainerRef.current;
-    if (container) {
-      const scrollTop = container.scrollTop;
-      const scrollHeight = container.scrollHeight;
-      const clientHeight = container.clientHeight;
-      const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+    // 请求下一帧执行
+    window.requestAnimationFrame(() => {
+      // --- 实际的逻辑开始 ---
       
-      if (distanceToBottom < 100) {
-        // 滚动到底部，触发检查下一个segment
-        checkAndLoadNextSegment();
+      // A. 标记为用户正在滚动
+      internalIsUserScrollingRef.current = true;
+
+      // B. 重置 5秒 恢复计时器
+      if (internalUserScrollTimeoutRef.current) {
+        clearTimeout(internalUserScrollTimeoutRef.current);
       }
-    }
-  }, [scrollContainerRef, checkAndLoadNextSegment]);
-  
-  // 监听外部滚动容器的滚动事件
-  useEffect(() => {
-    if (!scrollContainerRef || !scrollContainerRef.current) {
-      return;
-    }
-    
-    const container = scrollContainerRef.current;
-    let scrollTimeout = null;
-    
-    const handleExternalScroll = () => {
-      // 检查是否滚动到底部
-      const scrollTop = container.scrollTop;
-      const scrollHeight = container.scrollHeight;
-      const clientHeight = container.clientHeight;
-      const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+      internalUserScrollTimeoutRef.current = setTimeout(() => {
+        internalIsUserScrollingRef.current = false;
+      }, 5000);
       
-      if (distanceToBottom < 100) {
-        // 滚动到底部，触发检查下一个segment
-        // 使用防抖，避免频繁触发
-        if (scrollTimeout) {
-          clearTimeout(scrollTimeout);
-        }
-        scrollTimeout = setTimeout(() => {
+      // C. 检查是否到底部（最耗性能的读取操作放在这里）
+      const container = internalContainerRef.current;
+      if (container) {
+        // 解构赋值读取属性
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+        
+        if (distanceToBottom < 100) {
+          // 滚动到底部，触发加载
           checkAndLoadNextSegment();
-        }, 300); // 300ms防抖
+        }
       }
-    };
-    
-    container.addEventListener('scroll', handleExternalScroll);
-    return () => {
-      container.removeEventListener('scroll', handleExternalScroll);
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-    };
-  }, [scrollContainerRef, checkAndLoadNextSegment]);
+      // --- 实际的逻辑结束 ---
+
+      // 解锁，允许下一帧再次触发
+      scrollTickingRef.current = false;
+    });
+  }
+}, [scrollContainerRef, checkAndLoadNextSegment]);
+  
+// 监听外部滚动容器的滚动事件（优化版）
+useEffect(() => {
+  if (!scrollContainerRef || !scrollContainerRef.current) {
+    return;
+  }
+  
+  const container = scrollContainerRef.current;
+  let scrollTimeout = null;
+  let ticking = false; // 局部变量作为锁
+  
+  const handleExternalScroll = () => {
+    // 节流逻辑
+    if (!ticking) {
+      window.requestAnimationFrame(() => {
+        // --- 实际逻辑 ---
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+        
+        if (distanceToBottom < 100) {
+          // 滚动到底部，触发检查下一个segment
+          // 依然保留防抖 (debounce) 防止重复触发 API 调用
+          if (scrollTimeout) {
+            clearTimeout(scrollTimeout);
+          }
+          scrollTimeout = setTimeout(() => {
+            checkAndLoadNextSegment();
+          }, 300);
+        }
+        // --- 实际逻辑结束 ---
+        
+        ticking = false; // 解锁
+      });
+      
+      ticking = true; // 上锁
+    }
+  };
+  
+  container.addEventListener('scroll', handleExternalScroll);
+  return () => {
+    container.removeEventListener('scroll', handleExternalScroll);
+    if (scrollTimeout) {
+      clearTimeout(scrollTimeout);
+    }
+  };
+}, [scrollContainerRef, checkAndLoadNextSegment]);
   
   // 当初始加载完成后，重置 lastLoadedSegmentIndexRef（确保初始加载逻辑正确）
   // 注意：初始加载逻辑已经设置了 lastLoadedSegmentIndexRef，这里主要用于重置场景
@@ -1961,6 +1866,34 @@ export default function SubtitleList({
     );
   }
 
+  // === ⚡️ 性能优化 START: 预先计算查找表 ===
+  // 1. 将 highlights 转换为 Map (高效字典)
+  const highlightsMap = useMemo(() => {
+    const map = new Map();
+    if (!effectiveHighlights) return map;
+    
+    effectiveHighlights.forEach(h => {
+      if (!map.has(h.cue_id)) {
+        map.set(h.cue_id, []);
+      }
+      map.get(h.cue_id).push(h);
+    });
+    return map;
+  }, [effectiveHighlights]);
+
+  // 2. 将选中的文本转换为 Map (高效字典)
+  const selectedCuesMap = useMemo(() => {
+    const map = new Map();
+    if (!affectedCues) return map;
+
+    affectedCues.forEach(ac => {
+      map.set(ac.cue.id, ac);
+    });
+    return map;
+  }, [affectedCues]);
+  // === ⚡️ 性能优化 END ===  
+
+
   // 如果没有字幕数据，显示占位内容
   if (!cues || cues.length === 0) {
     return (
@@ -2083,13 +2016,10 @@ export default function SubtitleList({
               // 未来的行 progress 默认为 0
 
               // 获取当前 cue 的 highlights
-              const cueHighlights = effectiveHighlights.filter(h => h.cue_id === item.cue.id);
-
-              // 判断当前 cue 是否被选中
-              const isSelected = affectedCues.some(ac => ac.cue.id === item.cue.id);
-              
-              // 获取当前 cue 的选择范围信息
-              const cueSelectionRange = affectedCues.find(ac => ac.cue.id === item.cue.id) || null;
+              // === ⚡️ 性能优化: 使用 Map 获取数据 ===
+              const cueHighlights = highlightsMap.get(item.cue.id) || [];
+              const cueSelectionRange = selectedCuesMap.get(item.cue.id) || null;
+              const isSelected = !!cueSelectionRange;
 
               return (
                 <Box
