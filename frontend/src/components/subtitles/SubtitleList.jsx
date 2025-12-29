@@ -279,9 +279,6 @@ export default function SubtitleList({
           noteService.createNote(episodeId, highlightId, 'underline', null, null)
         );
         createdNotes = await Promise.all(notePromises);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:279',message:'创建Note成功，准备更新notesMap',data:{createdNotesCount:createdNotes.length,highlightIds:highlightResponse.highlight_ids},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
       } catch (noteError) {
         // Note API 可能还未实现，显示错误提示，但不影响下划线显示
         console.warn('[SubtitleList] 创建 Note 失败（可能是后端 API 未实现）:', noteError);
@@ -309,17 +306,11 @@ export default function SubtitleList({
       setInternalHighlights((prev) => [...prev, ...newHighlights]);
 
       // 更新 notesMap：将新创建的 notes 添加到 notesMap 中
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:304',message:'准备更新notesMap，检查createdNotes',data:{createdNotesCount:createdNotes.length,hasCreatedNotes:createdNotes.length>0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       if (createdNotes.length > 0) {
         setNotesMap((prev) => {
           const newMap = new Map(prev);
           createdNotes.forEach((noteResponse, index) => {
             const highlightId = highlightResponse.highlight_ids[index];
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:312',message:'添加note到notesMap',data:{noteId:noteResponse.id,highlightId:highlightId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
             newMap.set(highlightId, {
               id: noteResponse.id,
               highlight_id: highlightId,
@@ -330,9 +321,6 @@ export default function SubtitleList({
               updated_at: noteResponse.created_at || new Date().toISOString(),
             });
           });
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:324',message:'notesMap更新完成',data:{newMapSize:newMap.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
           return newMap;
         });
       }
@@ -765,13 +753,7 @@ export default function SubtitleList({
     }
 
     // 从 notesMap 中查询对应的 note
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:733',message:'handleHighlightClick被调用，查询notesMap',data:{highlightId:highlight.id,notesMapSize:notesMap.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     const note = notesMap.get(highlight.id);
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:735',message:'notesMap查询结果',data:{highlightId:highlight.id,foundNote:!!note,noteType:note?.note_type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     
     // 判断笔记类型：如果是 underline 类型，显示删除按钮
     if (note && note.note_type === 'underline') {
@@ -917,16 +899,14 @@ export default function SubtitleList({
             const lastSegment = segments.find(s => s.segment_index === lastSegmentIndex);
             
             if (firstSegment && lastSegment) {
+              // 根据segment的时间范围过滤cues
+              // 注意：使用 <= 而不是 <，确保包含最后一个segment的结束时间
               filteredCues = propsCues.filter(cue => 
                 cue.start_time >= firstSegment.start_time && 
-                cue.start_time < lastSegment.end_time
+                cue.start_time <= lastSegment.end_time
               );
               
               lastLoadedSegmentIndexRef.current = lastSegmentIndex;
-              
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:897',message:'过滤propsCues，只保留前3个segment',data:{originalCuesCount:propsCues.length,filteredCuesCount:filteredCues.length,firstSegmentIndex:firstSegmentIndex,lastSegmentIndex:lastSegmentIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-              // #endregion
             } else {
               // 如果找不到segment信息，清空cues，等待异步加载
               filteredCues = [];
@@ -984,9 +964,6 @@ export default function SubtitleList({
       // 如果有 segments 信息，只加载前3个segment的字幕（性能优化）
       // 如果没有 segments 信息，加载所有字幕（向后兼容）
       const loadInitialSubtitles = async () => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:959',message:'开始初始加载字幕',data:{episodeId:episodeId,hasSegments:!!segments,segmentsLength:segments?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
         try {
           let initialCues = [];
           let loadedLastSegmentIndex = -1;
@@ -998,33 +975,25 @@ export default function SubtitleList({
               .sort((a, b) => a.segment_index - b.segment_index)
               .slice(0, 3); // 只取前3个
             
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:966',message:'计算前3个已完成的segment',data:{completedSegmentsCount:completedSegments.length,completedSegmentIndices:completedSegments.map(s=>s.segment_index)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
-            
             if (completedSegments.length > 0) {
               const firstSegmentIndex = completedSegments[0].segment_index;
               const lastSegmentIndex = completedSegments[completedSegments.length - 1].segment_index;
-              
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:975',message:'准备加载前3个segment的字幕',data:{firstSegmentIndex:firstSegmentIndex,lastSegmentIndex:lastSegmentIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-              // #endregion
               
               // 加载前3个segment的字幕
               initialCues = await getCuesBySegmentRange(episodeId, firstSegmentIndex, lastSegmentIndex);
               loadedLastSegmentIndex = lastSegmentIndex;
               lastLoadedSegmentIndexRef.current = loadedLastSegmentIndex;
-              
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:977',message:'初始加载完成',data:{initialCuesCount:initialCues.length,loadedLastSegmentIndex:loadedLastSegmentIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-              // #endregion
+            } else {
+              // 没有已完成的segment，不加载任何字幕，等待segment完成后自动加载
+              initialCues = [];
+              loadedLastSegmentIndex = -1;
+              lastLoadedSegmentIndexRef.current = loadedLastSegmentIndex;
             }
           } else {
             // 没有 segments 信息：加载所有字幕（向后兼容）
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:980',message:'没有segments信息，加载所有字幕',data:{episodeId:episodeId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
             initialCues = await getCuesByEpisodeId(episodeId);
+            // 如果没有segments信息，设置lastLoadedSegmentIndexRef为-1，表示不知道加载了哪些segment
+            lastLoadedSegmentIndexRef.current = -1;
           }
           
           // 清理进度定时器
@@ -1374,13 +1343,7 @@ export default function SubtitleList({
   // 滚动触发异步加载逻辑
   // 性能优化：只加载下一个segment的字幕，追加到现有列表，而不是重新加载全部
   const checkAndLoadNextSegment = useCallback(async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1331',message:'checkAndLoadNextSegment被调用',data:{episodeId:episodeId,hasSegments:!!segments,segmentsLength:segments?.length,lastLoadedIndex:lastLoadedSegmentIndexRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     if (!episodeId || !segments || segments.length === 0) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1333',message:'checkAndLoadNextSegment提前返回：缺少必要参数',data:{episodeId:episodeId,hasSegments:!!segments},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       return;
     }
     
@@ -1389,43 +1352,26 @@ export default function SubtitleList({
     const nextSegmentIndex = lastLoadedSegmentIndexRef.current === -1 ? 0 : lastLoadedSegmentIndexRef.current + 1;
     const nextSegment = segments.find(s => s.segment_index === nextSegmentIndex);
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1339',message:'计算下一个segment',data:{nextSegmentIndex:nextSegmentIndex,hasNextSegment:!!nextSegment,nextSegmentStatus:nextSegment?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
-    
     if (!nextSegment) {
       // 没有下一个segment，说明全部完成
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1342',message:'没有下一个segment，全部完成',data:{nextSegmentIndex:nextSegmentIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       return;
     }
     
-    // 如果下一个segment已完成，加载该segment的字幕并追加
-    if (nextSegment.status === 'completed') {
-      // 检查是否正在加载或已加载过这个segment
-      if (loadingSegmentsRef.current.has(nextSegmentIndex)) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1347',message:'segment正在加载中，跳过重复加载',data:{nextSegmentIndex:nextSegmentIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
-        return;
-      }
-      
-      // 标记为正在加载
-      loadingSegmentsRef.current.add(nextSegmentIndex);
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1347',message:'下一个segment已完成，开始加载字幕',data:{nextSegmentIndex:nextSegmentIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
-      try {
-        // 只加载这一个segment的字幕
-        const newCues = await getCuesBySegmentRange(episodeId, nextSegmentIndex, nextSegmentIndex);
+      // 如果下一个segment已完成，加载该segment的字幕并追加
+      if (nextSegment.status === 'completed') {
+        // 检查是否正在加载或已加载过这个segment
+        if (loadingSegmentsRef.current.has(nextSegmentIndex)) {
+          return;
+        }
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1350',message:'获取到新字幕数据',data:{nextSegmentIndex:nextSegmentIndex,newCuesCount:newCues?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
+        // 标记为正在加载
+        loadingSegmentsRef.current.add(nextSegmentIndex);
         
-        if (newCues && newCues.length > 0) {
+        try {
+          // 只加载这一个segment的字幕
+          const newCues = await getCuesBySegmentRange(episodeId, nextSegmentIndex, nextSegmentIndex);
+          
+          if (newCues && newCues.length > 0) {
           // 追加到现有cues列表（按时间排序合并，并去重）
           setCues((prevCues) => {
             // 使用Map根据cue.id去重
@@ -1447,23 +1393,14 @@ export default function SubtitleList({
           lastLoadedSegmentIndexRef.current = nextSegmentIndex;
           // 从loadingSegmentsRef中移除，允许后续重新加载（如果需要）
           loadingSegmentsRef.current.delete(nextSegmentIndex);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1361',message:'字幕追加成功，更新lastLoadedSegmentIndex',data:{nextSegmentIndex:nextSegmentIndex,newLastLoadedIndex:lastLoadedSegmentIndexRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
         }
       } catch (error) {
         // 加载失败时，从loadingSegmentsRef中移除，允许重试
         loadingSegmentsRef.current.delete(nextSegmentIndex);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1364',message:'加载Segment字幕失败',data:{nextSegmentIndex:nextSegmentIndex,error:error.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         console.error(`[SubtitleList] 加载 Segment ${nextSegmentIndex} 字幕失败:`, error);
       }
     } else if (nextSegment.status === 'pending' || (nextSegment.status === 'failed' && nextSegment.retry_count < 3)) {
       // 如果下一个segment未开始或失败但可重试，触发识别
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1366',message:'触发下一个segment识别',data:{nextSegmentIndex:nextSegmentIndex,status:nextSegment.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       try {
         await subtitleService.triggerSegmentTranscription(episodeId, nextSegmentIndex);
         console.log(`[SubtitleList] 已触发 Segment ${nextSegmentIndex} 的识别任务`);
@@ -1506,14 +1443,7 @@ export default function SubtitleList({
       const clientHeight = container.clientHeight;
       const distanceToBottom = scrollHeight - scrollTop - clientHeight;
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1403',message:'内部滚动容器滚动事件',data:{scrollTop:scrollTop,scrollHeight:scrollHeight,clientHeight:clientHeight,distanceToBottom:distanceToBottom},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
-      
       if (distanceToBottom < 100) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1410',message:'内部滚动到底部，触发加载下一个segment',data:{distanceToBottom:distanceToBottom},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         // 滚动到底部，触发检查下一个segment
         checkAndLoadNextSegment();
       }
@@ -1536,14 +1466,7 @@ export default function SubtitleList({
       const clientHeight = container.clientHeight;
       const distanceToBottom = scrollHeight - scrollTop - clientHeight;
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1426',message:'外部滚动容器滚动事件',data:{scrollTop:scrollTop,scrollHeight:scrollHeight,clientHeight:clientHeight,distanceToBottom:distanceToBottom},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
-      
       if (distanceToBottom < 100) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1433',message:'滚动到底部，触发加载下一个segment',data:{distanceToBottom:distanceToBottom},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         // 滚动到底部，触发检查下一个segment
         // 使用防抖，避免频繁触发
         if (scrollTimeout) {
@@ -1576,10 +1499,6 @@ export default function SubtitleList({
   // 监听segments变化，当有新的segment完成时自动加载（前3个segment范围内）
   // 假设C：segments状态更新时，没有触发字幕重新加载
   useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1462',message:'监听segments变化',data:{episodeId:episodeId,hasSegments:!!segments,segmentsLength:segments?.length,lastLoadedIndex:lastLoadedSegmentIndexRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
-    
     if (!episodeId || !segments || segments.length === 0) {
       return;
     }
@@ -1590,10 +1509,6 @@ export default function SubtitleList({
       .filter(s => s.segment_index >= 0 && s.segment_index <= 2)
       .sort((a, b) => a.segment_index - b.segment_index);
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1470',message:'检查前3个segment状态',data:{firstThreeSegmentsCount:firstThreeSegments.length,firstThreeSegmentsStatus:firstThreeSegments.map(s=>({index:s.segment_index,status:s.status})),lastLoadedIndex:lastLoadedSegmentIndexRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
-    
     // 找到前3个segment中已完成的segment
     const completedFirstThree = firstThreeSegments.filter(s => s.status === 'completed');
     
@@ -1602,10 +1517,6 @@ export default function SubtitleList({
       
       // 如果已加载的最后一个segment索引小于前3个中最大的已完成segment索引，需要加载
       if (lastLoadedSegmentIndexRef.current < maxCompletedIndex) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1478',message:'发现前3个segment中有新完成的，需要加载',data:{lastLoadedIndex:lastLoadedSegmentIndexRef.current,maxCompletedIndex:maxCompletedIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
-        
         // 加载从 lastLoadedSegmentIndexRef.current + 1 到 maxCompletedIndex 的所有segment
         const startIndex = lastLoadedSegmentIndexRef.current === -1 ? 0 : lastLoadedSegmentIndexRef.current + 1;
         const endIndex = Math.min(maxCompletedIndex, 2); // 最多加载到segment_index 2
@@ -1621,25 +1532,14 @@ export default function SubtitleList({
           }
           
           if (segmentsToLoad.length === 0) {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1485',message:'所有segments正在加载中，跳过重复加载',data:{startIndex:startIndex,endIndex:endIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-            // #endregion
             return;
           }
           
           const actualStartIndex = Math.min(...segmentsToLoad);
           const actualEndIndex = Math.max(...segmentsToLoad);
           
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1485',message:'开始自动加载新完成的segment字幕',data:{startIndex:actualStartIndex,endIndex:actualEndIndex,segmentsToLoad:segmentsToLoad},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-          
           getCuesBySegmentRange(episodeId, actualStartIndex, actualEndIndex)
             .then((newCues) => {
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1489',message:'自动加载新segment字幕成功',data:{startIndex:startIndex,endIndex:endIndex,newCuesCount:newCues?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-              // #endregion
-              
               if (newCues && newCues.length > 0) {
                 // 使用Map根据cue.id去重
                 setCues((prevCues) => {
@@ -1656,9 +1556,16 @@ export default function SubtitleList({
                   const mergedCues = Array.from(cuesMap.values());
                   return mergedCues.sort((a, b) => a.start_time - b.start_time);
                 });
-                lastLoadedSegmentIndexRef.current = endIndex;
+                lastLoadedSegmentIndexRef.current = actualEndIndex;
                 // 从loadingSegmentsRef中移除已加载的segments
-                for (let i = startIndex; i <= endIndex; i++) {
+                for (let i = actualStartIndex; i <= actualEndIndex; i++) {
+                  loadingSegmentsRef.current.delete(i);
+                }
+              } else {
+                // 即使没有新cues，也要更新lastLoadedSegmentIndexRef，避免重复检查
+                lastLoadedSegmentIndexRef.current = actualEndIndex;
+                // 从loadingSegmentsRef中移除已加载的segments
+                for (let i = actualStartIndex; i <= actualEndIndex; i++) {
                   loadingSegmentsRef.current.delete(i);
                 }
               }
@@ -1668,9 +1575,6 @@ export default function SubtitleList({
               for (let i = actualStartIndex; i <= actualEndIndex; i++) {
                 loadingSegmentsRef.current.delete(i);
               }
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:1498',message:'自动加载新segment字幕失败',data:{startIndex:actualStartIndex,endIndex:actualEndIndex,error:error.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-              // #endregion
               console.error(`[SubtitleList] 自动加载 Segment ${actualStartIndex}-${actualEndIndex} 字幕失败:`, error);
             });
         }
@@ -2138,7 +2042,7 @@ function SubtitleListFooter({ segments, transcriptionStatus, episodeId }) {
       setNextSegmentStatus(next.status);
       setNextSegment(next);
     }
-  }, [segments]);
+  }, [segments, transcriptionStatus]);
   
   // 根据PRD d.x：如果segment识别失败且可重试，自动触发重试（最多3次）
   useEffect(() => {

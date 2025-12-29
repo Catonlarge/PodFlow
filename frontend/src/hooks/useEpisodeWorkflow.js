@@ -95,8 +95,20 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
       const timeSinceNavigate = navigateTimeRef.current ? Date.now() - navigateTimeRef.current : Infinity;
       const shouldKeepRecognizeAfterNavigate = justNavigatedRef.current && timeSinceNavigate < 2000;
 
-      // 如果完全完成
-      if (data.transcription_status === 'completed' && data.cues && data.cues.length > 0) {
+      // 获取 Segments（即使transcription_status是completed，也要获取segments以检查是否有processing的segments）
+      let currentSegments = [];
+      try {
+        currentSegments = await subtitleService.getEpisodeSegments(targetId);
+        setSegments(currentSegments || []);
+      } catch (err) {
+        setSegments([]);
+      }
+
+      // 检查是否所有segments都已完成
+      const hasProcessingSegments = currentSegments && currentSegments.length > 0 && currentSegments.some(s => s.status === 'processing' || s.status === 'pending');
+      
+      // 如果完全完成（transcription_status是completed，且所有segments都已完成，且有cues）
+      if (data.transcription_status === 'completed' && data.cues && data.cues.length > 0 && !hasProcessingSegments) {
         if (!shouldKeepRecognizeAfterNavigate) {
           setProcessingState(null);
           setProgress(0);
@@ -104,15 +116,6 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
           setIsPaused(false);
         }
         return; // 完成后直接返回，不由后续逻辑处理
-      }
-
-      // 获取 Segments
-      let currentSegments = [];
-      try {
-        currentSegments = await subtitleService.getEpisodeSegments(targetId);
-        setSegments(currentSegments || []);
-      } catch (err) {
-        setSegments([]);
       }
 
       const status = data.transcription_status;
@@ -177,9 +180,12 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
 
     // 只要不是 completed，且不是 failed (failed 由用户手动重试触发)，就持续轮询
     // 关键：防止 failed 状态下轮询导致的 UI 闪烁
+    // 另外：即使 episode.transcription_status 是 completed，如果还有 segments 处于 processing 状态，也应该继续轮询
+    const hasProcessingSegments = segments && segments.length > 0 && segments.some(s => s.status === 'processing' || s.status === 'pending');
     const shouldPoll = 
       episode.transcription_status === 'processing' || 
-      episode.transcription_status === 'pending';
+      episode.transcription_status === 'pending' ||
+      (episode.transcription_status === 'completed' && hasProcessingSegments);
 
     if (shouldPoll) {
       if (!pollIntervalRef.current) {
