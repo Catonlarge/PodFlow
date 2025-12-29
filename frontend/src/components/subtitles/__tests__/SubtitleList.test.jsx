@@ -45,7 +45,7 @@ vi.mock('../SelectionMenu', () => ({
 
 // Mock SubtitleRow
 vi.mock('../SubtitleRow', () => ({
-  default: ({ cue, showSpeaker, isHighlighted, progress, highlights, isSelected, selectionRange }) => {
+  default: ({ cue, showSpeaker, isHighlighted, progress, highlights, isSelected, selectionRange, onHighlightClick }) => {
     if (showSpeaker) {
       return <div data-testid={`speaker-${cue.speaker}`}>{cue.speaker}：</div>;
     }
@@ -59,6 +59,21 @@ vi.mock('../SubtitleRow', () => ({
         data-selection-range={selectionRange ? 'true' : 'false'}
       >
         {cue.text}
+        {highlights && highlights.map(highlight => (
+          <span
+            key={highlight.id}
+            data-highlight-id={highlight.id}
+            data-testid={`highlight-${highlight.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onHighlightClick) {
+                onHighlightClick(highlight);
+              }
+            }}
+          >
+            {highlight.highlighted_text}
+          </span>
+        ))}
       </div>
     );
   },
@@ -108,6 +123,26 @@ vi.mock('../AICard', () => ({
           </div>
         )}
         {queryText && <div data-testid="ai-card-query-text">{queryText}</div>}
+      </div>
+    );
+  },
+}));
+
+// Mock DeleteButton
+vi.mock('../DeleteButton', () => ({
+  default: ({ anchorPosition, onDelete, onClose }) => {
+    if (!anchorPosition) return null;
+    return (
+      <div data-testid="delete-button">
+        <button
+          data-testid="delete-button-icon"
+          onClick={() => {
+            if (onDelete) onDelete();
+            if (onClose) onClose();
+          }}
+        >
+          删除
+        </button>
       </div>
     );
   },
@@ -1734,6 +1769,215 @@ describe('SubtitleList', () => {
 
       // 验证加载所有已完成的segment（0-1）
       expect(getCuesBySegmentRange).toHaveBeenCalledWith(123, 0, 1);
+    });
+  });
+
+  describe('删除划线笔记功能', () => {
+    const mockHighlights = [
+      {
+        id: 1,
+        cue_id: 1,
+        start_offset: 0,
+        end_offset: 5,
+        highlighted_text: 'First',
+        color: '#9C27B0',
+        highlight_group_id: null,
+      },
+    ];
+
+    const mockNotes = [
+      {
+        id: 1,
+        highlight_id: 1,
+        content: null,
+        note_type: 'underline',
+        origin_ai_query_id: null,
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      },
+    ];
+
+    beforeEach(() => {
+      highlightService.getHighlightsByEpisode.mockResolvedValue(mockHighlights);
+      noteService.getNotesByEpisode.mockResolvedValue(mockNotes);
+      noteService.deleteNote.mockResolvedValue({ success: true });
+    });
+
+    it('应该点击 underline 类型的划线源时显示删除按钮', async () => {
+      const user = userEvent.setup();
+
+      const { container } = render(
+        <SubtitleList
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+        />
+      );
+
+      // 等待 highlights 加载完成
+      await waitFor(() => {
+        expect(highlightService.getHighlightsByEpisode).toHaveBeenCalledWith(123);
+        expect(noteService.getNotesByEpisode).toHaveBeenCalledWith(123);
+      });
+
+      // 等待 highlight 元素渲染
+      await waitFor(() => {
+        const highlightElement = container.querySelector('[data-highlight-id="1"]');
+        expect(highlightElement).toBeInTheDocument();
+      });
+
+      // 点击 highlight 元素
+      const highlightElement = container.querySelector('[data-highlight-id="1"]');
+      await user.click(highlightElement);
+
+      // 验证删除按钮显示
+      await waitFor(() => {
+        expect(screen.getByTestId('delete-button')).toBeInTheDocument();
+      });
+    });
+
+    it('应该点击非 underline 类型的划线源时调用 onHighlightClick', async () => {
+      const user = userEvent.setup();
+      const mockOnHighlightClick = vi.fn();
+
+      const mockNotesNonUnderline = [
+        {
+          id: 2,
+          highlight_id: 1,
+          content: 'Some content',
+          note_type: 'thought',
+          origin_ai_query_id: null,
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      noteService.getNotesByEpisode.mockResolvedValue(mockNotesNonUnderline);
+
+      const { container } = render(
+        <SubtitleList
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+          onHighlightClick={mockOnHighlightClick}
+        />
+      );
+
+      // 等待 highlights 加载完成
+      await waitFor(() => {
+        expect(highlightService.getHighlightsByEpisode).toHaveBeenCalledWith(123);
+      });
+
+      // 等待 highlight 元素渲染
+      await waitFor(() => {
+        const highlightElement = container.querySelector('[data-highlight-id="1"]');
+        expect(highlightElement).toBeInTheDocument();
+      });
+
+      // 点击 highlight 元素
+      const highlightElement = container.querySelector('[data-highlight-id="1"]');
+      await user.click(highlightElement);
+
+      // 验证调用 onHighlightClick，而不是显示删除按钮
+      await waitFor(() => {
+        expect(mockOnHighlightClick).toHaveBeenCalledWith(mockHighlights[0]);
+        expect(screen.queryByTestId('delete-button')).not.toBeInTheDocument();
+      });
+    });
+
+    it('应该点击删除按钮时调用 deleteNote API', async () => {
+      const user = userEvent.setup();
+      const mockOnNoteDelete = vi.fn();
+
+      const { container } = render(
+        <SubtitleList
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+          onNoteDelete={mockOnNoteDelete}
+        />
+      );
+
+      // 等待 highlights 加载完成
+      await waitFor(() => {
+        expect(highlightService.getHighlightsByEpisode).toHaveBeenCalledWith(123);
+      });
+
+      // 等待 highlight 元素渲染并点击
+      await waitFor(() => {
+        const highlightElement = container.querySelector('[data-highlight-id="1"]');
+        expect(highlightElement).toBeInTheDocument();
+      });
+
+      const highlightElement = container.querySelector('[data-highlight-id="1"]');
+      await user.click(highlightElement);
+
+      // 等待删除按钮显示
+      await waitFor(() => {
+        expect(screen.getByTestId('delete-button')).toBeInTheDocument();
+      });
+
+      // 点击删除按钮
+      const deleteButton = screen.getByTestId('delete-button-icon');
+      await user.click(deleteButton);
+
+      // 验证 API 调用
+      await waitFor(() => {
+        expect(noteService.deleteNote).toHaveBeenCalledWith(1);
+        expect(mockOnNoteDelete).toHaveBeenCalledWith(1);
+      });
+    });
+
+    it('应该在删除失败时记录错误', async () => {
+      const user = userEvent.setup();
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      noteService.deleteNote.mockRejectedValue(new Error('删除失败'));
+
+      const { container } = render(
+        <SubtitleList
+          cues={mockCues}
+          currentTime={1.0}
+          duration={20.0}
+          episodeId={123}
+        />
+      );
+
+      // 等待 highlights 加载完成
+      await waitFor(() => {
+        expect(highlightService.getHighlightsByEpisode).toHaveBeenCalledWith(123);
+      });
+
+      // 等待 highlight 元素渲染并点击
+      await waitFor(() => {
+        const highlightElement = container.querySelector('[data-highlight-id="1"]');
+        expect(highlightElement).toBeInTheDocument();
+      });
+
+      const highlightElement = container.querySelector('[data-highlight-id="1"]');
+      await user.click(highlightElement);
+
+      // 等待删除按钮显示
+      await waitFor(() => {
+        expect(screen.getByTestId('delete-button')).toBeInTheDocument();
+      });
+
+      // 点击删除按钮
+      const deleteButton = screen.getByTestId('delete-button-icon');
+      await user.click(deleteButton);
+
+      // 验证错误被记录
+      await waitFor(() => {
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('删除划线笔记失败'),
+          expect.any(Error)
+        );
+      });
+
+      consoleErrorSpy.mockRestore();
     });
   });
 });

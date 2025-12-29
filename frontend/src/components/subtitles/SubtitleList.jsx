@@ -3,6 +3,7 @@ import { Box, IconButton, Button, Skeleton, Typography, LinearProgress, Stack, S
 import { Translate as TranslateIcon, Refresh } from '@mui/icons-material';
 import SubtitleRow from './SubtitleRow';
 import SelectionMenu from './SelectionMenu';
+import DeleteButton from './DeleteButton';
 import { useSubtitleSync } from '../../hooks/useSubtitleSync';
 import { useTextSelection } from '../../hooks/useTextSelection';
 import { getMockCues, getCuesByEpisodeId, getCuesBySegmentRange, subtitleService } from '../../services/subtitleService';
@@ -37,6 +38,7 @@ import AICard from './AICard';
  * @param {string} [props.transcriptionStatus] - 转录状态（pending/processing/completed/failed），用于在识别完成后触发字幕重新加载
  * @param {Array} [props.segments] - Segment 状态数组，用于显示底部状态提示
  * @param {Function} [props.onNoteCreate] - 创建笔记成功后的回调函数 () => void
+ * @param {Function} [props.onNoteDelete] - 删除笔记成功后的回调函数 (noteId: number) => void
  * @param {number} [props.noteDeleteTrigger] - 笔记删除触发器，当值变化时触发 highlights 刷新
  */
 export default function SubtitleList({
@@ -53,6 +55,7 @@ export default function SubtitleList({
   transcriptionStatus,
   segments = [],
   onNoteCreate,
+  onNoteDelete,
   noteDeleteTrigger = 0,
 }) {
   const [cues, setCues] = useState(propsCues || []);
@@ -83,6 +86,19 @@ export default function SubtitleList({
   const isQueryingRef = useRef(false); // 防止重复调用 AI 查询
   const [aiQueryError, setAiQueryError] = useState(null);
   const [aiQueryErrorOpen, setAiQueryErrorOpen] = useState(false);
+  
+  // Notes Map 状态管理（用于快速查询笔记类型）
+  const [notesMap, setNotesMap] = useState(new Map()); // Map<highlight_id, note>
+  
+  // 删除按钮相关状态
+  const [deleteButtonState, setDeleteButtonState] = useState({
+    isVisible: false,
+    anchorPosition: null,
+    noteId: null,
+    highlightId: null,
+  });
+  const deleteButtonNoteIdRef = useRef(null); // 用于存储 noteId，避免闭包问题
+  const deleteButtonHighlightIdRef = useRef(null); // 用于存储 highlightId，避免闭包问题
   
   // 使用 props 传入的 highlights，如果没有则使用内部状态
   // 注意：如果 props 传入了 highlights，优先使用 props（父组件管理状态）
@@ -256,11 +272,15 @@ export default function SubtitleList({
 
       // 2. 为每个 Highlight 创建 Note（underline 类型）
       // 注意：如果后端 Note API 还未实现（Task 3.9），这里会失败，但不影响下划线显示
+      let createdNotes = [];
       try {
         const notePromises = highlightResponse.highlight_ids.map((highlightId) =>
           noteService.createNote(episodeId, highlightId, 'underline', null, null)
         );
-        await Promise.all(notePromises);
+        createdNotes = await Promise.all(notePromises);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:279',message:'创建Note成功，准备更新notesMap',data:{createdNotesCount:createdNotes.length,highlightIds:highlightResponse.highlight_ids},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
       } catch (noteError) {
         // Note API 可能还未实现，显示错误提示，但不影响下划线显示
         console.warn('[SubtitleList] 创建 Note 失败（可能是后端 API 未实现）:', noteError);
@@ -286,6 +306,35 @@ export default function SubtitleList({
       // 注意：如果父组件传入了 highlights prop，这里更新内部状态不会影响 props
       // 但可以确保 UI 立即更新，后续可以通过 onHighlightsChange 回调通知父组件
       setInternalHighlights((prev) => [...prev, ...newHighlights]);
+
+      // 更新 notesMap：将新创建的 notes 添加到 notesMap 中
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:304',message:'准备更新notesMap，检查createdNotes',data:{createdNotesCount:createdNotes.length,hasCreatedNotes:createdNotes.length>0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      if (createdNotes.length > 0) {
+        setNotesMap((prev) => {
+          const newMap = new Map(prev);
+          createdNotes.forEach((noteResponse, index) => {
+            const highlightId = highlightResponse.highlight_ids[index];
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:312',message:'添加note到notesMap',data:{noteId:noteResponse.id,highlightId:highlightId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            newMap.set(highlightId, {
+              id: noteResponse.id,
+              highlight_id: highlightId,
+              content: null,
+              note_type: 'underline',
+              origin_ai_query_id: null,
+              created_at: noteResponse.created_at || new Date().toISOString(),
+              updated_at: noteResponse.created_at || new Date().toISOString(),
+            });
+          });
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:324',message:'notesMap更新完成',data:{newMapSize:newMap.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          return newMap;
+        });
+      }
 
       // 4. 清除文本选择
       clearSelection();
@@ -707,6 +756,125 @@ export default function SubtitleList({
     clearSelection();
   }, [selectedText, selectionRange, affectedCues, clearSelection]);
 
+  // 处理划线点击（拦截 onHighlightClick，判断笔记类型）
+  const handleHighlightClick = useCallback((highlight) => {
+    if (!highlight || !highlight.id) {
+      console.warn('[SubtitleList] handleHighlightClick: highlight 无效', highlight);
+      return;
+    }
+
+    // 从 notesMap 中查询对应的 note
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:733',message:'handleHighlightClick被调用，查询notesMap',data:{highlightId:highlight.id,notesMapSize:notesMap.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    const note = notesMap.get(highlight.id);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:735',message:'notesMap查询结果',data:{highlightId:highlight.id,foundNote:!!note,noteType:note?.note_type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    
+    // 判断笔记类型：如果是 underline 类型，显示删除按钮
+    if (note && note.note_type === 'underline') {
+      // 计算 highlight 元素的位置
+      if (!containerRef.current) {
+        console.warn('[SubtitleList] handleHighlightClick: containerRef 无效');
+        return;
+      }
+
+      // 查找对应的 highlight 元素
+      const highlightElement = containerRef.current.querySelector(
+        `[data-highlight-id="${highlight.id}"]`
+      );
+
+      if (!highlightElement) {
+        console.warn('[SubtitleList] handleHighlightClick: 找不到 highlight 元素', highlight.id);
+        return;
+      }
+
+      // 获取元素的位置信息
+      const rect = highlightElement.getBoundingClientRect();
+      const anchorPos = {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+
+      // 显示删除按钮
+      deleteButtonNoteIdRef.current = note.id;
+      deleteButtonHighlightIdRef.current = highlight.id;
+      setDeleteButtonState({
+        isVisible: true,
+        anchorPosition: anchorPos,
+        noteId: note.id,
+        highlightId: highlight.id,
+      });
+    } else {
+      // 如果不是 underline 类型，调用原来的 onHighlightClick
+      if (onHighlightClick) {
+        onHighlightClick(highlight);
+      }
+    }
+  }, [notesMap, containerRef, onHighlightClick]);
+
+  // 处理删除划线笔记
+  const handleDeleteUnderlineNote = useCallback(async () => {
+    // 使用 ref 获取最新值，避免闭包问题
+    const noteId = deleteButtonNoteIdRef.current;
+    const highlightId = deleteButtonHighlightIdRef.current;
+    
+    if (!noteId || !episodeId) {
+      console.warn('[SubtitleList] handleDeleteUnderlineNote: 缺少必要参数', { noteId, episodeId });
+      return;
+    }
+
+    try {
+      // 调用 API 删除笔记（后端会自动删除对应的 highlight）
+      await noteService.deleteNote(noteId);
+
+      // 关闭删除按钮
+      deleteButtonNoteIdRef.current = null;
+      deleteButtonHighlightIdRef.current = null;
+      setDeleteButtonState({
+        isVisible: false,
+        anchorPosition: null,
+        noteId: null,
+        highlightId: null,
+      });
+
+      // 从 notesMap 中移除
+      setNotesMap(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(highlightId);
+        return newMap;
+      });
+
+      // 从 internalHighlights 中移除（如果使用内部状态）
+      if (!highlights || highlights.length === 0) {
+        setInternalHighlights(prev => prev.filter(h => h.id !== highlightId));
+      }
+
+      // 通知父组件刷新 highlights（通过 onNoteDelete 回调）
+      if (onNoteDelete) {
+        onNoteDelete(noteId);
+      }
+
+      console.log('[SubtitleList] 删除划线笔记成功', { noteId, highlightId });
+    } catch (error) {
+      console.error('[SubtitleList] 删除划线笔记失败:', error);
+      // 可以在这里显示错误提示
+    }
+  }, [episodeId, highlights, onNoteDelete]);
+
+  // 关闭删除按钮
+  const handleCloseDeleteButton = useCallback(() => {
+    deleteButtonNoteIdRef.current = null;
+    deleteButtonHighlightIdRef.current = null;
+    setDeleteButtonState({
+      isVisible: false,
+      anchorPosition: null,
+      noteId: null,
+      highlightId: null,
+    });
+  }, []);
+
   // 加载字幕数据
   // 优先级：propsCues > episodeId > mock 数据
   useEffect(() => {
@@ -912,6 +1080,13 @@ export default function SubtitleList({
         // 之前只保留 underline 类型的 note，导致 AI 查询和想法的划线在刷新后丢失
         return noteService.getNotesByEpisode(episodeId)
           .then((notes) => {
+            // 建立 notesMap（highlight_id -> note），用于快速查询笔记类型
+            const newNotesMap = new Map();
+            notes.forEach(note => {
+              newNotesMap.set(note.highlight_id, note);
+            });
+            setNotesMap(newNotesMap);
+            
             // 找出所有有效笔记对应的 highlight_id
             // 修改：不再仅限于 underline 类型，包含 ai_card 和 thought 类型
             // 这样刷新页面后，AI查询和想法对应的划线也能正确显示
@@ -1616,7 +1791,7 @@ export default function SubtitleList({
                 showTranslation={showTranslation}
                 progress={progress}
                 highlights={cueHighlights}
-                onHighlightClick={onHighlightClick}
+                onHighlightClick={handleHighlightClick}
                 isSelected={isSelected}
                 selectionRange={cueSelectionRange}
               />
@@ -1656,6 +1831,15 @@ export default function SubtitleList({
           onAddToNote={handleAddToNote}
           onClose={handleCloseAICard}
           queryId={aiCardState.queryId}
+        />
+      )}
+
+      {/* 删除按钮（用于 underline 类型的划线笔记） */}
+      {deleteButtonState.isVisible && deleteButtonState.anchorPosition && (
+        <DeleteButton
+          anchorPosition={deleteButtonState.anchorPosition}
+          onDelete={handleDeleteUnderlineNote}
+          onClose={handleCloseDeleteButton}
         />
       )}
 

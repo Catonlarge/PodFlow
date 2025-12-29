@@ -505,6 +505,7 @@ export default function MainLayout({
             segments={segments}
             onHighlightClick={handleHighlightClick}
             onNoteCreate={handleNoteCreate}
+            onNoteDelete={handleNoteDelete}
             noteDeleteTrigger={noteDeleteTrigger}
           />
         </Box>
