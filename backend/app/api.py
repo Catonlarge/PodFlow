@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import logging
 import re
+import json
 from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
@@ -1524,31 +1525,6 @@ async def get_notes_by_episode(
     notes = db.query(Note).filter(
         Note.episode_id == episode_id
     ).order_by(Note.created_at.asc()).all()
-    
-    # #region agent log
-    import json
-    import os
-    log_path = r'd:\programming_enviroment\learning-EnglishPod3\.cursor\debug.log'
-    try:
-        with open(log_path, 'a', encoding='utf-8') as f:
-            log_entry = {
-                'location': 'api.py:1488',
-                'message': 'get_notes_by_episode查询结果',
-                'data': {
-                    'episode_id': episode_id,
-                    'notes_count': len(notes),
-                    'note_ids': [n.id for n in notes],
-                    'notes': [{'id': n.id, 'highlight_id': n.highlight_id, 'note_type': n.note_type} for n in notes]
-                },
-                'timestamp': int(__import__('time').time() * 1000),
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'D'
-            }
-            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
-    except Exception:
-        pass
-    # #endregion
     
     # 序列化返回
     return [

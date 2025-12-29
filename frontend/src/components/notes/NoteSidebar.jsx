@@ -151,7 +151,7 @@ const NoteSidebar = forwardRef(function NoteSidebar({
     
     if (USE_MOCK_DATA) {
       // 使用mock数据
-      const displayNotes = mockNotes.filter(n => n.note_type !== 'underline');
+      const displayNotes = mockNotes.filter(n => n.note_type !== 'underline').map(n => ({ ...n, isMock: true }));
       const highlightMap = new Map(mockHighlights.map(h => [h.id, h]));
       
       setNotes(displayNotes);
@@ -226,7 +226,7 @@ const NoteSidebar = forwardRef(function NoteSidebar({
         // 注意：在测试环境中（process.env.NODE_ENV === 'test'），不使用 mock 数据
         if (displayNotes.length === 0 && highlightsData.length === 0 && process.env.NODE_ENV !== 'test') {
           console.log('[NoteSidebar] 没有真实数据，使用mock数据展示效果');
-          const mockDisplayNotes = mockNotes.filter(n => n.note_type !== 'underline');
+          const mockDisplayNotes = mockNotes.filter(n => n.note_type !== 'underline').map(n => ({ ...n, isMock: true }));
           const mockHighlightMap = new Map(mockHighlights.map(h => [h.id, h]));
           
           setNotes(mockDisplayNotes);
@@ -274,7 +274,7 @@ const NoteSidebar = forwardRef(function NoteSidebar({
           return;
         }
         
-        const mockDisplayNotes = mockNotes.filter(n => n.note_type !== 'underline');
+        const mockDisplayNotes = mockNotes.filter(n => n.note_type !== 'underline').map(n => ({ ...n, isMock: true }));
         const mockHighlightMap = new Map(mockHighlights.map(h => [h.id, h]));
         
         setNotes(mockDisplayNotes);
@@ -372,6 +372,23 @@ const NoteSidebar = forwardRef(function NoteSidebar({
   const handleDeleteNote = async (noteId) => {
     if (onNoteDelete) {
       onNoteDelete(noteId);
+    }
+    
+    // 检查删除的是否是 mock 数据
+    const noteToDelete = notes.find(n => n.id === noteId);
+    if (noteToDelete && noteToDelete.isMock) {
+      // 如果是 mock 数据，直接从状态中移除
+      const updatedNotes = notes.filter(n => n.id !== noteId);
+      setNotes(updatedNotes);
+      
+      // 如果删除后没有笔记了，自动收缩
+      if (updatedNotes.length === 0) {
+        if (externalIsExpanded === undefined) {
+          setInternalIsExpanded(false);
+        }
+        onExpandedChange?.(false);
+      }
+      return;
     }
     
     // 刷新列表（重新加载数据）

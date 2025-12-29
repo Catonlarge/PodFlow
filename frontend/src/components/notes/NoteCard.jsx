@@ -122,6 +122,15 @@ export default function NoteCard({ note, highlight, onUpdate, onDelete, onClick 
   const handleDeleteConfirm = async () => {
     if (isDeleting) return;
     
+    // 如果是 mock 数据，直接从前端移除，不调用 API
+    if (note.isMock) {
+      if (onDelete) {
+        await onDelete(note.id);
+      }
+      setDeleteModalOpen(false);
+      return;
+    }
+    
     setIsDeleting(true);
     try {
       await noteService.deleteNote(note.id);
