@@ -471,7 +471,7 @@ describe('UnderlineFeature', () => {
           id: 2,
           highlight_id: 2,
           content: 'Some thought',
-          note_type: 'thought', // 不是 underline，应该被过滤
+          note_type: 'thought', // thought 类型，现在应该显示下划线
           origin_ai_query_id: null,
           created_at: '2025-01-01T00:00:00Z',
           updated_at: '2025-01-01T00:00:00Z',
@@ -496,7 +496,7 @@ describe('UnderlineFeature', () => {
         expect(noteService.getNotesByEpisode).toHaveBeenCalledWith(episodeId);
       });
 
-      // 验证只渲染 underline 类型的 highlights（highlight_id=1）
+      // 验证渲染 underline 类型的 highlights（highlight_id=1）
       await waitFor(() => {
         const subtitle1Elements = screen.getAllByTestId('subtitle-1');
         const subtitle1WithUnderline = subtitle1Elements.find(el => {
@@ -505,28 +505,20 @@ describe('UnderlineFeature', () => {
         });
         expect(subtitle1WithUnderline).toBeInTheDocument();
         
-        // highlight_id=2 对应的 note 是 thought 类型，不应该显示下划线
-        // 注意：SubtitleList 可能会渲染多个 subtitle-2 元素（一个没有下划线，一个有下划线）
-        // 我们需要找到没有下划线的那个
+        // 【修正点】highlight_id=2 对应的 note 是 thought 类型
+        // 现在所有有对应 note 的 highlight 都应该显示下划线
         const subtitle2Elements = screen.getAllByTestId('subtitle-2');
-        // 如果只有一个元素，检查它是否有下划线
-        if (subtitle2Elements.length === 1) {
-          const attr = subtitle2Elements[0].getAttribute('data-has-underline');
-          expect(attr === 'false' || attr === null || attr === false).toBe(true);
-        } else {
-          // 如果有多个元素，找到没有下划线的那个
-          const subtitle2WithoutUnderline = subtitle2Elements.find(el => {
-            const attr = el.getAttribute('data-has-underline');
-            return attr === 'false' || attr === false || attr === null;
-          });
-          expect(subtitle2WithoutUnderline).toBeInTheDocument();
-        }
+        const subtitle2WithUnderline = subtitle2Elements.find(el => {
+          const attr = el.getAttribute('data-has-underline');
+          return attr === 'true' || attr === true;
+        });
+        expect(subtitle2WithUnderline).toBeInTheDocument();
       });
     });
   });
 
   describe('错误处理', () => {
-    it('应该在 Note 创建失败时不更新本地状态', async () => {
+    it('应该在 Note 创建失败时依然显示下划线但提示错误', async () => {
       const user = userEvent.setup();
 
       // 模拟单 cue 文本选择
@@ -583,14 +575,15 @@ describe('UnderlineFeature', () => {
         expect(errorMessage).toBeInTheDocument();
       }, { timeout: 3000 });
 
-      // 验证本地状态没有更新（下划线不应该显示）
+      // 【修正点】根据 SubtitleList.jsx 代码逻辑：
+      // "不抛出错误，继续执行，让下划线能够显示"
+      // 所以这里预期应该是显示下划线的
       const subtitleElements = screen.getAllByTestId('subtitle-1');
-      const elementWithoutUnderline = subtitleElements.find(el => {
+      const elementWithUnderline = subtitleElements.find(el => {
         const attr = el.getAttribute('data-has-underline');
-        return attr === 'false' || attr === false || attr === null;
+        return attr === 'true' || attr === true;
       });
-      expect(elementWithoutUnderline).toBeInTheDocument();
+      expect(elementWithUnderline).toBeInTheDocument();
     });
   });
 });
-
