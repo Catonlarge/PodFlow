@@ -24,6 +24,7 @@ psutil>=5.9.0
 
 # AI 服务
 google-genai>=0.2.0
+openai>=1.0.0  # 用于 MOONSHOT API (Kimi)
 
 # 音频处理
 # 注意：需要系统安装 FFmpeg（ffprobe 用于获取音频时长）
