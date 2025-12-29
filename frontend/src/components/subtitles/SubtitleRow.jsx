@@ -1,39 +1,13 @@
 import React, { memo, forwardRef, useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Box, Typography } from '@mui/material';
+import { useTheme } from '@mui/material/styles'; // 引入 hook 获取主题变量
 import { formatTime } from '../../utils/timeUtils';
 
 /**
- * SubtitleRow 组件
- * 
- * 单行字幕组件，显示字幕内容、时间标签、speaker 标签
- * 
- * 功能描述：
- * - 显示单行字幕内容
- * - 根据 useSubtitleSync 返回的状态改变背景色，实现选中效果
- * - 必须独立拆分以配合 React.memo 优化渲染性能（字幕列表可能有1000+行）
- * 
- * 性能优化：
- * - 使用 React.memo 避免不必要的重渲染
- * - 根据 useSubtitleSync 状态改变背景色，实现"隐形"的划线效果
- * 
- * 相关PRD：
- * - PRD 6.2.4.1: 英文字幕区域
- * 
- * @module components/subtitles/SubtitleRow
- * 
- * @param {Object} props
- * @param {Object} props.cue - 字幕数据 { id, start_time, end_time, speaker, text, translation? }
- * @param {number} props.index - 字幕索引（用于排序）
- * @param {boolean} props.isHighlighted - 是否高亮（当前播放）
- * @param {boolean} props.isPast - 是否已播放过
- * @param {Function} [props.onClick] - 点击回调函数 (startTime) => void
- * @param {boolean} [props.showSpeaker] - 是否显示 speaker 标签
- * @param {boolean} [props.showTranslation] - 是否显示翻译
- * @param {number} [props.progress] - 单词高亮进度（0-1 之间的小数，用于单词级高亮）
- * @param {Array} [props.highlights] - 当前 cue 的划线数据数组
- * @param {Function} [props.onHighlightClick] - 点击划线源的回调函数 (highlight) => void
- * @param {boolean} [props.isSelected] - 当前 cue 是否被选中（用于文本选择视觉反馈）
- * @param {Object|null} [props.selectionRange] - 选择范围信息 { cue, startOffset, endOffset, selectedText }
+ * SubtitleRow 组件 (极致性能 + 主题适配版)
+ * * 修改要点：
+ * 1. 【性能】使用原生 div/span + 内联 style，彻底解决 Emotion 引擎在高频刷新下的性能瓶颈。
+ * 2. 【逻辑】完整保留所有业务逻辑（拖拽、点击跳转、划线点击、单词高亮）。
+ * 3. 【主题】使用 useTheme() 获取颜色，确保支持 Dark Mode 和全局主题色。
  */
 const SubtitleRow = forwardRef(function SubtitleRow({
   cue,
@@ -48,525 +22,405 @@ const SubtitleRow = forwardRef(function SubtitleRow({
   isSelected = false,
   selectionRange = null,
 }, ref) {
+  const theme = useTheme(); // 获取当前主题变量
   const [isHovered, setIsHovered] = useState(false);
   
-  // 用于区分点击和拖拽选择
+  // 提取主题色，避免在渲染循环中重复查找，提升性能
+  // 这样既保留了原生标签的高性能，又不会丢失 MUI 的主题能力
+  const colors = useMemo(() => ({
+    primaryMain: theme.palette.primary.main,
+    textSecondary: theme.palette.text.secondary,
+    textPrimary: theme.palette.text.primary,
+    textDisabled: theme.palette.text.disabled,
+    actionSelected: theme.palette.action.selected,
+    actionHover: theme.palette.action.hover,
+    bgDefault: theme.palette.background.default,
+    divider: theme.palette.divider,
+  }), [theme]);
+
+  // --- 业务逻辑：区分点击和拖拽 ---
   const mouseDownPositionRef = useRef(null);
   const isDraggingRef = useRef(false);
 
-  // 当字幕失去高亮时，清除 hover 状态，避免灰色背景残留
-  // 使用 ref 来避免在 effect 中同步调用 setState
+  // --- 业务逻辑：高亮状态管理 ---
   const prevIsHighlightedRef = useRef(isHighlighted);
-  
   useEffect(() => {
     if (!isHighlighted && prevIsHighlightedRef.current && isHovered) {
-      // 使用 setTimeout 将 setState 调用推迟到下一个事件循环
-      setTimeout(() => {
-        setIsHovered(false);
-      }, 0);
+      setTimeout(() => setIsHovered(false), 0);
     }
     prevIsHighlightedRef.current = isHighlighted;
   }, [isHighlighted, isHovered]);
 
-  // 将句子拆分为单词数组（使用 useMemo 避免每次渲染都 split）
+  // --- 业务逻辑：单词拆分 ---
   const words = useMemo(() => {
     if (!cue || !cue.text) return [];
     return cue.text.split(' ');
   }, [cue]);
 
-  // 计算当前应该高亮到第几个单词
-  // 假设匀速：总单词数 * 进度百分比 = 当前高亮单词的索引
   const activeWordIndex = Math.floor(words.length * progress);
 
-  /**
-   * 渲染带下划线的文本片段
-   * 根据 highlights 数组，在文本对应位置渲染紫色下划线
-   * 同时支持单词级高亮和选择状态高亮
-   */
-  const renderTextParts = useMemo(() => {
-    if (!cue || !cue.text) {
-      return [];
-    }
-
-    // 如果没有 highlights 和选择范围，返回单个文本片段
-    if ((!highlights || highlights.length === 0) && !selectionRange) {
-      return [{
-        type: 'text',
-        content: cue.text,
-        startCharIndex: 0,
-        endCharIndex: cue.text.length,
-      }];
-    }
-
-    // 合并 highlights 和选择范围，统一处理
-    const allRanges = [];
+  // --- 业务逻辑：Token 预处理 ---
+  const tokenizeContent = useCallback((content, startWordIndex) => {
+    const tokens = [];
+    let currentIndex = 0;
+    const wordRegex = /\S+/g;
+    let match;
+    let localWordIndex = 0;
     
-    // 添加 highlights
+    while ((match = wordRegex.exec(content)) !== null) {
+      if (match.index > currentIndex) {
+        tokens.push({
+          type: 'space',
+          content: content.substring(currentIndex, match.index),
+          key: `sp-${currentIndex}`
+        });
+      }
+      tokens.push({
+        type: 'word',
+        content: match[0],
+        wordIndex: localWordIndex,
+        globalWordIndex: startWordIndex + localWordIndex,
+        key: `wd-${localWordIndex}`
+      });
+      localWordIndex++;
+      currentIndex = match.index + match[0].length;
+    }
+    if (currentIndex < content.length) {
+      tokens.push({
+        type: 'space',
+        content: content.substring(currentIndex),
+        key: `sp-end`
+      });
+    }
+    return tokens;
+  }, []);
+
+  const getWordRangeForTextPart = useCallback((partStartCharIndex, partContent) => {
+    if (!cue || !cue.text) return { startWordIndex: 0 };
+    const textBeforePart = cue.text.substring(0, partStartCharIndex);
+    const wordsBefore = textBeforePart.split(' ').filter(w => w.length > 0);
+    return { startWordIndex: wordsBefore.length };
+  }, [cue]);
+
+  // --- 业务逻辑：渲染片段预计算 (Memoized) ---
+  const processedRenderParts = useMemo(() => {
+    if (!cue || !cue.text) return [];
+
+    const allRanges = [];
     if (highlights && highlights.length > 0) {
-      highlights.forEach((highlight) => {
+      highlights.forEach((h) => {
         allRanges.push({
           type: 'highlight',
-          start_offset: highlight.start_offset,
-          end_offset: highlight.end_offset,
-          highlighted_text: highlight.highlighted_text,
-          color: highlight.color || '#9C27B0',
-          id: highlight.id,
+          start: h.start_offset,
+          end: h.end_offset,
+          data: h,
+          color: h.color || '#9C27B0'
         });
       });
     }
-    
-    // 添加选择范围（如果存在）
     if (selectionRange) {
       allRanges.push({
         type: 'selection',
-        start_offset: selectionRange.startOffset,
-        end_offset: selectionRange.endOffset,
-        selectedText: selectionRange.selectedText,
+        start: selectionRange.startOffset,
+        end: selectionRange.endOffset,
+        data: selectionRange
       });
     }
     
-    // 按 start_offset 排序所有范围
-    const sortedRanges = allRanges.sort((a, b) => a.start_offset - b.start_offset);
-    
-    // 过滤重叠的范围（PRD 要求：禁止重叠划线）
-    // 如果两个范围重叠，只保留第一个（按 start_offset 排序后的第一个）
+    const sortedRanges = allRanges.sort((a, b) => a.start - b.start);
     const nonOverlappingRanges = [];
     let lastEndIndex = -1;
     
     sortedRanges.forEach((range) => {
-      const { start_offset, end_offset } = range;
-      
-      // 检查是否与已处理的范围重叠
-      if (start_offset >= lastEndIndex) {
-        // 不重叠，添加到列表
+      if (range.start >= lastEndIndex) {
         nonOverlappingRanges.push(range);
-        lastEndIndex = Math.max(lastEndIndex, end_offset);
+        lastEndIndex = Math.max(lastEndIndex, range.end);
       }
-      // 如果重叠，跳过这个范围（符合 PRD "禁止重叠划线" 的要求）
     });
-    
-    const parts = [];
-    let lastIndex = 0;
 
-    nonOverlappingRanges.forEach((range) => {
-      const { start_offset, end_offset, type } = range;
-      
-      // 添加范围前的文本
-      if (start_offset > lastIndex) {
+    const parts = [];
+    let cursor = 0;
+
+    nonOverlappingRanges.forEach((range, i) => {
+      if (range.start > cursor) {
+        const textContent = cue.text.substring(cursor, range.start);
+        const { startWordIndex } = getWordRangeForTextPart(cursor, textContent);
         parts.push({
           type: 'text',
-          content: cue.text.substring(lastIndex, start_offset),
-          startCharIndex: lastIndex,
-          endCharIndex: start_offset,
+          content: textContent,
+          tokens: tokenizeContent(textContent, startWordIndex),
+          key: `text-pre-${i}`
         });
       }
 
-      // 添加范围文本（highlight 或 selection）
-      if (type === 'highlight') {
+      const rangeContent = cue.text.substring(range.start, range.end);
+      if (range.type === 'highlight') {
+        const { startWordIndex } = getWordRangeForTextPart(range.start, rangeContent);
         parts.push({
           type: 'highlight',
-          content: range.highlighted_text || cue.text.substring(start_offset, end_offset),
+          content: rangeContent,
+          tokens: tokenizeContent(rangeContent, startWordIndex),
+          highlightId: range.data.id,
           color: range.color,
-          highlightId: range.id,
-          startCharIndex: start_offset,
-          endCharIndex: end_offset,
+          key: `hl-${range.data.id}-${i}`
         });
-      } else if (type === 'selection') {
-        // 对于选择范围，直接使用原始文本内容，不使用 trim 后的 selectedText
-        // 这样可以确保所有选中的单词都被正确高亮
+      } else if (range.type === 'selection') {
         parts.push({
           type: 'selection',
-          content: cue.text.substring(start_offset, end_offset),
-          startCharIndex: start_offset,
-          endCharIndex: end_offset,
+          content: rangeContent,
+          key: `sel-${i}`
         });
       }
-
-      lastIndex = end_offset;
+      cursor = range.end;
     });
 
-    // 添加剩余的文本
-    if (lastIndex < cue.text.length) {
+    if (cursor < cue.text.length) {
+      const textContent = cue.text.substring(cursor);
+      const { startWordIndex } = getWordRangeForTextPart(cursor, textContent);
       parts.push({
         type: 'text',
-        content: cue.text.substring(lastIndex),
-        startCharIndex: lastIndex,
-        endCharIndex: cue.text.length,
+        content: textContent,
+        tokens: tokenizeContent(textContent, startWordIndex),
+        key: `text-end`
       });
     }
 
     return parts;
-  }, [cue, highlights, selectionRange]);
+  }, [cue, highlights, selectionRange, getWordRangeForTextPart, tokenizeContent]);
 
-  /**
-   * 计算文本片段在整个句子中的单词范围
-   */
-  const getWordRangeForTextPart = useCallback((part) => {
-    if (!cue || !cue.text) return { startWordIndex: 0, endWordIndex: 0 };
-    
-    // 计算片段开始位置之前的单词数
-    const textBeforePart = cue.text.substring(0, part.startCharIndex);
-    const wordsBefore = textBeforePart.split(' ').filter(w => w.length > 0);
-    const startWordIndex = wordsBefore.length;
-    
-    // 计算片段内的单词数
-    const wordsInPart = part.content.split(' ').filter(w => w.length > 0);
-    const endWordIndex = startWordIndex + wordsInPart.length;
-    
-    return { startWordIndex, endWordIndex };
-  }, [cue]);
+  if (!cue) return null;
 
-  if (!cue) {
-    return null;
-  }
-
-  // 处理鼠标按下事件
+  // --- 事件处理函数 (保持不变) ---
   const handleMouseDown = useCallback((e) => {
-    // 记录鼠标按下位置
-    mouseDownPositionRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-    };
+    mouseDownPositionRef.current = { x: e.clientX, y: e.clientY };
     isDraggingRef.current = false;
   }, []);
 
-  // 处理鼠标移动事件（用于检测拖拽）
   const handleMouseMove = useCallback((e) => {
     if (mouseDownPositionRef.current) {
       const deltaX = Math.abs(e.clientX - mouseDownPositionRef.current.x);
       const deltaY = Math.abs(e.clientY - mouseDownPositionRef.current.y);
-      // 如果移动距离超过5px，认为是拖拽
-      if (deltaX > 5 || deltaY > 5) {
-        isDraggingRef.current = true;
-      }
+      if (deltaX > 5 || deltaY > 5) isDraggingRef.current = true;
     }
   }, []);
 
-  // 处理鼠标抬起事件
   const handleMouseUp = useCallback((e) => {
     if (mouseDownPositionRef.current) {
       const deltaX = Math.abs(e.clientX - mouseDownPositionRef.current.x);
       const deltaY = Math.abs(e.clientY - mouseDownPositionRef.current.y);
       const isClick = deltaX <= 5 && deltaY <= 5 && !isDraggingRef.current;
       
-      // 如果是点击（没有拖拽），且没有文本被选中，则触发音频定位
       if (isClick && !window.getSelection()?.toString().trim()) {
-        if (onClick) {
-          onClick(cue.start_time);
-        }
+        if (onClick) onClick(cue.start_time);
       }
-      
-      // 重置状态
       mouseDownPositionRef.current = null;
       isDraggingRef.current = false;
     }
   }, [onClick, cue.start_time]);
 
-  const handleMouseEnter = () => {
-    // 只有在非高亮状态下才设置 hover
-    if (!isHighlighted) {
-      setIsHovered(true);
-    }
-  };
+  // --- 渲染部分 ---
 
-  const handleMouseLeave = () => {
-    setIsHovered(false);
-  };
-
-  // Speaker 标签行（单独一行，无时间标签）
   if (showSpeaker) {
+    // Speaker 也可以用原生 div 优化，虽然它更新不频繁，为了统一风格也改了
     return (
-      <Box
-        sx={{
-          py: 3,
-          px: 1,
-        }}
-      >
-        <Typography
-          variant="body1"
-          sx={{
-            fontSize: '15px',
-            color: 'text.secondary',
-            fontWeight: 500,
-          }}
-        >
+      <div style={{ padding: '24px 8px' }}>
+        <span style={{ 
+          fontSize: '15px', 
+          color: colors.textSecondary, 
+          fontWeight: 500,
+          fontFamily: theme.typography.fontFamily // 使用主题字体
+        }}>
           {cue.speaker}：
-        </Typography>
-      </Box>
+        </span>
+      </div>
     );
   }
 
-  // 字幕行
-  // 根据高亮状态、hover 状态和选择状态确定背景色
-  // 优先级：选中状态 > 高亮状态 > hover 状态
-  const backgroundColor = isSelected
-    ? 'action.selected'
-    : isHighlighted 
-      ? 'background.default' 
-      : isHovered 
-        ? 'action.hover' 
-        : 'background.default';
+  // 动态计算背景色和边框
+  const backgroundColor = isSelected ? colors.actionSelected
+    : isHighlighted ? colors.bgDefault
+    : isHovered ? colors.actionHover
+    : colors.bgDefault;
+
+  const borderColor = isHighlighted ? colors.primaryMain : 'transparent';
+
+  // 通用的文本样式
+  const commonTextStyle = {
+    fontFamily: theme.typography.fontFamily, // 继承全局字体
+    fontSize: '1rem',
+    lineHeight: 1.5
+  };
 
   return (
-    <Box
+    <div
       ref={ref}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      sx={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        px: 1,
-        py: 3,
-        mb: 0,
-        cursor: 'pointer',
-        backgroundColor: backgroundColor,
-        border: isHighlighted ? '2px solid' : '2px solid transparent',
-        borderColor: isHighlighted ? 'primary.main' : 'transparent',
-        borderRadius: 1,
-        transition: 'background-color 0.2s ease-in-out, border-color 0.2s ease-in-out', // 移除 width 和 max-width 的过渡，避免与父容器宽度变化冲突
-        boxSizing: 'border-box',
-        maxWidth: '100%',
-        width: '100%',
-        overflow: 'hidden', // 防止内容超出容器
-      }}
+      onMouseEnter={() => !isHighlighted && setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       data-subtitle-id={cue.id}
       data-subtitle-index={index}
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        padding: '24px 8px',
+        marginBottom: 0,
+        cursor: 'pointer',
+        backgroundColor: backgroundColor,
+        border: `2px solid ${borderColor}`,
+        borderRadius: '4px', // theme.shape.borderRadius 通常是 4px
+        transition: 'background-color 0.2s ease-in-out, border-color 0.2s ease-in-out',
+        width: '100%',
+        overflow: 'hidden',
+        boxSizing: 'border-box'
+      }}
     >
       {/* 时间标签 */}
-      <Typography
-        variant="body2"
-        sx={{
+      <span
+        style={{
+          ...commonTextStyle,
           fontSize: '15px',
-          color: isHighlighted ? 'primary.main' : 'text.secondary',
+          color: isHighlighted ? colors.primaryMain : colors.textSecondary,
           fontWeight: isHighlighted ? 600 : 400,
           minWidth: '60px',
-          mr: 1.25, // 10px
+          marginRight: '10px',
           flexShrink: 0,
         }}
       >
         {formatTime(cue.start_time)}
-      </Typography>
+      </span>
 
-      {/* 字幕文本容器 */}
-      <Box
-        sx={{
+      {/* 文本容器 */}
+      <div
+        style={{
           flex: 1,
-          minWidth: 0, // 关键：防止 flex 子元素超出容器（flex 布局的常见问题）
+          minWidth: 0,
           display: 'flex',
           flexDirection: 'column',
-          gap: showTranslation && cue.translation ? 1 : 0, // 8px gap when translation is shown
-          overflow: 'hidden', // 防止内容超出
-          // 移除 flex transition，避免在父容器宽度变化时产生延迟
+          gap: (showTranslation && cue.translation) ? '8px' : 0,
+          overflow: 'hidden'
         }}
       >
-        {/* 英文字幕文本（支持单词级高亮和下划线） */}
-        <Typography
-          variant="body1"
-          component="div"
-          sx={{
-            fontSize: '1rem',
+        <div
+          style={{
+            ...commonTextStyle,
             fontWeight: isHighlighted ? 500 : 400,
-            lineHeight: 1.5,
-            wordWrap: 'break-word', // 确保长单词可以换行
-            overflowWrap: 'break-word', // 现代浏览器的换行属性
-            maxWidth: '100%', // 确保不超出容器
+            wordWrap: 'break-word',
+            overflowWrap: 'break-word',
+            maxWidth: '100%',
+            color: colors.textPrimary
           }}
         >
-          {renderTextParts.map((part, partIndex) => {
-            
+          {processedRenderParts.map((part) => {
+            // 1. 划线部分
             if (part.type === 'highlight') {
-              // 划线文本：显示下划线，同时支持单词级高亮
-              // 关键：保留所有空格，同时支持单词级高亮
-              const originalContent = part.content;
-              const { startWordIndex } = getWordRangeForTextPart(part);
-              
-              // 将文本按单词和空格拆分，保留所有空格
-              // 使用正则表达式匹配单词和空格，保留所有字符
-              const tokens = [];
-              let currentIndex = 0;
-              const wordRegex = /\S+/g; // 匹配非空白字符（单词）
-              let match;
-              
-              while ((match = wordRegex.exec(originalContent)) !== null) {
-                // 添加单词前的空格
-                if (match.index > currentIndex) {
-                  tokens.push({
-                    type: 'space',
-                    content: originalContent.substring(currentIndex, match.index),
-                  });
-                }
-                // 添加单词
-                tokens.push({
-                  type: 'word',
-                  content: match[0],
-                  wordIndex: tokens.filter(t => t.type === 'word').length,
-                });
-                currentIndex = match.index + match[0].length;
-              }
-              // 添加最后的空格
-              if (currentIndex < originalContent.length) {
-                tokens.push({
-                  type: 'space',
-                  content: originalContent.substring(currentIndex),
-                });
-              }
-              
               return (
-                <React.Fragment key={`highlight-${part.highlightId}-${partIndex}`}>
-                  <Box
-                    component="span"
-                    data-highlight-id={part.highlightId}
-                    onMouseDown={(e) => {
-                      // 阻止 mousedown 事件冒泡，防止触发外层的拖拽检测
-                      e.stopPropagation();
-                    }}
-                    onMouseUp={(e) => {
-                      // 阻止 mouseup 事件冒泡，防止触发外层的音频播放
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => {
-                      // 阻止 click 事件冒泡
-                      e.stopPropagation();
-                      if (onHighlightClick) {
-                        const highlight = highlights.find(h => h.id === part.highlightId);
-                        if (highlight) {
-                          onHighlightClick(highlight);
-                        }
-                      }
-                    }}
-                    sx={{
-                      textDecoration: 'underline',
-                      color: part.color,
-                      cursor: onHighlightClick ? 'pointer' : 'default',
-                      '&:hover': onHighlightClick ? {
-                        backgroundColor: 'action.hover',
-                      } : {},
-                      display: 'inline',
-                      whiteSpace: 'pre-wrap', // 保留空格和换行
-                    }}
-                  >
-                    {tokens.map((token, tokenIndex) => {
-                      if (token.type === 'space') {
-                        // 空格：直接渲染，保留所有空格
-                        return (
-                          <React.Fragment key={`space-${partIndex}-${tokenIndex}`}>
-                            {token.content}
-                          </React.Fragment>
-                        );
-                      } else {
-                        // 单词：支持单词级高亮
-                        const globalWordIndex = startWordIndex + token.wordIndex;
-                        const isWordActive = globalWordIndex < activeWordIndex || progress === 1;
-                        
-                        return (
-                          <Box
-                            key={`word-${partIndex}-${tokenIndex}`}
-                            component="span"
-                            sx={{
-                              color: isWordActive ? part.color : `${part.color}80`, // 未播放时降低透明度
-                              transition: 'color 0.1s linear',
-                              display: 'inline',
-                            }}
-                          >
-                            {token.content}
-                          </Box>
-                        );
-                      }
-                    })}
-                  </Box>
-                </React.Fragment>
-              );
-            } else if (part.type === 'selection') {
-              // 选中文本：显示背景色高亮（用于文本选择视觉反馈）
-              // 直接使用原始文本内容，完全保留所有空格（包括多个连续空格）
-              const originalContent = part.content;
-              
-              return (
-                <React.Fragment key={`selection-${partIndex}`}>
-                  <Box
-                    component="span"
-                    sx={{
-                      backgroundColor: 'action.selected',
-                      color: 'text.primary',
-                      display: 'inline',
-                      whiteSpace: 'pre-wrap', // 保留空格和换行
-                    }}
-                  >
-                    {originalContent}
-                  </Box>
-                </React.Fragment>
-              );
-            } else {
-              // 普通文本：只支持单词级高亮
-              // 对于普通文本，直接使用原始内容，保留原始空格
-              const { startWordIndex } = getWordRangeForTextPart(part);
-              // 使用原始内容，但需要拆分单词用于高亮
-              // 保留原始空格：如果 content 开头或结尾有空格，需要保留
-              const leadingSpace = part.content.match(/^\s*/)?.[0] || '';
-              const trailingSpace = part.content.match(/\s*$/)?.[0] || '';
-              const trimmedContent = part.content.trim();
-              const textWords = trimmedContent.split(/\s+/).filter(w => w.length > 0);
-              
-              return (
-                <React.Fragment key={`text-${partIndex}`}>
-                  {leadingSpace}
-                  {textWords.map((word, wordIndex) => {
-                    const globalWordIndex = startWordIndex + wordIndex;
-                    const isWordActive = globalWordIndex < activeWordIndex || progress === 1;
-                    const isLastWord = wordIndex === textWords.length - 1;
+                <span
+                  key={part.key}
+                  data-highlight-id={part.highlightId}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onMouseUp={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onHighlightClick) {
+                      const highlight = highlights.find(h => h.id === part.highlightId);
+                      if (highlight) onHighlightClick(highlight);
+                    }
+                  }}
+                  style={{
+                    textDecoration: 'underline',
+                    color: part.color,
+                    cursor: onHighlightClick ? 'pointer' : 'default',
+                    display: 'inline',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {part.tokens.map((token) => {
+                    if (token.type === 'space') return <span key={token.key}>{token.content}</span>;
                     
+                    const isWordActive = token.globalWordIndex < activeWordIndex || progress === 1;
                     return (
-                      <React.Fragment key={`word-${partIndex}-${wordIndex}`}>
-                        <Box
-                          component="span"
-                          sx={{
-                            color: isWordActive ? 'text.primary' : 'text.disabled',
-                            transition: 'color 0.1s linear',
-                            display: 'inline',
-                          }}
-                        >
-                          {word}
-                        </Box>
-                        {!isLastWord && ' '}
-                      </React.Fragment>
+                      <span
+                        key={token.key}
+                        style={{
+                          color: isWordActive ? part.color : `${part.color}80`, // 透明度处理
+                          transition: 'color 0.1s linear',
+                          display: 'inline'
+                        }}
+                      >
+                        {token.content}
+                      </span>
                     );
                   })}
-                  {trailingSpace}
+                </span>
+              );
+            } 
+            // 2. 选中部分
+            else if (part.type === 'selection') {
+              return (
+                <span
+                  key={part.key}
+                  style={{
+                    backgroundColor: colors.actionSelected,
+                    color: colors.textPrimary,
+                    display: 'inline',
+                    whiteSpace: 'pre-wrap'
+                  }}
+                >
+                  {part.content}
+                </span>
+              );
+            } 
+            // 3. 普通文本
+            else {
+              return (
+                <React.Fragment key={part.key}>
+                  {part.tokens.map((token) => {
+                    if (token.type === 'space') return <span key={token.key}>{token.content}</span>;
+                    
+                    const isWordActive = token.globalWordIndex < activeWordIndex || progress === 1;
+                    return (
+                      <span
+                        key={token.key}
+                        style={{
+                          color: isWordActive ? colors.textPrimary : colors.textDisabled,
+                          transition: 'color 0.1s linear',
+                          display: 'inline'
+                        }}
+                      >
+                        {token.content}
+                      </span>
+                    );
+                  })}
                 </React.Fragment>
               );
             }
           })}
-        </Typography>
+        </div>
 
-        {/* 中文翻译（根据 PRD 6.2.4.a.ii：左对齐，行距8px） */}
+        {/* 翻译 */}
         {showTranslation && cue.translation && (
-          <Typography
-            variant="body2"
-            component="div"
-            sx={{
+          <div
+            style={{
+              ...commonTextStyle,
               fontSize: '15px',
-              color: 'text.secondary',
+              color: colors.textSecondary,
               fontWeight: 400,
-              lineHeight: 1.5,
               whiteSpace: 'normal',
-              wordWrap: 'break-word',
+              wordWrap: 'break-word'
             }}
           >
             {cue.translation}
-          </Typography>
+          </div>
         )}
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 });
 
-// 使用 React.memo 优化性能，仅在关键 props 变化时重渲染
-// 注意：如果返回 true，表示 props 相等，跳过渲染；返回 false，表示 props 不相等，需要渲染
+// Memo 比较逻辑，保持完全一致
 export default memo(SubtitleRow, (prevProps, nextProps) => {
-  // 如果关键属性改变，必须重新渲染
   if (
     prevProps.cue?.id !== nextProps.cue?.id ||
     prevProps.isHighlighted !== nextProps.isHighlighted ||
@@ -577,57 +431,32 @@ export default memo(SubtitleRow, (prevProps, nextProps) => {
     prevProps.cue?.translation !== nextProps.cue?.translation ||
     prevProps.cue?.start_time !== nextProps.cue?.start_time ||
     prevProps.cue?.speaker !== nextProps.cue?.speaker
-  ) {
-    return false; // 需要重新渲染
-  }
+  ) return false;
 
-  // progress 变化时，需要重渲染（用于单词级高亮）
-  if (prevProps.progress !== nextProps.progress) {
-    return false; // 需要重新渲染
-  }
-
-  // highlights 变化时，需要重渲染
-  if (prevProps.highlights?.length !== nextProps.highlights?.length) {
-    return false; // 需要重新渲染
-  }
+  if (prevProps.progress !== nextProps.progress) return false;
+  if (prevProps.highlights?.length !== nextProps.highlights?.length) return false;
   
-  // 检查 highlights 内容是否变化
   if (prevProps.highlights && nextProps.highlights) {
     const highlightsChanged = prevProps.highlights.some((prevH, index) => {
       const nextH = nextProps.highlights[index];
-      return !nextH || 
-        prevH.id !== nextH.id ||
-        prevH.start_offset !== nextH.start_offset ||
-        prevH.end_offset !== nextH.end_offset ||
-        prevH.color !== nextH.color;
+      return !nextH || prevH.id !== nextH.id || prevH.start_offset !== nextH.start_offset || prevH.end_offset !== nextH.end_offset || prevH.color !== nextH.color;
     });
-    if (highlightsChanged) {
-      return false; // 需要重新渲染
-    }
+    if (highlightsChanged) return false;
   }
 
-  // 选择状态变化时，需要重渲染
-  if (prevProps.isSelected !== nextProps.isSelected) {
-    return false; // 需要重新渲染
-  }
+  if (prevProps.isSelected !== nextProps.isSelected) return false;
 
-  // 选择范围变化时，需要重渲染
   if (prevProps.selectionRange !== nextProps.selectionRange) {
     if (prevProps.selectionRange && nextProps.selectionRange) {
-      // 检查选择范围内容是否变化
       if (
         prevProps.selectionRange.startOffset !== nextProps.selectionRange.startOffset ||
         prevProps.selectionRange.endOffset !== nextProps.selectionRange.endOffset ||
         prevProps.selectionRange.selectedText !== nextProps.selectionRange.selectedText
-      ) {
-        return false; // 需要重新渲染
-      }
+      ) return false;
     } else {
-      // 一个为 null，另一个不为 null，需要重渲染
       return false;
     }
   }
 
-  // 其他情况，跳过渲染
   return true;
 });
