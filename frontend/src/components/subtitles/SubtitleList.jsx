@@ -1976,14 +1976,8 @@ export default function SubtitleList({
                 >
                   <SubtitleRow
                     ref={(element) => {
-                      // 测量元素高度（使用外层 Box 的高度）
+                      // 注册 ref（虚拟化器会自动测量元素高度，无需手动调用 measureElement）
                       if (element) {
-                        const parentElement = element.closest('[data-index]');
-                        if (parentElement) {
-                          // 使用 virtualizer 的 measureElement 方法手动触发测量
-                          virtualizer.measureElement(parentElement);
-                        }
-                        // 注册 ref
                         createSubtitleRef(item.index)(element);
                       }
                     }}

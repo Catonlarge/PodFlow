@@ -4,20 +4,22 @@
 
 ---
 
-## [2025-01-XX] [Fix] - 修复 SubtitleList 中 virtualItem.measureElement 错误
+## [2025-01-XX] [Fix] - 修复 SubtitleList 虚拟滚动中的 flushSync 错误
 
 **问题描述**：
-- `SubtitleList.jsx:1978` 报错：`virtualItem.measureElement is not a function`
-- 代码错误地尝试在 `virtualItem` 对象上调用 `measureElement` 方法
+- `SubtitleList.jsx:1902` 报错：`flushSync was called from inside a lifecycle method`
+- 在 ref 回调中手动调用 `virtualizer.measureElement()` 导致在 React 渲染期间触发状态更新
+- 虚拟化器内部的状态更新试图同步刷新，但 React 不允许在渲染期间调用 `flushSync`
 
 **修复内容**：
-- **SubtitleList.jsx**：将 `virtualItem.measureElement(parentElement)` 改为 `virtualizer.measureElement(parentElement)`
-- `measureElement` 方法应该从 `virtualizer` 对象调用，而不是从 `virtualItem` 对象
+- **SubtitleList.jsx**：移除 ref 回调中的手动 `measureElement` 调用
+- 虚拟化器已配置自动测量（通过 `measureElement` 选项），无需手动触发
+- 让虚拟化器自动处理元素测量，避免在渲染期间触发状态更新
 
 **技术要点**：
-- `@tanstack/react-virtual` 的 API 中，`virtualItem` 对象不包含 `measureElement` 方法
-- 手动触发元素测量应使用 `virtualizer.measureElement(element)`
-- 虚拟化器已配置自动测量，手动调用主要用于元素内容变化导致高度变化的情况
+- `@tanstack/react-virtual` 的虚拟化器会自动测量渲染的元素
+- 在 ref 回调中调用 `measureElement` 会在渲染期间触发状态更新，导致 `flushSync` 错误
+- 如果将来需要处理动态高度变化，应在 `useEffect` 或 `useLayoutEffect` 中延迟调用 `measureElement`
 
 ---
 
