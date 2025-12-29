@@ -896,33 +896,59 @@ export default function SubtitleList({
     hasErrorRef.current = false;
     
     if (propsCues) {
-      // 如果传入了 cues prop，直接使用
-      // 使用 requestAnimationFrame 避免在 effect 中同步调用 setState
+      // 如果传入了 cues prop，需要根据segments信息过滤，只使用前3个segment的字幕
+      // 这是为了确保异步加载逻辑正常工作，避免一次性加载全部字幕
       requestAnimationFrame(() => {
-        setCues(propsCues);
+        let filteredCues = propsCues;
+        
+        // 如果有segments信息，只保留前3个已完成的segment的字幕
+        if (segments && segments.length > 0 && episodeId) {
+          const completedSegments = segments
+            .filter(s => s.status === 'completed')
+            .sort((a, b) => a.segment_index - b.segment_index)
+            .slice(0, 3); // 只取前3个
+          
+          if (completedSegments.length > 0) {
+            const firstSegmentIndex = completedSegments[0].segment_index;
+            const lastSegmentIndex = completedSegments[completedSegments.length - 1].segment_index;
+            
+            // 根据segment的时间范围过滤cues
+            const firstSegment = segments.find(s => s.segment_index === firstSegmentIndex);
+            const lastSegment = segments.find(s => s.segment_index === lastSegmentIndex);
+            
+            if (firstSegment && lastSegment) {
+              filteredCues = propsCues.filter(cue => 
+                cue.start_time >= firstSegment.start_time && 
+                cue.start_time < lastSegment.end_time
+              );
+              
+              lastLoadedSegmentIndexRef.current = lastSegmentIndex;
+              
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:897',message:'过滤propsCues，只保留前3个segment',data:{originalCuesCount:propsCues.length,filteredCuesCount:filteredCues.length,firstSegmentIndex:firstSegmentIndex,lastSegmentIndex:lastSegmentIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+              // #endregion
+            } else {
+              // 如果找不到segment信息，清空cues，等待异步加载
+              filteredCues = [];
+              lastLoadedSegmentIndexRef.current = -1;
+            }
+          } else {
+            // 没有已完成的segment，清空cues，等待异步加载
+            filteredCues = [];
+            lastLoadedSegmentIndexRef.current = -1;
+          }
+        } else {
+          // 没有segments信息，使用全部cues（向后兼容）
+          lastLoadedSegmentIndexRef.current = -1;
+        }
+        
+        setCues(filteredCues);
         setSubtitleLoadingState(null);
         setSubtitleLoadingProgress(0);
         setSubtitleLoadingError(null);
       });
-      lastLoadedEpisodeIdRef.current = null; // 重置，因为使用 propsCues
+      lastLoadedEpisodeIdRef.current = episodeId; // 保持episodeId，以便后续异步加载
       isLoadingSubtitlesRef.current = false;
-      
-      // 如果有 segments 信息，根据已完成的 segment 数量推断 lastLoadedSegmentIndexRef
-      // 假设传入的 cues 对应前 N 个已完成的 segment
-      if (segments && segments.length > 0) {
-        const completedSegments = segments
-          .filter(s => s.status === 'completed')
-          .sort((a, b) => a.segment_index - b.segment_index);
-        
-        // 如果已完成的 segment 数量 > 0，假设已加载到最后一个已完成的 segment
-        if (completedSegments.length > 0) {
-          lastLoadedSegmentIndexRef.current = completedSegments[completedSegments.length - 1].segment_index;
-        } else {
-          lastLoadedSegmentIndexRef.current = -1;
-        }
-      } else {
-        lastLoadedSegmentIndexRef.current = -1;
-      }
     } else if (episodeId) {
       // 如果 episodeId 没有变化且正在加载，跳过重复加载
       // 但如果 propsCues 或 segments 变化，允许重新加载
