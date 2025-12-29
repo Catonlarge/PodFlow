@@ -290,7 +290,7 @@ export default function AICard({
         <CardHeader
           avatar={
             isLoading ? (
-              <CircularProgress size={24} />
+              <CircularProgress size={24} data-testid="ai-card-loading" />
             ) : (
               <CheckCircle
                 data-testid="ai-card-complete-icon"

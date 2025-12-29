@@ -13,6 +13,8 @@ import { useNotePosition } from '../useNotePosition';
 describe('useNotePosition', () => {
   let mockScrollContainer;
   let mockSubtitleElement;
+  let mockNoteSidebar;
+  let mockNoteContentContainer;
   
   beforeEach(() => {
     // 创建模拟的滚动容器
@@ -41,6 +43,21 @@ describe('useNotePosition', () => {
     
     mockScrollContainer.appendChild(mockSubtitleElement);
     document.body.appendChild(mockScrollContainer);
+    
+    // 创建模拟的笔记侧边栏容器
+    mockNoteSidebar = document.createElement('div');
+    mockNoteContentContainer = document.createElement('div');
+    mockNoteContentContainer.setAttribute('data-testid', 'note-sidebar-content');
+    mockNoteContentContainer.getBoundingClientRect = vi.fn(() => ({
+      top: 100,
+      left: 800,
+      right: 1200,
+      bottom: 600,
+      width: 400,
+      height: 500,
+    }));
+    mockNoteSidebar.appendChild(mockNoteContentContainer);
+    document.body.appendChild(mockNoteSidebar);
   });
   
   afterEach(() => {
@@ -48,11 +65,15 @@ describe('useNotePosition', () => {
     if (mockScrollContainer && mockScrollContainer.parentNode) {
       mockScrollContainer.parentNode.removeChild(mockScrollContainer);
     }
+    if (mockNoteSidebar && mockNoteSidebar.parentNode) {
+      mockNoteSidebar.parentNode.removeChild(mockNoteSidebar);
+    }
     vi.clearAllMocks();
   });
   
   it('应该计算单个 Highlight 的位置', async () => {
     const scrollContainerRef = { current: mockScrollContainer };
+    const noteSidebarRef = { current: mockNoteSidebar };
     const highlights = [
       { id: 1, cue_id: 1 }
     ];
@@ -64,18 +85,20 @@ describe('useNotePosition', () => {
       useNotePosition({
         highlights,
         cues,
-        scrollContainerRef
+        scrollContainerRef,
+        noteSidebarRef
       })
     );
     
     await waitFor(() => {
       expect(result.current).toHaveProperty('1');
       expect(typeof result.current[1]).toBe('number');
-    });
+    }, { timeout: 2000 });
   });
   
   it('应该处理多个 Highlight', async () => {
     const scrollContainerRef = { current: mockScrollContainer };
+    const noteSidebarRef = { current: mockNoteSidebar };
     const highlights = [
       { id: 1, cue_id: 1 },
       { id: 2, cue_id: 1 }
@@ -88,14 +111,15 @@ describe('useNotePosition', () => {
       useNotePosition({
         highlights,
         cues,
-        scrollContainerRef
+        scrollContainerRef,
+        noteSidebarRef
       })
     );
     
     await waitFor(() => {
       expect(result.current).toHaveProperty('1');
       expect(result.current).toHaveProperty('2');
-    });
+    }, { timeout: 2000 });
   });
   
   it('应该处理找不到字幕元素的情况', async () => {

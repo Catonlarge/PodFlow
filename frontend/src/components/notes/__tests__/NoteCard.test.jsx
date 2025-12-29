@@ -112,8 +112,14 @@ describe('NoteCard', () => {
       const editButton = screen.getByTestId(`note-edit-${mockNote.id}`);
       await user.click(editButton);
       
-      const textarea = screen.getByTestId(`note-edit-textarea-${mockNote.id}`);
-      expect(textarea).toHaveValue(mockNote.content);
+      // 等待 textarea 渲染
+      const textarea = await waitFor(() => {
+        return screen.getByTestId(`note-edit-textarea-${mockNote.id}`);
+      });
+      
+      // TextField 的 value 在 input 元素上
+      const input = textarea.querySelector('textarea') || textarea;
+      expect(input).toHaveValue(mockNote.content);
     });
 
     it('test_clicking_outside_submits_edit', async () => {
@@ -124,7 +130,16 @@ describe('NoteCard', () => {
       const editButton = screen.getByTestId(`note-edit-${mockNote.id}`);
       await user.click(editButton);
       
-      const textarea = screen.getByTestId(`note-edit-textarea-${mockNote.id}`);
+      // 等待 textarea 渲染
+      const textareaContainer = await waitFor(() => {
+        return screen.getByTestId(`note-edit-textarea-${mockNote.id}`);
+      });
+      
+      // TextField 的 input 元素
+      const textarea = textareaContainer.querySelector('textarea');
+      expect(textarea).toBeInTheDocument();
+      
+      // 清空并输入新内容
       await user.clear(textarea);
       await user.type(textarea, '修改后的内容');
       
@@ -145,7 +160,16 @@ describe('NoteCard', () => {
       const editButton = screen.getByTestId(`note-edit-${mockNote.id}`);
       await user.click(editButton);
       
-      const textarea = screen.getByTestId(`note-edit-textarea-${mockNote.id}`);
+      // 等待 textarea 渲染
+      const textareaContainer = await waitFor(() => {
+        return screen.getByTestId(`note-edit-textarea-${mockNote.id}`);
+      });
+      
+      // TextField 的 input 元素
+      const textarea = textareaContainer.querySelector('textarea');
+      expect(textarea).toBeInTheDocument();
+      
+      // 清空并输入新内容
       await user.clear(textarea);
       await user.type(textarea, '新内容');
       

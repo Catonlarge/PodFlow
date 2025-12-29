@@ -268,8 +268,11 @@ export default function SubtitleList({
         );
         await Promise.all(notePromises);
       } catch (noteError) {
-        // Note API 可能还未实现，只记录警告，不影响下划线显示
+        // Note API 可能还未实现，显示错误提示，但不影响下划线显示
         console.warn('[SubtitleList] 创建 Note 失败（可能是后端 API 未实现）:', noteError);
+        const errorMessage = noteError.response?.data?.detail || noteError.message || '创建笔记失败';
+        setHighlightError(errorMessage);
+        setHighlightErrorOpen(true);
         // 不抛出错误，继续执行，让下划线能够显示
       }
 
@@ -911,22 +914,24 @@ export default function SubtitleList({
     // 从 API 加载 highlights
     highlightService.getHighlightsByEpisode(episodeId)
       .then((loadedHighlights) => {
-        // 获取所有笔记（不管类型），找出所有有笔记的 highlights
-        // 只要笔记存在，对应的 highlight 就应该显示下划线
+        // 获取所有笔记，但只保留 underline 类型的 note 对应的 highlights
+        // 注意：只有 underline 类型的 note 才显示下划线
+        // thought 和 ai_card 类型的 note 不显示下划线（它们显示笔记卡片）
         return noteService.getNotesByEpisode(episodeId)
           .then((notes) => {
-            // 找出所有笔记对应的 highlight_id（不管笔记类型）
-            const noteHighlightIds = new Set(
-              notes.map(note => note.highlight_id)
+            // 找出所有 underline 类型笔记对应的 highlight_id
+            const underlineNoteHighlightIds = new Set(
+              notes
+                .filter(note => note.note_type === 'underline')
+                .map(note => note.highlight_id)
             );
 
-            // 保留所有有笔记的 highlights（不管笔记类型）
-            // 这样所有类型的笔记（ai_card、thought、underline）对应的下划线都会显示
-            const highlightsWithNotes = loadedHighlights.filter(h => 
-              noteHighlightIds.has(h.id)
+            // 只保留 underline 类型笔记对应的 highlights
+            const highlightsWithUnderlineNotes = loadedHighlights.filter(h => 
+              underlineNoteHighlightIds.has(h.id)
             );
 
-            setInternalHighlights(highlightsWithNotes);
+            setInternalHighlights(highlightsWithUnderlineNotes);
           });
       })
       .catch((error) => {

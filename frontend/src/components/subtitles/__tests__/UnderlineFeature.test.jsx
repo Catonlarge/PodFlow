@@ -506,12 +506,21 @@ describe('UnderlineFeature', () => {
         expect(subtitle1WithUnderline).toBeInTheDocument();
         
         // highlight_id=2 对应的 note 是 thought 类型，不应该显示下划线
+        // 注意：SubtitleList 可能会渲染多个 subtitle-2 元素（一个没有下划线，一个有下划线）
+        // 我们需要找到没有下划线的那个
         const subtitle2Elements = screen.getAllByTestId('subtitle-2');
-        const subtitle2WithoutUnderline = subtitle2Elements.find(el => {
-          const attr = el.getAttribute('data-has-underline');
-          return attr === 'false' || attr === false || attr === null;
-        });
-        expect(subtitle2WithoutUnderline).toBeInTheDocument();
+        // 如果只有一个元素，检查它是否有下划线
+        if (subtitle2Elements.length === 1) {
+          const attr = subtitle2Elements[0].getAttribute('data-has-underline');
+          expect(attr === 'false' || attr === null || attr === false).toBe(true);
+        } else {
+          // 如果有多个元素，找到没有下划线的那个
+          const subtitle2WithoutUnderline = subtitle2Elements.find(el => {
+            const attr = el.getAttribute('data-has-underline');
+            return attr === 'false' || attr === false || attr === null;
+          });
+          expect(subtitle2WithoutUnderline).toBeInTheDocument();
+        }
       });
     });
   });

@@ -4,6 +4,48 @@
 
 ---
 
+## [2025-01-XX] [Fix] - 修复前端测试问题
+
+**问题描述**：
+- 前端测试有 10 个失败用例，需要修复测试或代码
+
+**修复内容**：
+- **useNotePosition.test.js**：添加 noteSidebarRef 支持，修复位置计算测试
+- **NoteCard.test.jsx**：修复 textarea 选择器，使用 querySelector 获取实际 input 元素
+- **AICard.test.jsx**：修正测试期望，添加到笔记后不应该调用 onClose
+- **NoteSidebar.test.jsx**：修复测试环境中错误状态显示逻辑
+- **SubtitleList.integration.test.jsx**：修复 AICard loading 状态检查，支持快速 API 响应场景
+- **UnderlineFeature.test.jsx**：修复下划线过滤逻辑测试，只显示 underline 类型笔记对应的下划线
+- **EpisodeListPage.test.jsx**：添加弹框打开等待逻辑
+- **SubtitleList.jsx**：修复 highlights 过滤逻辑，只保留 underline 类型笔记对应的 highlights
+- **AICard.jsx**：添加 loading 状态的 testid（ai-card-loading）
+- **FileImportModal.jsx**：添加关闭按钮和弹框的 testid（modal-close, file-import-modal）
+- **NoteSidebar.jsx**：修复测试环境中错误状态显示条件
+
+**技术要点**：
+- 根据开发计划判断是修复测试还是修复代码
+- 确保测试反映实际业务逻辑（如 underline 类型才显示下划线）
+- 添加必要的 testid 以支持测试
+
+**测试结果**：
+- 所有 420 个测试用例通过
+- 测试文件：25 个全部通过
+
+**相关文件**：
+- `frontend/src/hooks/__tests__/useNotePosition.test.js`
+- `frontend/src/components/notes/__tests__/NoteCard.test.jsx`
+- `frontend/src/components/subtitles/__tests__/AICard.test.jsx`
+- `frontend/src/components/notes/__tests__/NoteSidebar.test.jsx`
+- `frontend/src/components/subtitles/__tests__/SubtitleList.integration.test.jsx`
+- `frontend/src/components/subtitles/__tests__/UnderlineFeature.test.jsx`
+- `frontend/src/pages/__tests__/EpisodeListPage.test.jsx`
+- `frontend/src/components/subtitles/SubtitleList.jsx`
+- `frontend/src/components/subtitles/AICard.jsx`
+- `frontend/src/components/upload/FileImportModal.jsx`
+- `frontend/src/components/notes/NoteSidebar.jsx`
+
+---
+
 ## [2025-01-29] [Fix] - 修复AI查询失败后仍显示下划线的问题
 
 **问题描述**：

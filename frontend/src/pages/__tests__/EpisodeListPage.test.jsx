@@ -143,8 +143,15 @@ describe('EpisodeListPage', () => {
         expect(screen.getByText('音频和字幕选择')).toBeInTheDocument();
       });
 
+      // 等待弹框自动打开（数据库为空时会自动弹出）
+      await waitFor(() => {
+        expect(screen.getByTestId('file-import-modal')).toBeInTheDocument();
+      });
+
       // 先关闭自动弹出的弹框
-      const closeButton = screen.getByTestId('modal-close');
+      const closeButton = await waitFor(() => {
+        return screen.getByTestId('modal-close');
+      });
       await user.click(closeButton);
 
       // 等待弹框关闭

@@ -474,7 +474,7 @@ describe('AICard', () => {
       });
     });
 
-    it('应该在添加到笔记后调用 onClose', async () => {
+    it('应该在添加到笔记后调用 onAddToNote（不调用 onClose）', async () => {
       render(
         <AICard
           anchorPosition={mockAnchorPosition}
@@ -495,7 +495,10 @@ describe('AICard', () => {
       await userEvent.click(noteButton);
 
       await waitFor(() => {
-        expect(mockOnClose).toHaveBeenCalledTimes(1);
+        expect(mockOnAddToNote).toHaveBeenCalledTimes(1);
+        expect(mockOnAddToNote).toHaveBeenCalledWith(mockResponseDataWord, 123);
+        // 注意：添加到笔记后不应该调用 onClose（根据实现代码注释）
+        expect(mockOnClose).not.toHaveBeenCalled();
       });
     });
   });

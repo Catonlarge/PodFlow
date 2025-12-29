@@ -340,6 +340,7 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
 
   return (
     <Dialog
+      data-testid="file-import-modal"
       open={open}
       onClose={handleClose}
       maxWidth="sm"
@@ -359,6 +360,7 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
         <Box display="flex" justifyContent="space-between" alignItems="center">
           <Typography component="div" variant="h6">音频和字幕选择弹框</Typography>
           <IconButton
+            data-testid="modal-close"
             onClick={(e) => handleClose(e, 'closeButton')}
             size="small"
             aria-label="关闭"
