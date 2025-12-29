@@ -327,13 +327,7 @@ const NoteSidebar = forwardRef(function NoteSidebar({
   
   // 刷新笔记列表（公共方法，供内部和外部调用）
   const refreshNotes = useCallback(async (delayMs = 100) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:329',message:'refreshNotes被调用',data:{episodeId,hasEpisodeId:!!episodeId,delayMs},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
     if (!episodeId) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:330',message:'episodeId为空，提前返回',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
       return;
     }
     
@@ -343,30 +337,17 @@ const NoteSidebar = forwardRef(function NoteSidebar({
     }
     
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:335',message:'开始获取笔记和划线数据',data:{episodeId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       const [notesData, highlightsData] = await Promise.all([
         noteService.getNotesByEpisode(episodeId),
         highlightService.getHighlightsByEpisode(episodeId)
       ]);
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:340',message:'获取到笔记和划线数据',data:{notesCount:notesData?.length,highlightsCount:highlightsData?.length,allNotes:notesData,allHighlights:highlightsData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       const displayNotes = notesData.filter(n => n.note_type !== 'underline');
       const highlightMap = new Map(highlightsData.map(h => [h.id, h]));
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:343',message:'准备更新状态',data:{displayNotesCount:displayNotes.length,highlightMapSize:highlightMap.size,displayNotes},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       setNotes(displayNotes);
       setHighlights(highlightMap);
       loadedEpisodeIdRef.current = episodeId; // 更新已加载标记
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:345',message:'状态已更新',data:{displayNotesCount:displayNotes.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       
       // 如果有新笔记，自动展开
       if (displayNotes.length > 0 && !hasUserInteractedRef.current) {
@@ -376,9 +357,6 @@ const NoteSidebar = forwardRef(function NoteSidebar({
         onExpandedChange?.(true);
       }
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:354',message:'刷新笔记列表失败',data:{error:err?.message,errorStack:err?.stack},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       console.error('[NoteSidebar] 刷新笔记列表失败:', err);
     }
   }, [episodeId, externalIsExpanded, onExpandedChange]);
@@ -436,10 +414,6 @@ const NoteSidebar = forwardRef(function NoteSidebar({
 
   // 直接添加新笔记到状态（用于创建笔记后立即显示，避免数据库查询延迟）
   const addNoteDirectly = useCallback(async (noteData, highlightData) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:addNoteDirectly',message:'直接添加新笔记到状态',data:{noteData,highlightData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-    // #endregion
-    
     if (!noteData || noteData.note_type === 'underline') {
       // underline类型不显示，直接返回
       return;
@@ -450,14 +424,8 @@ const NoteSidebar = forwardRef(function NoteSidebar({
       // 检查是否已存在（避免重复添加）
       const exists = prev.some(n => n.id === noteData.id);
       if (exists) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:addNoteDirectly',message:'笔记已存在，跳过添加',data:{noteId:noteData.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         return prev;
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NoteSidebar.jsx:addNoteDirectly',message:'添加新笔记到状态',data:{prevCount:prev.length,newNoteId:noteData.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-      // #endregion
       return [...prev, noteData];
     });
     

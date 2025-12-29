@@ -186,13 +186,16 @@ export default function AICard({
 
   /**
    * 处理添加到笔记
+   * 注意：添加到笔记后不应该调用 onClose，因为 onClose 会删除 highlight
+   * 应该由 handleAddToNote 内部关闭 AICard，但不触发 handleCloseAICard
    */
   const handleAddToNote = useCallback(() => {
     if (onAddToNote && responseData) {
       onAddToNote(responseData, queryId);
-      onClose();
+      // 注意：添加到笔记后不应该调用 onClose，因为 onClose 会删除 highlight
+      // handleAddToNote 内部会关闭 AICard，所以这里不需要调用 onClose
     }
-  }, [onAddToNote, responseData, queryId, onClose]);
+  }, [onAddToNote, responseData, queryId]);
 
   /**
    * 渲染内容（根据 type 类型）

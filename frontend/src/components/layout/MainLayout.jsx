@@ -311,25 +311,12 @@ export default function MainLayout({
 
   // 处理笔记创建（用于刷新 NoteSidebar 列表）
   const handleNoteCreate = useCallback((noteData, highlightData) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainLayout.jsx:313',message:'handleNoteCreate被调用',data:{hasRef:!!noteSidebarRef.current,hasAddNoteDirectly:!!(noteSidebarRef.current?.addNoteDirectly),hasRefreshNotes:!!(noteSidebarRef.current?.refreshNotes),episodeId,noteData,highlightData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     // 优先使用直接添加方式（避免数据库查询延迟）
     if (noteData && noteSidebarRef.current && noteSidebarRef.current.addNoteDirectly) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainLayout.jsx:318',message:'调用addNoteDirectly',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       noteSidebarRef.current.addNoteDirectly(noteData, highlightData);
     } else if (noteSidebarRef.current && noteSidebarRef.current.refreshNotes) {
       // 降级方案：使用刷新方式（延迟查询）
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainLayout.jsx:321',message:'调用refreshNotes（降级方案）',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       noteSidebarRef.current.refreshNotes();
-    } else {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainLayout.jsx:324',message:'noteSidebarRef或方法不存在',data:{hasRef:!!noteSidebarRef.current,hasAddNoteDirectly:!!(noteSidebarRef.current?.addNoteDirectly),hasRefreshNotes:!!(noteSidebarRef.current?.refreshNotes)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
     }
   }, []);
 

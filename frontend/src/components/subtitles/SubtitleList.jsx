@@ -84,6 +84,7 @@ export default function SubtitleList({
   });
   const aiCardAnchorElementRef = useRef(null);
   const aiCardHighlightIdRef = useRef(null); // 用于存储 highlightId，避免闭包问题
+  const aiCardHighlightDataRef = useRef(null); // 用于存储 highlight 数据，避免闭包问题
   const isQueryingRef = useRef(false); // 防止重复调用 AI 查询
   const [aiQueryError, setAiQueryError] = useState(null);
   const [aiQueryErrorOpen, setAiQueryErrorOpen] = useState(false);
@@ -407,9 +408,6 @@ export default function SubtitleList({
       // 使用第一个 Highlight ID 进行查询（单 cue 时只有一个，跨 cue 时使用第一个）
       const highlightId = highlightResponse.highlight_ids[0];
       
-      // 更新 ref，确保后续操作能拿到 ID
-      aiCardHighlightIdRef.current = highlightId;
-
       // 更新本地 highlights 状态（显示下划线）
       const newHighlights = highlightsToCreate.map((h, index) => ({
         id: highlightResponse.highlight_ids[index],
@@ -419,17 +417,18 @@ export default function SubtitleList({
         highlighted_text: h.highlighted_text,
         color: h.color,
         highlight_group_id: highlightGroupId,
+        created_at: new Date().toISOString(), // 添加时间戳
+        updated_at: new Date().toISOString(),
       }));
+      
+      // 更新 ref，确保后续操作能拿到 ID 和数据
+      aiCardHighlightIdRef.current = highlightId;
+      aiCardHighlightDataRef.current = newHighlights[0]; // 保存第一个 highlight 数据（用于创建笔记）
+      
       setInternalHighlights((prev) => [...prev, ...newHighlights]);
 
       // Step 5: 调用 AI 查询 API
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:426',message:'准备调用AI查询API',data:{highlightId,episodeId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       const queryResponse = await aiService.queryAI(highlightId);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:427',message:'AI查询API调用成功',data:{queryId:queryResponse?.query_id,status:queryResponse?.status,responseType:queryResponse?.response?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
 
       // Step 6: 更新 AICard（显示结果）
       setAiCardState((prev) => ({
@@ -443,9 +442,6 @@ export default function SubtitleList({
       // 清除文本选择（但保持 AICard 显示）
       clearSelection();
     } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:439',message:'AI查询失败，进入错误处理',data:{errorMessage:error?.message,errorStatus:error?.response?.status,errorDetail:error?.response?.data?.detail,errorData:error?.response?.data,errorStack:error?.stack,highlightId:aiCardHighlightIdRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       console.error('[SubtitleList] AI 查询失败:', error);
       console.error('[SubtitleList] 错误详情:', {
         message: error.message,
@@ -463,99 +459,78 @@ export default function SubtitleList({
                               error.response?.data?.detail?.includes('配额') ||
                               error.response?.data?.detail?.includes('quota');
       
+      // 统一错误处理：所有AI查询失败都应该删除highlight，不显示下划线
+      // 根据错误类型显示不同的错误消息
+      let errorMessage = 'AI 查询失败，请重试';
       if (isQuotaExceeded) {
-        // 配额超限错误：显示 Snackbar 提示，关闭 AICard，保留 highlight（允许用户稍后重试）
-        const errorMessage = error.response?.data?.detail || 'AI 查询配额已用完，请稍后重试';
-        setAiQueryError(errorMessage);
-        setAiQueryErrorOpen(true);
-        
-        // 关闭 AICard（但保留 highlight，允许用户稍后重试）
-        setAiCardState({
-          isVisible: false,
-          anchorPosition: null,
-          queryText: null,
-          responseData: null,
-          isLoading: false,
-          queryId: null,
-          highlightId: null,
-        });
-        aiCardAnchorElementRef.current = null;
-        // 注意：不删除 highlight，保留划线以便用户稍后重试
-        isQueryingRef.current = false; // 重置查询状态，允许重试
+        errorMessage = error.response?.data?.detail || 'AI 查询配额已用完，请稍后重试';
       } else if (isTimeoutError) {
-        // 超时错误：先显示 AICard 显示"AI查询失败"提示，然后自动消失
-        setAiCardState((prev) => ({
-          ...prev,
-          responseData: null, // 设置为 null 以显示错误提示
-          isLoading: false,
-        }));
-        
-        // 3秒后自动关闭 AICard
-        setTimeout(() => {
-          setAiCardState({
-            isVisible: false,
-            anchorPosition: null,
-            queryText: null,
-            responseData: null,
-            isLoading: false,
-            queryId: null,
-            highlightId: null,
-          });
-          aiCardAnchorElementRef.current = null;
-          // 注意：不删除 highlight，保留划线以便用户重试
-        }, 3000);
+        errorMessage = error.response?.data?.detail || 'AI 查询超时，请重试';
       } else {
-        // 其他错误：显示 Snackbar 提示，关闭 AICard，删除 highlight
-        const errorMessage = error.response?.data?.detail || error.message || 'AI 查询失败，请重试';
-        setAiQueryError(errorMessage);
-        setAiQueryErrorOpen(true);
-        
-        // 关闭 AICard 并删除 highlight（如果已创建）
-        const errorHighlightId = aiCardHighlightIdRef.current;
-        
-        if (errorHighlightId) {
-          try {
-            // 使用函数式更新获取最新的 internalHighlights 状态，避免闭包问题
-            let highlightGroupId = null;
-            setInternalHighlights((prev) => {
-              // 从 internalHighlights 中找到对应的 highlight，获取 highlight_group_id
-              const highlightToDelete = prev.find(h => h.id === errorHighlightId);
-              highlightGroupId = highlightToDelete?.highlight_group_id;
-              // 先返回原状态，等 API 调用成功后再更新
-              return prev;
-            });
-            
-            // 调用 API 删除 highlight（后端会自动处理按组删除）
-            await highlightService.deleteHighlight(errorHighlightId);
-            
-            // 从 internalHighlights 状态中移除对应的 highlight(s)
-            setInternalHighlights((prev) => {
-              if (highlightGroupId) {
-                // 跨 cue 划线：删除整组
-                return prev.filter(h => h.highlight_group_id !== highlightGroupId);
-              } else {
-                // 单 cue 划线：只删除当前 highlight
-                return prev.filter(h => h.id !== errorHighlightId);
-              }
-            });
-          } catch (deleteError) {
-            console.error('[SubtitleList] AI 查询失败后删除 highlight 失败:', deleteError);
-            // 即使删除失败，也继续关闭 AICard
-          }
-        }
-        
-        setAiCardState({
-          isVisible: false,
-          anchorPosition: null,
-          queryText: null,
-          responseData: null,
-          isLoading: false,
-          queryId: null,
-          highlightId: null,
-        });
-        aiCardAnchorElementRef.current = null;
-        aiCardHighlightIdRef.current = null;
+        errorMessage = error.response?.data?.detail || error.message || 'AI 查询失败，请重试';
       }
+      
+      setAiQueryError(errorMessage);
+      setAiQueryErrorOpen(true);
+      
+      // 关闭 AICard 并删除 highlight（如果已创建）
+      const errorHighlightId = aiCardHighlightIdRef.current;
+      
+      if (errorHighlightId) {
+        try {
+          // 使用函数式更新获取最新的 internalHighlights 状态，避免闭包问题
+          let highlightGroupId = null;
+          setInternalHighlights((prev) => {
+            // 从 internalHighlights 中找到对应的 highlight，获取 highlight_group_id
+            const highlightToDelete = prev.find(h => h.id === errorHighlightId);
+            highlightGroupId = highlightToDelete?.highlight_group_id;
+            // 先返回原状态，等 API 调用成功后再更新
+            return prev;
+          });
+          
+          // 调用 API 删除 highlight（后端会自动处理按组删除）
+          await highlightService.deleteHighlight(errorHighlightId);
+          
+          // 从 internalHighlights 状态中移除对应的 highlight(s)
+          setInternalHighlights((prev) => {
+            if (highlightGroupId) {
+              // 跨 cue 划线：删除整组
+              return prev.filter(h => h.highlight_group_id !== highlightGroupId);
+            } else {
+              // 单 cue 划线：只删除当前 highlight
+              return prev.filter(h => h.id !== errorHighlightId);
+            }
+          });
+        } catch (deleteError) {
+          console.error('[SubtitleList] AI 查询失败后删除 highlight 失败:', deleteError);
+          // 即使删除失败，也继续关闭 AICard
+          // 强制从状态中移除（即使API删除失败）
+          setInternalHighlights((prev) => {
+            const highlightToDelete = prev.find(h => h.id === errorHighlightId);
+            const highlightGroupId = highlightToDelete?.highlight_group_id;
+            if (highlightGroupId) {
+              return prev.filter(h => h.highlight_group_id !== highlightGroupId);
+            } else {
+              return prev.filter(h => h.id !== errorHighlightId);
+            }
+          });
+        }
+      }
+      
+      // 关闭 AICard
+      setAiCardState({
+        isVisible: false,
+        anchorPosition: null,
+        queryText: null,
+        responseData: null,
+        isLoading: false,
+        queryId: null,
+        highlightId: null,
+      });
+      aiCardAnchorElementRef.current = null;
+      aiCardHighlightIdRef.current = null;
+      aiCardHighlightDataRef.current = null;
+      isQueryingRef.current = false; // 重置查询状态，允许重试
       
       // 清除文本选择
       clearSelection();
@@ -617,7 +592,8 @@ export default function SubtitleList({
       );
 
       // Step 4: 获取对应的 highlight 信息（用于直接添加到状态）
-      const currentHighlight = effectiveHighlights.find(h => h.id === currentHighlightId);
+      // 优先使用 ref 中保存的数据（避免状态更新时序问题）
+      const currentHighlightData = aiCardHighlightDataRef.current;
       
       // Step 5: 构建新笔记数据（用于直接添加到状态）
       const newNoteData = {
@@ -630,19 +606,13 @@ export default function SubtitleList({
         updated_at: noteResponse.created_at || new Date().toISOString(),
       };
       
-      const newHighlightData = currentHighlight ? {
-        id: currentHighlight.id,
-        cue_id: currentHighlight.cue_id,
-        highlighted_text: currentHighlight.highlighted_text,
-        start_offset: currentHighlight.start_offset,
-        end_offset: currentHighlight.end_offset,
-        color: currentHighlight.color,
-        highlight_group_id: currentHighlight.highlight_group_id,
-        created_at: currentHighlight.created_at || new Date().toISOString(),
-        updated_at: currentHighlight.updated_at || new Date().toISOString(),
-      } : null;
+      // 使用 ref 中保存的 highlight 数据，如果不存在则从 effectiveHighlights 中查找
+      const newHighlightData = currentHighlightData || effectiveHighlights.find(h => h.id === currentHighlightId);
+      
+      // 清理 ref（避免内存泄漏）
+      aiCardHighlightDataRef.current = null;
 
-      // Step 6: 关闭 AICard
+      // Step 6: 关闭 AICard（但不删除 highlight，因为笔记已创建）
       setAiCardState({
         isVisible: false,
         anchorPosition: null,
@@ -653,21 +623,17 @@ export default function SubtitleList({
         highlightId: null,
       });
       aiCardAnchorElementRef.current = null;
+      // 注意：不要清除 aiCardHighlightIdRef.current，因为 highlight 需要保留用于显示下划线样式
+      // aiCardHighlightIdRef.current = null; // 这行已移除，保留 highlight
 
       // Step 7: 通知父组件添加新笔记（直接添加到状态，避免数据库查询延迟）
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:599',message:'创建笔记成功，准备调用onNoteCreate',data:{noteResponseId:noteResponse?.id,hasOnNoteCreate:!!onNoteCreate,episodeId,highlightId:currentHighlightId,newNoteData,newHighlightData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       if (onNoteCreate) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:600',message:'调用onNoteCreate回调，传递新笔记数据',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
         onNoteCreate(newNoteData, newHighlightData);
-      } else {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/a2995df4-4a1e-43d3-8e94-ca9043935740',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SubtitleList.jsx:600',message:'onNoteCreate回调不存在',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
       }
+
+      // Step 8: 重要：不要删除 highlight，因为笔记已经创建，需要保留下划线样式
+      // 注意：不要清除 aiCardHighlightIdRef，因为 highlight 需要保留
+      // aiCardHighlightIdRef.current = null; // 移除这行，保留 highlight
 
       // Step 6: 更新 highlights（下划线已经显示，无需额外更新）
       // Note: highlights 已经在 handleQuery 中更新，这里不需要再次更新
@@ -681,11 +647,13 @@ export default function SubtitleList({
     }
   }, [episodeId, onNoteCreate]);
 
-  // 处理关闭 AICard
+  // 处理关闭 AICard（仅在用户取消查询时调用，不删除 highlight）
   const handleCloseAICard = useCallback(async () => {
     const currentHighlightId = aiCardHighlightIdRef.current;
     
-    // 如果有 highlightId，删除对应的 highlight（包括跨 cue 的情况）
+    // 重要：只有在用户主动关闭 AICard（取消查询）时才删除 highlight
+    // 如果笔记已经创建（通过 handleAddToNote），则不应该调用此函数删除 highlight
+    // 这里保留删除逻辑，因为用户可能取消查询
     if (currentHighlightId) {
       try {
         // 使用函数式更新获取最新的 internalHighlights 状态，避免闭包问题

@@ -4,6 +4,29 @@
 
 ---
 
+## [2025-01-29] [Fix] - 修复AI查询失败后仍显示下划线的问题
+
+**问题描述**：
+- AI查询失败（包括配额超限、超时等错误）后，前端仍显示下划线样式
+- 用户期望：AI查询失败时不应该显示下划线，也不应该生成笔记卡片
+
+**修复内容**：
+- **SubtitleList组件** (`frontend/src/components/subtitles/SubtitleList.jsx`)：
+  - 统一错误处理逻辑：所有AI查询失败（包括配额超限和超时）都会删除highlight
+  - 移除配额超限和超时错误的特殊处理（之前会保留highlight）
+  - 确保所有错误情况下都执行删除highlight的逻辑
+  - 即使API删除失败，也会强制从状态中移除highlight，确保UI不显示下划线
+
+**技术要点**：
+- 统一错误处理流程，简化代码逻辑
+- 确保状态一致性：即使后端删除失败，前端状态也会更新
+- 保持用户体验：错误时明确提示，不显示残留的下划线
+
+**相关文件**：
+- `frontend/src/components/subtitles/SubtitleList.jsx`
+
+---
+
 ## [2025-01-29] [Feature] - EpisodeList页面首次打开自动弹出音频选择弹框
 
 **变更内容**：
@@ -395,6 +418,28 @@
 - 使用 useMemo 和 useCallback 优化性能
 - 兼容 anchorPosition 格式（{top, left, right, bottom} 或 {x, y}）
 - 组件接口已准备好，可在 Task 4.3 中与 SubtitleList 集成
+
+---
+
+## [2025-01-XX] [feat] - 添加 AI Mock 模式支持（用于调试笔记卡片生成）
+
+**变更内容**：
+- **配置项** (`backend/app/config.py`)：
+  - 新增 `USE_AI_MOCK` 环境变量配置，支持启用 Mock 模式
+  - 设置为 "true" 或 "1" 时启用，无需配置 GEMINI_API_KEY
+
+- **AI 服务** (`backend/app/services/ai_service.py`)：
+  - 新增 `_mock_query()` 方法，返回模拟的 AI 响应数据
+  - 支持三种类型的 mock 数据：word（单词）、phrase（短语）、sentence（句子）
+  - 根据输入文本的单词数量自动判断类型
+  - 包含常见单词和短语的示例数据（如 serendipity、black swan event 等）
+  - 修改 `__init__()` 方法，Mock 模式下不需要 GEMINI_API_KEY 即可初始化
+  - 修改 `query()` 方法，启用 Mock 模式时直接返回模拟数据，不调用真实 API
+
+**使用说明**：
+- 设置环境变量 `USE_AI_MOCK=true` 启用 Mock 模式
+- Mock 模式适用于前端调试笔记卡片生成效果，无需连接 Gemini API
+- Mock 数据格式与真实 API 响应格式完全一致，便于无缝切换
 
 ---
 

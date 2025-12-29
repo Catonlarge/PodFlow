@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from google import genai
 from typing import Optional, Dict
 
-from app.config import GEMINI_API_KEY, DEFAULT_AI_PROVIDER, AI_QUERY_TIMEOUT
+from app.config import GEMINI_API_KEY, DEFAULT_AI_PROVIDER, AI_QUERY_TIMEOUT, USE_AI_MOCK
 
 logger = logging.getLogger(__name__)
 
@@ -28,18 +28,133 @@ class AIService:
         初始化 AI 服务
         
         Raises:
-            ValueError: 如果 GEMINI_API_KEY 未设置
+            ValueError: 如果启用真实 API 但 GEMINI_API_KEY 未设置
         """
-        if not GEMINI_API_KEY:
-            raise ValueError(
-                "GEMINI_API_KEY environment variable is required. "
-                "Please set it in .env file or system environment variables."
-            )
+        self.use_mock = USE_AI_MOCK
         
-        # 使用新的 Google GenAI SDK API
-        self.client = genai.Client(api_key=GEMINI_API_KEY)
-        self.model_name = 'gemini-2.5-flash'
-        logger.info("AIService initialized with Gemini API")
+        if self.use_mock:
+            logger.info("AIService initialized with MOCK mode (no API key required)")
+        else:
+            if not GEMINI_API_KEY:
+                raise ValueError(
+                    "GEMINI_API_KEY environment variable is required. "
+                    "Please set it in .env file or system environment variables. "
+                    "Or set USE_AI_MOCK=true to enable mock mode for debugging."
+                )
+            
+            # 使用新的 Google GenAI SDK API
+            self.client = genai.Client(api_key=GEMINI_API_KEY)
+            self.model_name = 'gemini-2.5-flash'
+            logger.info("AIService initialized with Gemini API")
+    
+    def _mock_query(self, text: str, context: Optional[str] = None) -> Dict:
+        """
+        Mock 查询方法：返回模拟的 AI 响应数据（用于调试）
+        
+        Args:
+            text: 用户划线的文本
+            context: 相邻 2-3 个 TranscriptCue 的文本（可选，mock 模式中不使用）
+        
+        Returns:
+            dict: 模拟的 JSON 对象，格式与真实 API 响应相同
+        """
+        text_trimmed = text.strip()
+        word_count = len(text_trimmed.split())
+        
+        # 简单判断类型：根据文本长度和单词数量
+        if word_count <= 1:
+            # 单个单词 - 返回 word 类型的 mock 数据
+            query_type = "word"
+            # 使用一些常见单词的示例数据
+            word_lower = text_trimmed.lower()
+            if word_lower in ["serendipity", "serendipitous"]:
+                mock_data = {
+                    "type": "word",
+                    "content": {
+                        "phonetic": "/ˌserənˈdɪpəti/",
+                        "definition": "意外发现珍宝的运气；机缘凑巧",
+                        "explanation": "这是一个非常优美的单词，指无意中发现有趣或有价值事物的能力。常用于描述那些美好的、意料之外的巧合或发现。"
+                    }
+                }
+            elif word_lower in ["taxonomy", "taxonomic"]:
+                mock_data = {
+                    "type": "word",
+                    "content": {
+                        "phonetic": "/tækˈsɒnəmi/",
+                        "definition": "分类学；分类法",
+                        "explanation": "生物学中用于分类和命名生物体的科学体系。也用于其他领域，如信息科学中的数据分类方法。"
+                    }
+                }
+            else:
+                mock_data = {
+                    "type": "word",
+                    "content": {
+                        "phonetic": f"/{text_trimmed.lower()}/",
+                        "definition": f"{text_trimmed} 的中文释义（Mock数据）",
+                        "explanation": f"这是关于 '{text_trimmed}' 的示例解释。在 Mock 模式下，这是模拟数据，用于前端调试笔记卡片生成效果。实际使用时，这里会显示真实的 AI 解释内容。"
+                    }
+                }
+        elif word_count <= 5:
+            # 短语 - 返回 phrase 类型的 mock 数据
+            query_type = "phrase"
+            phrase_lower = text_trimmed.lower()
+            if "black swan" in phrase_lower:
+                mock_data = {
+                    "type": "phrase",
+                    "content": {
+                        "phonetic": "/blæk swɒn ɪˈvent/",
+                        "definition": "黑天鹅事件",
+                        "explanation": "金融和经济学术语。指那些极其罕见、难以预测，但一旦发生就会造成极端严重后果的事件。背景源于人们原以为天鹅都是白的，直到发现黑天鹅。"
+                    }
+                }
+            elif "artificial intelligence" in phrase_lower or "ai" in phrase_lower:
+                mock_data = {
+                    "type": "phrase",
+                    "content": {
+                        "phonetic": "/ˌɑːtɪˈfɪʃl ɪnˈtelɪdʒəns/",
+                        "definition": "人工智能",
+                        "explanation": "计算机科学的一个分支，旨在创建能够模拟人类智能行为的系统。包括机器学习、自然语言处理、计算机视觉等多个领域。"
+                    }
+                }
+            else:
+                mock_data = {
+                    "type": "phrase",
+                    "content": {
+                        "phonetic": f"/{text_trimmed.lower().replace(' ', ' ')}/",
+                        "definition": f"{text_trimmed} 的中文释义（Mock数据）",
+                        "explanation": f"这是关于短语 '{text_trimmed}' 的示例解释。在 Mock 模式下，这是模拟数据，用于前端调试笔记卡片生成效果。实际使用时，这里会显示真实的 AI 解释内容，包括背景知识和用法说明。"
+                    }
+                }
+        else:
+            # 句子 - 返回 sentence 类型的 mock 数据
+            query_type = "sentence"
+            # 提取前几个有意义的单词作为难点词汇（跳过常见的冠词、介词等）
+            words = [w for w in text_trimmed.split() if len(w) > 2][:3]
+            highlight_vocab = []
+            for i, word in enumerate(words):
+                highlight_vocab.append({
+                    "term": word,
+                    "definition": f"{word} 的释义（Mock数据）"
+                })
+            
+            # 如果没有找到合适的词汇，使用前三个单词
+            if not highlight_vocab:
+                words_all = text_trimmed.split()[:3]
+                highlight_vocab = [
+                    {"term": word, "definition": f"{word} 的释义（Mock数据）"}
+                    for word in words_all
+                ]
+            
+            mock_data = {
+                "type": "sentence",
+                "content": {
+                    "translation": f"这是句子 '{text_trimmed}' 的中文翻译（Mock数据）。实际使用时，这里会显示准确的翻译。",
+                    "highlight_vocabulary": highlight_vocab
+                }
+            }
+        
+        logger.info(f"Mock AI 查询: type={query_type}, text={text[:30]}...")
+        return mock_data
     
     def query(self, text: str, context: Optional[str] = None, provider: Optional[str] = None) -> Dict:
         """
@@ -64,6 +179,10 @@ class AIService:
             ValueError: JSON 解析失败或格式不符合规范
             Exception: API 调用失败
         """
+        # Mock 模式：直接返回模拟数据，不调用真实 API
+        if self.use_mock:
+            return self._mock_query(text, context)
+        
         # 构建系统提示词
         system_prompt = """# Role
 你是一名专业的英语语言教学助手，擅长以简洁、准确的方式向英语学习者解释语言知识。

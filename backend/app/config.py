@@ -77,3 +77,8 @@ AVAILABLE_PROVIDERS = [
 # - 超过此时间未返回结果，将触发超时错误
 # - 建议值：30-60 秒（根据网络环境和 AI 提供商调整）
 AI_QUERY_TIMEOUT = 60  # 默认 60 秒
+
+# AI Mock 模式（用于调试，不调用真实 API）
+# - 设置为 "true" 或 "1" 时启用 mock 模式
+# - Mock 模式将返回模拟的 AI 响应数据，用于前端调试
+USE_AI_MOCK = os.getenv("USE_AI_MOCK", "false").lower() in ("true", "1")

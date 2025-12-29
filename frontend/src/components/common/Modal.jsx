@@ -130,7 +130,7 @@ export default function Modal({
     >
       {title && (
         <DialogTitle>
-          <Typography variant="h6">{title}</Typography>
+          {title}
         </DialogTitle>
       )}
       

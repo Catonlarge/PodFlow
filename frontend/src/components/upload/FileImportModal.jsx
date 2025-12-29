@@ -357,7 +357,7 @@ export default function FileImportModal({ open, onClose, onConfirm }) {
     >
       <DialogTitle>
         <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Typography variant="h6">音频和字幕选择弹框</Typography>
+          <Typography component="div" variant="h6">音频和字幕选择弹框</Typography>
           <IconButton
             onClick={(e) => handleClose(e, 'closeButton')}
             size="small"
