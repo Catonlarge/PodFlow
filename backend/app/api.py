@@ -819,6 +819,17 @@ async def start_transcription(
             detail=f"Episode {episode_id} 没有音频文件路径"
         )
     
+    # 1. 立即同步更新状态为 pending，防止前端轮询到旧的 failed 状态
+    episode.transcription_status = "pending"
+    # ==================== 新增修复：重置 Segment 状态 ====================
+    # 强制将所有 segment 重置为 pending，防止前端轮询到旧的 completed 状态而误判
+    segments = db.query(AudioSegment).filter(AudioSegment.episode_id == episode_id).all()
+    for segment in segments:
+        segment.status = "pending"
+        segment.error_message = None
+    
+    db.commit()
+
     # 添加后台任务（传递 ID 而不是对象，让后台任务自己去查库）
     background_tasks.add_task(run_transcription_task, episode_id)
     

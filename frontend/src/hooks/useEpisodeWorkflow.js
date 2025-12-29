@@ -25,14 +25,6 @@ import { readAudioDuration } from '../utils/fileUtils';
 const LOCAL_STORAGE_KEY = 'podflow_last_episode_id';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-/**
- * useEpisodeWorkflow Hook
- * 
- * @param {string|null} urlEpisodeId - URL 参数中的 episodeId
- * @returns {Object} { state, actions }
- *   - state: { episodeId, episode, segments, loading, error, audioUrl, processing }
- *   - actions: { upload, retryUpload, togglePause }
- */
 export const useEpisodeWorkflow = (urlEpisodeId) => {
   const navigate = useNavigate();
   const [episodeId, setEpisodeId] = useState(urlEpisodeId);
@@ -45,15 +37,13 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
   const [audioUrl, setAudioUrl] = useState(null);
 
   // 流程控制状态 (Overlay 相关)
-  const [processingState, setProcessingState] = useState(null); // 'upload' | 'recognize' | null
+  const [processingState, setProcessingState] = useState(null); 
   const [progress, setProgress] = useState(0);
   const [processingError, setProcessingError] = useState(null);
   const [isPaused, setIsPaused] = useState(false);
   
-  // 引用，用于清除定时器
   const progressIntervalRef = useRef(null);
   const pollIntervalRef = useRef(null);
-  // 引用，用于标记是否刚刚 navigate（避免在 navigate 后立即清除 Overlay）
   const justNavigatedRef = useRef(false);
   const navigateTimeRef = useRef(null);
 
@@ -66,15 +56,12 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
     
     progressIntervalRef.current = setInterval(() => {
       const elapsed = Date.now() - startTime;
-      // 最多跑到 99%，剩下 1% 等待实际完成
       const nextProgress = Math.min((elapsed / durationMs) * 100, 99);
       setProgress(nextProgress);
       
-      if (nextProgress >= 99) {
-        if (progressIntervalRef.current) {
-          clearInterval(progressIntervalRef.current);
-          progressIntervalRef.current = null;
-        }
+      if (nextProgress >= 99 && progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
       }
     }, 100);
   }, []);
@@ -89,15 +76,13 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
   // --- 核心：获取数据与状态判断 ---
   const fetchEpisodeData = useCallback(async (targetId, isInitial = false) => {
     try {
-      if (isInitial) {
-        setLoading(true);
-      }
-      setError(null);
+      if (isInitial) setLoading(true);
+      // 注意：轮询时不应清除 error，否则如果中途失败一次会导致 UI 闪烁
+      // setError(null); 
       
       const data = await subtitleService.getEpisode(targetId);
       setEpisode(data);
 
-      // 处理音频 URL
       if (data.audio_path) {
         const pathParts = data.audio_path.split(/[/\\]/);
         const filename = pathParts[pathParts.length - 1];
@@ -107,11 +92,10 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
         setAudioUrl(url);
       }
 
-      // 如果转录已完成且有字幕数据，优先清除 ProcessingOverlay
-      // 关键修复：如果刚刚 navigate，即使转录完成，也保持 'recognize' 状态，避免闪烁
       const timeSinceNavigate = navigateTimeRef.current ? Date.now() - navigateTimeRef.current : Infinity;
       const shouldKeepRecognizeAfterNavigate = justNavigatedRef.current && timeSinceNavigate < 2000;
-      
+
+      // 如果完全完成
       if (data.transcription_status === 'completed' && data.cues && data.cues.length > 0) {
         if (!shouldKeepRecognizeAfterNavigate) {
           setProcessingState(null);
@@ -119,213 +103,142 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
           stopFakeProgress();
           setIsPaused(false);
         }
+        return; // 完成后直接返回，不由后续逻辑处理
       }
 
-      // 获取 Segments 状态 (用于 PRD 判断：Segment 1 完成即可播放)
+      // 获取 Segments
       let currentSegments = [];
       try {
         currentSegments = await subtitleService.getEpisodeSegments(targetId);
         setSegments(currentSegments || []);
-      } catch (segmentsError) {
-        // 如果获取 segment 失败，使用旧的逻辑
-        // 注意：即使 segment 获取失败，也要继续执行后续的状态机逻辑
-        // 因为 episode 状态已经设置，轮询需要能够正常工作
+      } catch (err) {
         setSegments([]);
-        if (data.transcription_status === 'processing' || data.transcription_status === 'pending') {
-          setProcessingState('recognize');
-          // 使用 transcription_progress，不启动前端模拟进度条
-          setProgress(data.transcription_progress || 0);
-          // 根据转录状态更新暂停状态
-          if (data.transcription_status === 'processing') {
-            setIsPaused(false);
-          } else if (data.transcription_status === 'pending') {
-            setIsPaused(true);
-          }
-        } else if (data.transcription_status === 'completed') {
-          if (data.cues && data.cues.length > 0) {
-            setProcessingState(null);
-            setProgress(0);
-            stopFakeProgress();
-            setIsPaused(false);
-          }
-        }
-        // 不 return，继续执行后续逻辑，确保轮询能够正常工作
-        // 但由于没有 segments，后续的状态机逻辑会使用空的 currentSegments
-        // 所以需要在这里处理完所有逻辑后 return
-        return;
       }
 
-      // --- 状态机逻辑 (PRD 6.1.2) ---
       const status = data.transcription_status;
-      const hasCues = data.cues && data.cues.length > 0;
       const firstSegment = Array.isArray(currentSegments) && currentSegments.length > 0
         ? currentSegments.find(s => s.segment_index === 0) 
         : null;
       const firstSegmentDone = firstSegment?.status === 'completed';
 
-      if (status === 'completed') {
-        // 如果已有字幕数据，已经在上面清除了，跳过
-        if (!hasCues) {
-          // 如果没有字幕数据，检查 segment 状态
-          // 关键修复：如果刚刚 navigate，即使转录完成，也保持 'recognize' 状态，避免闪烁
-          if (firstSegmentDone && !shouldKeepRecognizeAfterNavigate) {
-            // 第一段已完成，隐藏 ProcessingOverlay
-            setProcessingState(null);
-            setProgress(0);
-            stopFakeProgress();
-            setIsPaused(false);
-          } else if (!shouldKeepRecognizeAfterNavigate) {
-            // 如果转录完成但没有字幕数据且第一段未完成，清除状态
-            setProcessingState(null);
-            setProgress(0);
-          }
-        }
-      } else if (status === 'processing' || status === 'pending') {
-        // 根据转录状态更新暂停状态
-        if (status === 'processing') {
-          setIsPaused(false);
-        } else if (status === 'pending') {
-          setIsPaused(true);
-        }
+      // 状态机逻辑
+      if (status === 'processing' || status === 'pending') {
+        if (status === 'processing') setIsPaused(false);
+        else if (status === 'pending') setIsPaused(true);
         
-        // 关键修复：如果刚刚 navigate（2秒内），即使第一段已完成，也保持 'recognize' 状态
-        // 避免在 navigate 后立即清除 Overlay，导致页面闪烁
-        const timeSinceNavigate = navigateTimeRef.current ? Date.now() - navigateTimeRef.current : Infinity;
         const shouldKeepRecognize = justNavigatedRef.current && firstSegmentDone && timeSinceNavigate < 2000;
         
-        // 检查第一段是否完成，如果完成则隐藏 ProcessingOverlay
+        // 如果第一段已完成，隐藏遮罩让用户开始播放
         if (firstSegmentDone && !shouldKeepRecognize) {
-          // 第一段已完成，隐藏 ProcessingOverlay
           setProcessingState(null);
           setProgress(0);
           stopFakeProgress();
         } else {
-          // 第一段未完成，或者刚刚 navigate，显示 ProcessingOverlay
+          // 第一段未完成，或者为了防闪烁保持显示
           setProcessingState('recognize');
-          setProgress(0);
-          
-          // 启动前端模拟进度条（如果还没有启动）
-          if (!progressIntervalRef.current) {
+          // 如果后端有真实进度，优先使用
+          if (data.transcription_progress > 0) {
+             stopFakeProgress(); // 停止模拟
+             setProgress(data.transcription_progress);
+          } else if (!progressIntervalRef.current && progress === 0) {
+            // 否则启动模拟
             const segmentDuration = firstSegment ? firstSegment.duration : 180;
-            // 识别时间 = segment001时长 * 0.1
-            const recognitionDuration = segmentDuration * 0.1 * 1000;
-            startFakeProgress(recognitionDuration);
+            startFakeProgress(segmentDuration * 0.1 * 1000);
           }
         }
         
-        // 关键修复：延迟清除 navigate 标记
-        // 在 navigate 后 2 秒内，即使第一段已完成，也保持 'recognize' 状态
-        // 这样可以避免在 navigate 后立即清除 Overlay，导致页面闪烁
-        if (justNavigatedRef.current) {
-          const timeSinceNavigate = navigateTimeRef.current ? Date.now() - navigateTimeRef.current : Infinity;
-          if (timeSinceNavigate >= 2000) {
-            // 已经过了 2 秒，可以安全清除标记
-            justNavigatedRef.current = false;
-            navigateTimeRef.current = null;
-          }
+        if (justNavigatedRef.current && timeSinceNavigate >= 2000) {
+          justNavigatedRef.current = false;
+          navigateTimeRef.current = null;
         }
+      } else if (status === 'failed') {
+        // 如果是失败状态，停止进度条，但 Overlay 保持显示（由 ProcessingOverlay 的 error 属性控制）
+        // 这里不需要 setProcessingState(null)，因为我们需要显示错误信息
+        stopFakeProgress();
       }
 
     } catch (err) {
       setError(err);
+      setLoading(false);
     } finally {
-      if (isInitial) {
-        setLoading(false);
-      }
+      if (isInitial) setLoading(false);
     }
   }, [startFakeProgress, stopFakeProgress]);
 
-  // --- Effect: 首次加载和 URL 参数变化 ---
+  // --- Effect: 首次加载 ---
   useEffect(() => {
-    if (!episodeId) {
-      return;
-    }
-
-    // 立即执行一次
+    if (!episodeId) return;
     fetchEpisodeData(episodeId, true);
   }, [episodeId, fetchEpisodeData]);
 
-  // --- Effect: 轮询逻辑（当 episode 状态为 processing/pending 时） ---
+  // --- Effect: 轮询逻辑 ---
   useEffect(() => {
-    if (!episode) {
-      return;
-    }
+    if (!episode) return;
 
-    // 如果转录完成，清除 ProcessingOverlay（fetchEpisodeData 中已处理，这里再次确认）
-    if (episode.transcription_status === 'completed') {
-      // 清除轮询
+    // 只要不是 completed，且不是 failed (failed 由用户手动重试触发)，就持续轮询
+    // 关键：防止 failed 状态下轮询导致的 UI 闪烁
+    const shouldPoll = 
+      episode.transcription_status === 'processing' || 
+      episode.transcription_status === 'pending';
+
+    if (shouldPoll) {
+      if (!pollIntervalRef.current) {
+        pollIntervalRef.current = setInterval(() => {
+          fetchEpisodeData(episodeId, false);
+        }, 3000);
+      }
+    } else {
+      // 停止轮询
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
-      }
-      return;
-    }
-
-    // 如果正在转录，启动轮询（状态已由 fetchEpisodeData 设置）
-    if (episode.transcription_status === 'processing' || episode.transcription_status === 'pending') {
-      // 清除旧轮询
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
       }
       
-      // 启动新轮询（每 3 秒）
-      pollIntervalRef.current = setInterval(() => {
-        fetchEpisodeData(episodeId, false);
-      }, 3000);
-
-      return () => {
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
+      // 只有在 completed 时才关闭遮罩，failed 时保持遮罩以显示错误
+      if (episode.transcription_status === 'completed') {
+        // 再次检查 cues，确保数据完整
+        if (episode.cues && episode.cues.length > 0) {
+            setProcessingState(null);
         }
-      };
-    } else {
-      // 其他状态（如 failed），清除 ProcessingOverlay 和轮询
-      setProcessingState(null);
-      setProgress(0);
-      stopFakeProgress();
+      }
+    }
+
+    return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
-    }
-  }, [episode, episodeId, fetchEpisodeData, stopFakeProgress]);
-
-  // --- Effect: 页面加载时恢复未完成的 segment ---
-  useEffect(() => {
-    if (!episodeId || !episode) {
-      return;
-    }
-    
-    const checkAndRecover = async () => {
-      try {
-        const segmentsData = await subtitleService.getEpisodeSegments(episodeId);
-        if (!Array.isArray(segmentsData)) {
-          return;
-        }
-        const incompleteSegments = segmentsData.filter(
-          s => s.status === 'pending' || (s.status === 'failed' && s.retry_count < 3)
-        );
-        
-        if (incompleteSegments.length > 0) {
-          await subtitleService.recoverIncompleteSegments(episodeId);
-        }
-      } catch (err) {
-        // 恢复失败不影响主流程
-      }
     };
-    
-    if (episode.transcription_status === 'processing' || episode.transcription_status === 'pending') {
-      checkAndRecover();
-    }
-  }, [episodeId, episode]);
+  }, [episode, episodeId, fetchEpisodeData]);
 
-  // --- Action: 上传文件 ---
+  // --- 恢复未完成任务 ---
+  useEffect(() => {
+    if (!episodeId || !episode) return;
+    
+    // 只有明确是处理中状态才去尝试恢复
+    if (episode.transcription_status === 'processing' || episode.transcription_status === 'pending') {
+        const checkAndRecover = async () => {
+            try {
+                const segmentsData = await subtitleService.getEpisodeSegments(episodeId);
+                if (!Array.isArray(segmentsData)) return;
+                
+                const incompleteSegments = segmentsData.filter(
+                s => s.status === 'pending' || (s.status === 'failed' && s.retry_count < 3)
+                );
+                
+                if (incompleteSegments.length > 0) {
+                await subtitleService.recoverIncompleteSegments(episodeId);
+                }
+            } catch (err) { }
+        };
+        checkAndRecover();
+    }
+  }, [episodeId, episode]); // 依赖项保持
+
+  // --- Action: 上传 ---
   const handleUpload = useCallback(async (files) => {
     const { audioFile, enableTranscription } = files;
     
-    // 关键修复：如果启用了字幕识别，立即设置 processingState 为 'recognize'
-    // 这样在 navigate 之前，旧页面也能显示 Overlay，避免闪烁
     if (enableTranscription) {
       setProcessingState('recognize');
       setProgress(0);
@@ -337,115 +250,76 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
     }
 
     try {
-      // 1. 估算时长用于进度条 (PRD: 上传时间 = 0.1 * 音频时长)
       let duration = 180;
-      try {
-        duration = await readAudioDuration(audioFile);
-      } catch (e) {
-        // 使用默认值
-      }
-      
+      try { duration = await readAudioDuration(audioFile); } catch (e) {}
       startFakeProgress(duration * 0.1 * 1000);
 
-      // 2. 执行上传
       const title = audioFile.name.replace(/\.[^/.]+$/, '');
       const response = await episodeService.uploadEpisode(audioFile, title, null);
 
-      // 3. 上传完成
       setProgress(100);
       stopFakeProgress();
 
-      // 4. 处理跳转或状态更新
       const newId = response.episode_id.toString();
       localStorage.setItem(LOCAL_STORAGE_KEY, newId);
       
       const transcriptionStatus = response.status || response.transcription_status;
       
       if (response.is_duplicate && newId === episodeId) {
-        // 重复且相同，直接刷新状态
         fetchEpisodeData(newId, false);
       } else {
-        // 新文件或不同文件，需要跳转
-        // 关键修复：先设置 processingState，确保 Overlay 能立即显示
-        // 然后再清空旧状态和设置新状态，避免页面闪烁
         if (transcriptionStatus === 'processing' || transcriptionStatus === 'pending') {
-          // 先设置 processingState 为 'recognize'，确保 Overlay 立即显示
           setProcessingState('recognize');
-          setProgress(0);
-        } else if (transcriptionStatus === 'completed') {
-          setProcessingState(null);
           setProgress(0);
         } else {
           setProcessingState(null);
           setProgress(0);
         }
         
-        // 然后设置新的 episodeId（这会触发组件重新渲染，但此时 processingState 已经设置好了）
         setEpisodeId(newId);
-        
-        // 最后清空旧状态（此时 Overlay 已经显示，不会导致闪烁）
         setEpisode(null);
         setAudioUrl(null);
-        // 设置 navigate 标记和时间戳，避免在 navigate 后立即清除 Overlay
         justNavigatedRef.current = true;
         navigateTimeRef.current = Date.now();
-        
-        // 最后调用 navigate
         navigate(`/episodes/${newId}`, { replace: true });
       }
 
     } catch (err) {
       stopFakeProgress();
       setProcessingError(err.response?.data?.detail || err.message || '上传失败');
-      // 保持 upload 状态让用户重试
     }
   }, [episodeId, navigate, startFakeProgress, stopFakeProgress, fetchEpisodeData]);
 
-  // --- Action: 暂停/继续识别 ---
+  // --- Action: 暂停/继续 ---
   const togglePause = useCallback(async () => {
-    if (!episodeId) {
-      return;
-    }
+    if (!episodeId) return;
     try {
       if (isPaused) {
-        // 当前已暂停，点击继续（重新开始识别）
-        // 清除之前的错误状态
         setProcessingError(null);
         setProcessingState('recognize');
+        // 乐观更新状态
+        setEpisode(prev => ({ ...prev, transcription_status: 'pending' }));
         
         await subtitleService.restartTranscription(episodeId);
         setIsPaused(false);
         setProgress(0);
         
-        // 重新启动进度条模拟
-        try {
-          const segmentsData = await subtitleService.getEpisodeSegments(episodeId);
-          const firstSegment = Array.isArray(segmentsData) 
-            ? segmentsData.find(s => s.segment_index === 0) 
-            : null;
-          const segmentDuration = firstSegment ? firstSegment.duration : 180;
-          const recognitionDuration = segmentDuration * 0.1 * 1000;
-          startFakeProgress(recognitionDuration);
-        } catch (err) {
-          // 如果获取 segment 失败，使用默认值
-          startFakeProgress(18000);
-        }
+        // 重新启动模拟
+        startFakeProgress(18000); 
       } else {
-        // 当前正在识别，点击暂停（取消识别任务）
         await subtitleService.cancelTranscription(episodeId);
         setIsPaused(true);
         stopFakeProgress();
+        // 乐观更新
+        setEpisode(prev => ({ ...prev, transcription_status: 'pending' }));
       }
     } catch (err) {
-      setProcessingError(err.response?.data?.detail || err.message || '操作失败，请重试');
-      // 确保状态正确
-      setProcessingState('recognize');
+      setProcessingError(err.response?.data?.detail || err.message || '操作失败');
     }
-  }, [episodeId, isPaused, startFakeProgress, stopFakeProgress, processingState]);
+  }, [episodeId, isPaused, startFakeProgress, stopFakeProgress]);
 
-  // --- 初始化检查 (localStorage 和 URL 参数) ---
+  // --- 初始化检查 ---
   useEffect(() => {
-    // 如果有 URL 参数，使用 URL 参数
     if (urlEpisodeId) {
       if (urlEpisodeId !== episodeId) {
         setEpisode(null);
@@ -453,12 +327,8 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
         setLoading(true);
         setEpisodeId(urlEpisodeId);
       }
-    } 
-    // 如果没有 URL 参数，检查 localStorage
-    else {
+    } else {
       const savedEpisodeId = localStorage.getItem(LOCAL_STORAGE_KEY);
-      
-      // 如果有保存的 episodeId，自动加载
       if (savedEpisodeId) {
         setEpisodeId(savedEpisodeId);
         navigate(`/episodes/${savedEpisodeId}`, { replace: true });
@@ -468,7 +338,7 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
     }
   }, [urlEpisodeId, navigate, episodeId]);
 
-  // --- Action: 重试加载 Episode ---
+  // --- Action: 重试 Fetch ---
   const retryFetch = useCallback(() => {
     if (episodeId) {
       setError(null);
@@ -476,39 +346,45 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
     }
   }, [episodeId, fetchEpisodeData]);
 
-  // --- Action: 重试字幕识别 ---
+  // ==================== 关键修复：重试识别逻辑 ====================
+// ... (保留前面的代码)
+
+  // --- Action: 重试识别逻辑 ---
   const retryTranscription = useCallback(async () => {
-    if (!episodeId) {
-      return;
-    }
+    if (!episodeId) return;
     try {
-      // 清除错误状态
+      // 1. UI 状态立即重置
       setProcessingError(null);
       setProcessingState('recognize');
       setIsPaused(false);
       setProgress(0);
       
-      // 重新开始识别
+      // 2. [关键修复] 清空旧的 segments 数据
+      // 防止 fetchEpisodeData 读到旧的 'completed' 状态从而误判关闭遮罩
+      setSegments([]); 
+      
+      // 3. 乐观更新本地数据状态
+      setEpisode(prev => ({
+        ...prev,
+        transcription_status: 'pending'
+      }));
+      
+      // 4. 调用后端接口
       await subtitleService.restartTranscription(episodeId);
       
-      // 重新启动进度条模拟
-      try {
-        const segmentsData = await subtitleService.getEpisodeSegments(episodeId);
-        const firstSegment = Array.isArray(segmentsData) 
-          ? segmentsData.find(s => s.segment_index === 0) 
-          : null;
-        const segmentDuration = firstSegment ? firstSegment.duration : 180;
-        const recognitionDuration = segmentDuration * 0.1 * 1000;
-        startFakeProgress(recognitionDuration);
-      } catch (err) {
-        // 如果获取 segment 失败，使用默认值
-        startFakeProgress(18000);
-      }
+      // 5. 重启进度条模拟
+      // 这里的 try-catch 可以简化，因为我们刚清空了 segments，
+      // 不需要立即去 fetch，直接用默认值跑一会进度条，等轮询更新
+      startFakeProgress(18000); 
+
     } catch (err) {
       setProcessingError(err.response?.data?.detail || err.message || '重试失败，请稍后再试');
+      // 出错时保持在 recognize 状态，以便显示 Overlay 中的错误信息
       setProcessingState('recognize');
     }
-  }, [episodeId, isPaused, processingError, startFakeProgress]);
+  }, [episodeId, startFakeProgress]);
+
+  // ==============================================================
 
   return {
     state: {
@@ -527,13 +403,10 @@ export const useEpisodeWorkflow = (urlEpisodeId) => {
     },
     actions: {
       upload: handleUpload,
-      retryUpload: () => {
-        setProcessingError(null);
-      },
+      retryUpload: () => setProcessingError(null),
       retryFetch,
       togglePause,
       retryTranscription
     }
   };
 };
-
