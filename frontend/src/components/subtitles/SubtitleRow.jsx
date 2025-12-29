@@ -367,7 +367,7 @@ const SubtitleRow = forwardRef(function SubtitleRow({
           variant="body1"
           component="div"
           sx={{
-            fontSize: '15px',
+            fontSize: '1rem',
             fontWeight: isHighlighted ? 500 : 400,
             lineHeight: 1.5,
             wordWrap: 'break-word', // 确保长单词可以换行
