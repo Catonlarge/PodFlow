@@ -2,7 +2,10 @@ import axios from 'axios';
 
 // API 基础配置
 // 优先使用环境变量，否则使用默认值
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+// 1. 保留你的环境变量判断，这是最稳健的写法
+//    如果 .env 没配，默认回退到 localhost:8000
+const  API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 
 const api = axios.create({
   baseURL: API_BASE_URL, // 后端 API 地址
@@ -11,6 +14,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
 
 // 请求拦截器
 api.interceptors.request.use(
@@ -64,6 +68,31 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+api.getEpisodes = async () => {
+  try {
+    // 2. 【核心修改】这里必须手动写 '/api/episodes'
+    // 因为上面的 baseURL 里没有 '/api'，所以这里要补上
+    const res = await api.get('/api/episodes');
+    
+    // 检查 items
+    if (res && res.items && Array.isArray(res.items)) {
+      return res.items;
+    }
+    
+    // 容错：直接返回数组
+    if (Array.isArray(res)) {
+      return res;
+    }
+
+    console.warn('[API] 数据格式异常:', res);
+    return [];
+
+  } catch (error) {
+    console.error('[API] 获取列表失败:', error);
+    return []; 
+  }
+};
 
 export default api;
 
