@@ -25,6 +25,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 # Gemini API Key（可选）
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
+# Moonshot API Key（defualt）
+MOONSHOT_API_KEY = os.getenv("MOONSHOT_API_KEY", "")
+
+
 # ==================== 音频分段配置 ====================
 
 # 分段时长（秒）
@@ -60,10 +64,11 @@ MAX_FILE_SIZE = 1024 * 1024 * 1024  # 1GB
 # ==================== AI 查询配置 ====================
 
 # 默认 AI 提供商
-DEFAULT_AI_PROVIDER = "gemini-2.5-flash"
+DEFAULT_AI_PROVIDER = "kimi-k2-0905-preview"
 
 # 可选提供商列表
 AVAILABLE_PROVIDERS = [
+    "kimi-k2-0905-preview",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
     "gpt-3.5-turbo",
