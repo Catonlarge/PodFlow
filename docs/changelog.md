@@ -4,6 +4,23 @@
 
 ---
 
+## [2025-01-XX] [Fix] - 修复 SubtitleList 中 virtualItem.measureElement 错误
+
+**问题描述**：
+- `SubtitleList.jsx:1978` 报错：`virtualItem.measureElement is not a function`
+- 代码错误地尝试在 `virtualItem` 对象上调用 `measureElement` 方法
+
+**修复内容**：
+- **SubtitleList.jsx**：将 `virtualItem.measureElement(parentElement)` 改为 `virtualizer.measureElement(parentElement)`
+- `measureElement` 方法应该从 `virtualizer` 对象调用，而不是从 `virtualItem` 对象
+
+**技术要点**：
+- `@tanstack/react-virtual` 的 API 中，`virtualItem` 对象不包含 `measureElement` 方法
+- 手动触发元素测量应使用 `virtualizer.measureElement(element)`
+- 虚拟化器已配置自动测量，手动调用主要用于元素内容变化导致高度变化的情况
+
+---
+
 ## [2025-12-29] [Style] - 调整英文字幕字体大小
 
 **问题描述**：

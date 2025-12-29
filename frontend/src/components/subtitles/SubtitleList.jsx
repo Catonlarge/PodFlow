@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Box, IconButton, Button, Skeleton, Typography, LinearProgress, Stack, Snackbar, Alert } from '@mui/material';
 import { Translate as TranslateIcon, Refresh } from '@mui/icons-material';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import SubtitleRow from './SubtitleRow';
 import SelectionMenu from './SelectionMenu';
 import DeleteButton from './DeleteButton';
@@ -1261,7 +1262,22 @@ export default function SubtitleList({
   }, [cues]);
 
   /**
-   * 创建字幕行的 ref 回调
+   * 虚拟滚动器
+   * 只渲染可视区域内的字幕行，大幅减少DOM节点数量
+   */
+  const virtualizer = useVirtualizer({
+    count: processedItems.length,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => 80, // 估算每行高度（可根据实际情况调整）
+    overscan: 5, // 渲染可视区域外额外的行数（提升滚动体验）
+    measureElement: (element) => {
+      // 动态测量元素高度，处理字幕行高度不一致的情况
+      return element?.getBoundingClientRect().height ?? 80;
+    },
+  });
+
+  /**
+   * 创建字幕行的 ref 回调（适配虚拟滚动）
    */
   const createSubtitleRef = useCallback((index) => {
     return (element) => {
@@ -1274,7 +1290,7 @@ export default function SubtitleList({
   }, [registerSubtitleRef]);
 
   /**
-   * 自动滚动到当前播放的字幕
+   * 自动滚动到当前播放的字幕（适配虚拟滚动）
    * 根据 PRD 6.2.4.1：
    * - 如果用户在界面上没有进行任何操作（如点击、滚动等），当高亮字幕在不可见区域时，自动滚动，让高亮字幕保持在屏幕上1/3处
    * - 如果用户使用滚轮操作屏幕，则停止滚动，用户鼠标没有动作之后5s，重新回到滚动状态
@@ -1292,53 +1308,73 @@ export default function SubtitleList({
       return;
     }
 
-    if (currentSubtitleIndex !== null && containerRef.current) {
-      const ref = subtitleRefs.current[currentSubtitleIndex];
-      if (ref && ref.current) {
-        const element = ref.current;
-        const container = containerRef.current;
-        const elementRect = element.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
+    if (currentSubtitleIndex !== null && containerRef.current && processedItems.length > 0) {
+      // 找到当前字幕在 processedItems 中的索引
+      // processedItems 包含 speaker 标签和字幕行，需要找到对应的字幕行索引
+      let targetItemIndex = null;
+      for (let i = 0; i < processedItems.length; i++) {
+        const item = processedItems[i];
+        if (item.type === 'subtitle' && item.index === currentSubtitleIndex) {
+          targetItemIndex = i;
+          break;
+        }
+      }
 
-        // 检查元素是否完全在可见区域内
-        // 元素在可见区域：元素的顶部 >= 容器的顶部 && 元素的底部 <= 容器的底部
-        const isInViewport = 
-          elementRect.top >= containerRect.top && 
-          elementRect.bottom <= containerRect.bottom;
+      if (targetItemIndex !== null) {
+        // 检查该虚拟项是否在可视区域内
+        const virtualItem = virtualizer.getVirtualItems().find(
+          (item) => item.index === targetItemIndex
+        );
 
-        // 调试信息
-        const containerScrollTop = container.scrollTop;
-        const containerHeight = container.clientHeight;
-        const containerWidth = container.clientWidth;
-        const elementTopRelativeToContainer = elementRect.top - containerRect.top + containerScrollTop;
-        const elementHeight = elementRect.height;
-        
-        const scrollingRef = externalIsUserScrollingRef || internalIsUserScrollingRef;
-
-        // 只有当高亮字幕不在可见区域时，才自动滚动
-        if (!isInViewport) {
-          // 计算元素相对于滚动容器的位置
-          // 使用 getBoundingClientRect 获取相对于视口的位置，然后加上容器的 scrollTop
-          
-          // 滚动到屏幕上1/3处（让元素顶部距离容器顶部为容器高度的1/3）
-          // 这样高亮字幕会显示在屏幕上半部分，更符合用户预期
-          const scrollTarget = elementTopRelativeToContainer - containerHeight / 3;
-          const finalScrollTarget = Math.max(0, scrollTarget);
-
-          container.scrollTo({
-            top: finalScrollTarget,
+        if (!virtualItem) {
+          // 不在可视区域内，使用虚拟滚动器的 scrollToIndex 方法滚动
+          // 先滚动到该索引，然后手动调整到1/3位置
+          virtualizer.scrollToIndex(targetItemIndex, {
+            align: 'start',
             behavior: 'smooth',
           });
-        } else {
-          // 即使在可见区域内，也记录当前位置信息，帮助调试
-          const currentPositionRatio = (elementRect.top - containerRect.top) / containerHeight;
-          const expectedPositionRatio = 1 / 3;
-          const positionDiff = currentPositionRatio - expectedPositionRatio;
           
+          // 延迟调整位置到1/3处（等待滚动完成）
+          setTimeout(() => {
+            const container = containerRef.current;
+            if (container) {
+              const containerHeight = container.clientHeight;
+              const itemOffset = virtualizer.getOffset(targetItemIndex, 'start');
+              const scrollTarget = itemOffset - containerHeight / 3;
+              container.scrollTo({
+                top: Math.max(0, scrollTarget),
+                behavior: 'smooth',
+              });
+            }
+          }, 100);
+        } else {
+          // 在可视区域内，检查是否需要微调位置到1/3处
+          const container = containerRef.current;
+          if (container) {
+            const containerRect = container.getBoundingClientRect();
+            const element = subtitleRefs.current[currentSubtitleIndex]?.current;
+            if (element) {
+              const elementRect = element.getBoundingClientRect();
+              const currentPositionRatio = (elementRect.top - containerRect.top) / containerRect.height;
+              const expectedPositionRatio = 1 / 3;
+              const positionDiff = Math.abs(currentPositionRatio - expectedPositionRatio);
+              
+              // 如果位置偏差较大（>10%），进行微调
+              if (positionDiff > 0.1) {
+                const containerHeight = containerRect.height;
+                const itemOffset = virtualizer.getOffset(targetItemIndex, 'start');
+                const scrollTarget = itemOffset - containerHeight / 3;
+                container.scrollTo({
+                  top: Math.max(0, scrollTarget),
+                  behavior: 'smooth',
+                });
+              }
+            }
+          }
         }
       }
     }
-      }, [currentSubtitleIndex, containerRef, externalIsUserScrollingRef, isInteracting]);
+  }, [currentSubtitleIndex, containerRef, externalIsUserScrollingRef, isInteracting, processedItems, virtualizer]);
 
   // 滚动触发异步加载逻辑
   // 性能优化：只加载下一个segment的字幕，追加到现有列表，而不是重新加载全部
@@ -1846,7 +1882,7 @@ export default function SubtitleList({
         </IconButton>
       </Box>
 
-      {/* 字幕列表容器 */}
+      {/* 字幕列表容器（虚拟滚动） */}
       <Box
         ref={internalContainerRef}
         onScroll={scrollContainerRef ? undefined : handleScroll}
@@ -1857,69 +1893,118 @@ export default function SubtitleList({
           overflowY: scrollContainerRef ? 'visible' : 'auto',
           overflowX: 'hidden',
           boxSizing: 'border-box',
+          position: 'relative',
         }}
       >
-        {processedItems.map((item) => {
-          if (item.type === 'speaker') {
-            // 渲染 speaker 标签行
-            return (
-              <SubtitleRow
-                key={`speaker-${item.cue.id}`}
-                cue={item.cue}
-                index={item.index}
-                isHighlighted={false}
-                isPast={false}
-                showSpeaker={true}
-              />
-            );
-          } else {
-            // 渲染字幕行
-            const isHighlighted = currentSubtitleIndex === item.index;
-            const isPast = currentSubtitleIndex !== null && item.index < currentSubtitleIndex;
-
-            // 计算单词高亮进度 (0 到 1 之间的小数)
-            let progress = 0;
-            if (isPast) {
-              progress = 1; // 过去的时间，全亮
-            } else if (isHighlighted) {
-              // 当前行：计算线性进度
-              const cueDuration = item.cue.end_time - item.cue.start_time;
-              if (cueDuration > 0) {
-                // 限制在 0-1 之间
-                progress = Math.min(1, Math.max(0, (currentTime - item.cue.start_time) / cueDuration));
-              }
-            }
-            // 未来的行 progress 默认为 0
-
-            // 获取当前 cue 的 highlights
-            const cueHighlights = effectiveHighlights.filter(h => h.cue_id === item.cue.id);
-
-            // 判断当前 cue 是否被选中
-            const isSelected = affectedCues.some(ac => ac.cue.id === item.cue.id);
+        {/* 虚拟滚动容器 */}
+        <Box
+          sx={{
+            height: `${virtualizer.getTotalSize()}px`,
+            width: '100%',
+            position: 'relative',
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualItem) => {
+            const item = processedItems[virtualItem.index];
             
-            // 获取当前 cue 的选择范围信息
-            const cueSelectionRange = affectedCues.find(ac => ac.cue.id === item.cue.id) || null;
+            // 边界检查：确保 item 存在
+            if (!item) {
+              return null;
+            }
+            
+            if (item.type === 'speaker') {
+              // 渲染 speaker 标签行
+              return (
+                <Box
+                  key={`speaker-${item.cue.id}`}
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                >
+                  <SubtitleRow
+                    cue={item.cue}
+                    index={item.index}
+                    isHighlighted={false}
+                    isPast={false}
+                    showSpeaker={true}
+                  />
+                </Box>
+              );
+            } else {
+              // 渲染字幕行
+              const isHighlighted = currentSubtitleIndex === item.index;
+              const isPast = currentSubtitleIndex !== null && item.index < currentSubtitleIndex;
 
-            return (
-              <SubtitleRow
-                key={`subtitle-${item.cue.id}`}
-                ref={createSubtitleRef(item.index)}
-                cue={item.cue}
-                index={item.index}
-                isHighlighted={isHighlighted}
-                isPast={isPast}
-                onClick={onCueClick}
-                showSpeaker={false}
-                showTranslation={showTranslation}
-                progress={progress}
-                highlights={cueHighlights}
-                onHighlightClick={handleHighlightClick}
-                isSelected={isSelected}
-                selectionRange={cueSelectionRange}
-              />
-            );
-          }
-        })}
+              // 计算单词高亮进度 (0 到 1 之间的小数)
+              let progress = 0;
+              if (isPast) {
+                progress = 1; // 过去的时间，全亮
+              } else if (isHighlighted) {
+                // 当前行：计算线性进度
+                const cueDuration = item.cue.end_time - item.cue.start_time;
+                if (cueDuration > 0) {
+                  // 限制在 0-1 之间
+                  progress = Math.min(1, Math.max(0, (currentTime - item.cue.start_time) / cueDuration));
+                }
+              }
+              // 未来的行 progress 默认为 0
+
+              // 获取当前 cue 的 highlights
+              const cueHighlights = effectiveHighlights.filter(h => h.cue_id === item.cue.id);
+
+              // 判断当前 cue 是否被选中
+              const isSelected = affectedCues.some(ac => ac.cue.id === item.cue.id);
+              
+              // 获取当前 cue 的选择范围信息
+              const cueSelectionRange = affectedCues.find(ac => ac.cue.id === item.cue.id) || null;
+
+              return (
+                <Box
+                  key={`subtitle-${item.cue.id}`}
+                  data-index={virtualItem.index}
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                >
+                  <SubtitleRow
+                    ref={(element) => {
+                      // 测量元素高度（使用外层 Box 的高度）
+                      if (element) {
+                        const parentElement = element.closest('[data-index]');
+                        if (parentElement) {
+                          // 使用 virtualizer 的 measureElement 方法手动触发测量
+                          virtualizer.measureElement(parentElement);
+                        }
+                        // 注册 ref
+                        createSubtitleRef(item.index)(element);
+                      }
+                    }}
+                    cue={item.cue}
+                    index={item.index}
+                    isHighlighted={isHighlighted}
+                    isPast={isPast}
+                    onClick={onCueClick}
+                    showSpeaker={false}
+                    showTranslation={showTranslation}
+                    progress={progress}
+                    highlights={cueHighlights}
+                    onHighlightClick={handleHighlightClick}
+                    isSelected={isSelected}
+                    selectionRange={cueSelectionRange}
+                  />
+                </Box>
+              );
+            }
+          })}
+        </Box>
       </Box>
       
       {/* 底部状态提示区域（后续静默识别） */}
