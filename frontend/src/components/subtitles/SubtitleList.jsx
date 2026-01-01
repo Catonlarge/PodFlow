@@ -1663,6 +1663,33 @@ useEffect(() => {
     };
   }, [scrollContainerRef]);
 
+    // === ⚡️ 性能优化 START: 预先计算查找表 ===
+  // 1. 将 highlights 转换为 Map (高效字典)
+  const highlightsMap = useMemo(() => {
+    const map = new Map();
+    if (!effectiveHighlights) return map;
+    
+    effectiveHighlights.forEach(h => {
+      if (!map.has(h.cue_id)) {
+        map.set(h.cue_id, []);
+      }
+      map.get(h.cue_id).push(h);
+    });
+    return map;
+  }, [effectiveHighlights]);
+
+  // 2. 将选中的文本转换为 Map (高效字典)
+  const selectedCuesMap = useMemo(() => {
+    const map = new Map();
+    if (!affectedCues) return map;
+
+    affectedCues.forEach(ac => {
+      map.set(ac.cue.id, ac);
+    });
+    return map;
+  }, [affectedCues]);
+  // === ⚡️ 性能优化 END ===  
+
   // Loading 状态：显示 Skeleton
   if (isLoading) {
     return (
@@ -1865,33 +1892,6 @@ useEffect(() => {
       </Box>
     );
   }
-
-  // === ⚡️ 性能优化 START: 预先计算查找表 ===
-  // 1. 将 highlights 转换为 Map (高效字典)
-  const highlightsMap = useMemo(() => {
-    const map = new Map();
-    if (!effectiveHighlights) return map;
-    
-    effectiveHighlights.forEach(h => {
-      if (!map.has(h.cue_id)) {
-        map.set(h.cue_id, []);
-      }
-      map.get(h.cue_id).push(h);
-    });
-    return map;
-  }, [effectiveHighlights]);
-
-  // 2. 将选中的文本转换为 Map (高效字典)
-  const selectedCuesMap = useMemo(() => {
-    const map = new Map();
-    if (!affectedCues) return map;
-
-    affectedCues.forEach(ac => {
-      map.set(ac.cue.id, ac);
-    });
-    return map;
-  }, [affectedCues]);
-  // === ⚡️ 性能优化 END ===  
 
 
   // 如果没有字幕数据，显示占位内容

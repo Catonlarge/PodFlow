@@ -4,7 +4,7 @@ import axios from 'axios';
 // 优先使用环境变量，否则使用默认值
 // 1. 保留你的环境变量判断，这是最稳健的写法
 //    如果 .env 没配，默认回退到 localhost:8000
-const  API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const  API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
 
 const api = axios.create({

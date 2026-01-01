@@ -188,7 +188,7 @@ const SubtitleRow = forwardRef(function SubtitleRow({
     return parts;
   }, [cue, highlights, selectionRange, getWordRangeForTextPart, tokenizeContent]);
 
-  if (!cue) return null;
+
 
   // --- 事件处理函数 (保持不变) ---
   const handleMouseDown = useCallback((e) => {
@@ -216,7 +216,9 @@ const SubtitleRow = forwardRef(function SubtitleRow({
       mouseDownPositionRef.current = null;
       isDraggingRef.current = false;
     }
-  }, [onClick, cue.start_time]);
+  }, [onClick, cue?.start_time]);
+
+  if (!cue) return null;
 
   // --- 渲染部分 ---
 

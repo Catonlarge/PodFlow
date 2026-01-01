@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 PodFlow FastAPI 应用入口
 
@@ -124,6 +125,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",  # Vite 开发服务器
         "http://127.0.0.1:5173",  # Vite 开发服务器（IP 形式）
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -159,7 +162,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     
     # 手动添加 CORS 头（确保即使中间件失效也能工作）
     origin = request.headers.get("origin")
-    if origin and origin in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+    if origin and origin in ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8000", "http://127.0.0.1:8000"]:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
     
@@ -184,7 +187,7 @@ sample_audio_path.mkdir(parents=True, exist_ok=True)
 logger.info(f"[System] 示例音频静态文件服务路径: {sample_audio_path}")
 app.mount("/static/sample_audio", StaticFiles(directory=str(sample_audio_path)), name="sample_audio")
 
-
+'''
 @app.get("/")
 def read_root():
     """根路径，健康检查"""
@@ -192,7 +195,7 @@ def read_root():
         "message": "PodFlow 后端连接成功！Whisper 引擎就绪。",
         "status": "running"
     }
-
+'''
 
 @app.get("/health")
 def health_check():
@@ -223,6 +226,44 @@ def health_check():
             "status": "unhealthy",
             "error": str(e)
         }
+
+# ========================================================
+# 🚀 前端静态页面托管逻辑 (适配实际路径结构)
+# ========================================================
+
+# 1. 计算前端 dist 目录的路径
+# 路径逻辑：
+# __file__ 是 ...\backend\app\main.py
+# .parent 是 ...\backend\app
+# .parent.parent 是 ...\backend
+# .parent.parent.parent 是 ...\learning-EnglishPod3 (项目根目录)
+project_root = Path(__file__).parent.parent.parent
+frontend_dist_path = (project_root / "frontend" / "dist").resolve()
+
+if frontend_dist_path.exists():
+    logger.info(f"[System] 发现前端编译目录: {frontend_dist_path}")
+    
+    # 2. 挂载静态资源（必须在通配符路由之前）
+    assets_path = frontend_dist_path / "assets"
+    if assets_path.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
+    
+    # 3. 兜底路由：返回 index.html 让 React 接管前端路由
+    from fastapi.responses import FileResponse
+    
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        # 排除已有的 API 和音频静态路径，防止死循环
+        if full_path.startswith("api") or full_path.startswith("static") or full_path.startswith("health"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+            
+        index_file = frontend_dist_path / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+        return JSONResponse(status_code=404, content={"detail": "index.html not found"})
+else:
+    logger.warning(f"[System] 未找到前端目录: {frontend_dist_path}。请确保已运行 npm run build")
+
 
 
 if __name__ == "__main__":
