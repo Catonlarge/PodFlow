@@ -1,1 +1,1 @@
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start-user.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0otherUtils\start-user.ps1"

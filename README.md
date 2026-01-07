@@ -26,27 +26,26 @@
 ### ✨ 核心特性
 
 * **💰 离线转录，零边际成本**
-* **重资产本地化**：最为昂贵、耗时的“语音转文字”环节，集成 **WhisperX** 模型，支持调用本地显卡 (GPU) 运行，实现50X-70X转录速度。
+    * **重资产本地化**：最为昂贵、耗时的“语音转文字”环节，集成 **WhisperX** 模型，支持调用本地显卡 (GPU) 运行，实现50X-70X转录速度。
 
 * **🧠 AI 上下文查询**
-* **轻量级云端智能**：遇到不懂的术语，选中即可查询。利用**商业大模型 API**（如 DeepSeek, OpenAI 等）的强大推理能力，根据播客上下文提供精准释义。
-* *注：此功能需填入您自己的 API Key（Bring Your Own Key）。因查询 token 消耗极低，且按需调用，成本可控。配置方法详见安装文档。*
+    * **轻量级云端智能**：遇到不懂的术语，选中即可查询。利用**商业大模型 API**（如 DeepSeek, OpenAI 等）的强大推理能力，根据播客上下文提供精准释义。
+    * *注：此功能需填入您自己的 API Key（Bring Your Own Key）。因查询 token 消耗极低，且按需调用，成本可控。配置方法详见安装文档。*
 
 * **📝 沉浸式“双屏”学习体验**
-* **视听同步**：左侧展示精准的时间戳逐字稿，点击任意句子即可跳转音频。
-* **笔记联动**：右侧为笔记区域。支持对字幕进行划线、AI查询并生成笔记卡片，笔记卡片会自动挂载到对应的时间点上，形成“音频-字幕-笔记”的双向链接。
+    * **视听同步**：左侧展示精准的时间戳逐字稿，点击任意句子即可跳转音频。
+    * **笔记联动**：右侧为笔记区域。支持对字幕进行划线、AI查询并生成笔记卡片，笔记卡片会自动挂载到对应的时间点上，形成“音频-字幕-笔记”的双向链接。
 
 
 * **🚧 工程标准与开发状态**
-* **架构设计**：后端基于 FastAPI，前端基于 React + Vite。
-* **开发状态**：本项目目前处于 **Alpha 开发阶段**，Bug 在所难免，功能也尚在完善中。
+    * **架构设计**：后端基于 FastAPI，前端基于 React + Vite。
+    * **开发状态**：本项目目前处于 **Alpha 开发阶段**，Bug 在所难免，功能也尚在完善中。
 
-### 📚 快速上手
+### 📚 使用说明
 
-由于本项目涉及 PyTorch、CUDA（GPU 加速）环境配置，以及 API Key 的设置，为了保证您的部署体验，我们将详细指南独立整理。
+由于本项目在本地进行AI推理，对硬件有一定要求，涉及 PyTorch、CUDA（GPU 加速）环境配置，以及 API Key 的设置，为了保证您的部署体验，我们将详细指南独立整理。
 
-👉 **请阅读：[TODO安装与环境配置指南 (Installation Guide)**](https://www.google.com/search?q=docs/INSTALL.md)
-*(包含针对 RTX 5070 等新硬件的兼容性说明，以及 AI API 的配置教程)*
+👉 **请阅读根目录下：[INSTALLATION-cn（中文安装配置说明）**](https://github.com/Catonlarge/PodFlow/blob/main/INSTALLATION-cn.md)
 
 ---
 
@@ -94,8 +93,7 @@ High-quality podcasts are a goldmine of knowledge, but for non-native English sp
 
 Because PodFlow leverages local hardware acceleration (PyTorch/CUDA) and requires API configuration, the setup process is detailed separately.
 
-👉 **Please read: [TODO Installation & Configuration Guide**](https://www.google.com/search?q=docs/INSTALL.md)
-*(Includes specific compatibility notes for newer hardware like RTX 5070 and API Key setup instructions)*
+👉 **Please read: [TODO Installation & Configuration Guide**](https://github.com/Catonlarge/PodFlow/blob/main/INSTALLATION-cn.md)
 
 ---
 
