@@ -16,7 +16,7 @@
 2. [第一步：安装基础软件](#operationSys)
 3. [第二步：获取项目代码](#getCode)
 4. [第三步：安装依赖](#getRequirement)
-5. [第四步：配置 AI 服务 (可选)](#getAIkey)
+5. [第四步：配置 AI 服务 (可选)](#configKeys)
 6. [第五步：一键启动](#getStart)
 
 ---
@@ -184,37 +184,104 @@ WhisperX 的“说话人区分”功能使用了 Pyannote 模型，由于开源�
 * 复制生成的 Token（以 `hf_` 开头）。
 
 
+基于你提供的最新代码（`config.py` 和 `ai_service.py`），配置逻辑已经从旧的“特定服务商专用 Key”变更为“统一接口架构”（支持原生 Gemini 和 OpenAI 兼容协议）。
 
-### 5.2 填入配置文件
+以下是根据新代码逻辑重写的**第 5 章节**。请用这段内容替换原文档中的对应部分。
+
+---
+
+<div id="configKeys"></div>
+
+## 5. 第四步：配置 Token 与 Key (关键)
+
+这一步至关重要。我们需要配置两个核心服务：
+
+1. **Hugging Face Token** (必填)：用于激活 WhisperX 的说话人区分功能。
+2. **AI 服务配置** (选填)：用于激活 AI 笔记、生词解释与翻译功能。
+
+### 5.1 获取 Hugging Face Token (必填)
+
+WhisperX 的“说话人区分”功能使用了 Pyannote 模型，由于开源协议要求，**您必须手动同意协议并获取 Token**，否则程序会报错。
+
+1. **注册账号**：访问 [Hugging Face 官网](https://huggingface.co/join) 注册一个账号。
+2. **签署协议 (必须完成两步)**：
+* **第一步**：访问 [pyannote/segmentation](https://huggingface.co/pyannote/segmentation-3.0)，在页面上方勾选同意协议并点击 "Submit"。
+* **第二步**：访问 [pyannote/speaker-diarization](https://huggingface.co/pyannote/speaker-diarization-3.1)，同样勾选并点击 "Submit"。
+* *(注意：如果页面要求填写公司信息，填 "Personal" 即可)*。
+
+
+3. **创建 Token**：
+* 进入 [Access Tokens 设置页](https://huggingface.co/settings/tokens)。
+* 点击 **"Create new token"**。
+* **Type** 选择 **"Read"**，**Name** 随便填（如 `PodFlow`），点击创建。
+* 复制生成的 Token（以 `hf_` 开头）。
+
+
+### 5.2 配置 AI 服务 (二选一)
+
+PodFlow 现在支持**通用 AI 接口**。您可以根据自己的喜好，选择 **Google Gemini (原生)** 或 **OpenAI 兼容接口 (Kimi/DeepSeek/GPT)**。
+
+#### 方式 A：使用 Google Gemini (免费推荐)
+
+* **优势**：有免费额度，速度快，支持原生接口。
+* **获取 Key**：访问 [Google AI Studio](https://aistudio.google.com/app/apikey) 获取 API Key。
+
+#### 方式 B：使用国内大模型 (Kimi / DeepSeek 等)
+
+* **优势**：国内访问稳定，无需特殊网络环境。
+* **获取 Key**：访问对应服务商（如 Moonshot AI 或 DeepSeek）的开发者平台获取 API Key 和 Base URL。
+
+### 5.3 填入配置文件
 
 1. 进入 `backend` 文件夹。
 2. 找到 `.env.example` 文件。
 3. **复制**一份该文件，并将其**重命名**为 `.env`。
-4. 用记事本打开 `.env` 文件，填入刚才获取的 Token 和您的 AI Key。
+4. 用记事本打开 `.env` 文件，根据您的选择填入参数。
 
 🛑 **【安全特别警示】请务必阅读**
 
 **您的 API Key 和 Hugging Face Token 等同于您的“银行卡密码”，请绝对保密！**
 
-1.  **切勿公开分享**：请不要将 `.env` 文件发送给任何人，也不要将包含 Key 的界面**截图**发到任何微信群、论坛或 GitHub Issue 中。
-2.  **严禁上传代码库**：如果您打算将项目修改后上传到 GitHub/Gitee 等平台，请务必确保 `.env` 文件**不会**被提交（项目默认的 `.gitignore` 已包含此规则，请勿修改）。
-3.  **后果**：Key 一旦泄露，可能会被恶意脚本扫描并盗用，导致您的 AI 账户**免费额度被瞬间耗尽**，甚至**产生高额的信用卡扣费**或**账号被封禁**。
+1. **切勿公开分享**：请不要将 `.env` 文件发送给任何人，也不要将包含 Key 的界面**截图**发到任何微信群、论坛或 GitHub Issue 中。
+2. **严禁上传代码库**：如果您打算将项目修改后上传到 GitHub/Gitee 等平台，请务必确保 `.env` 文件**不会**被提交（项目默认的 `.gitignore` 已包含此规则，请勿修改）。
+3. **后果**：Key 一旦泄露，可能会被恶意脚本扫描并盗用，导致您的 AI 账户**免费额度被瞬间耗尽**，甚至**产生高额的信用卡扣费**或**账号被封禁**。
 
-**配置示例：**
+**配置示例 (请直接复制覆盖您的 .env 内容)：**
 
 ```ini
+# ==================== 核心服务配置 ====================
 # [必填] Hugging Face Token (用于说话人区分)
-# 将下方 your_huggingface_token_here 替换为您刚才复制的 hf_ 开头的字符串
+# 必须以 hf_ 开头，请确保已在 HuggingFace 官网同意了两个模型的用户协议
 HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-# [选填] AI 服务配置 (用于解释单词、笔记)
-# 默认使用 Google Gemini (免费且好用)
-DEFAULT_AI_PROVIDER=gemini
-GEMINI_API_KEY=AIzaSyDxxxxxxxxxxxxxxxxxxxx
+# ==================== AI 服务配置 ====================
+# 您的 API Key (无论是 Gemini 还是 Kimi/OpenAI 都填在这里)
+AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-# [选填] 如果您想使用 OpenAI (需要付费)
-# DEFAULT_AI_PROVIDER=openai
-# OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# ----------------- 场景 1：使用 Kimi (默认推荐) -----------------
+# 兼容模式：openai
+AI_PROVIDER_TYPE=openai
+# Kimi 的 Base URL
+AI_BASE_URL=https://api.moonshot.cn/v1
+# 模型名称
+AI_MODEL_NAME=moonshot-v1-8k
+
+# ----------------- 场景 2：使用 DeepSeek (深度求索) -----------------
+# AI_PROVIDER_TYPE=openai
+# AI_BASE_URL=https://api.deepseek.com
+# AI_MODEL_NAME=deepseek-chat
+
+# ----------------- 场景 3：使用 Google Gemini -----------------
+# 原生模式：gemini
+# AI_PROVIDER_TYPE=gemini
+# AI_MODEL_NAME=gemini-2.0-flash
+# AI_BASE_URL= (Gemini 原生模式不需要填 URL)
+
+# ----------------- 其他配置 -----------------
+# AI 请求超时时间 (秒)
+AI_QUERY_TIMEOUT=60
+# 是否开启 Mock 模式 (仅供开发调试，设为 true 时不消耗 Token 但只返回假数据)
+USE_AI_MOCK=false
 
 ```
 

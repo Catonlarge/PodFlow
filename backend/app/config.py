@@ -1,89 +1,66 @@
 """
 PodFlow 全局配置参数
 
-包含系统级配置，如音频分段阈值、转录参数等。
+包含系统级配置，如音频分段阈值、转录参数以及统一的 AI 服务配置。
 """
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-# 加载环境变量（从 .env 文件或系统环境变量）
-load_dotenv()
+# ==================== 1. 显式加载 .env 文件 ====================
+# 获取当前文件 (config.py) 的绝对路径
+# 路径关系: backend/app/config.py -> parent=app -> parent=backend
+BASE_DIR = Path(__file__).resolve().parent.parent
+ENV_PATH = BASE_DIR / '.env'
 
-# ==================== API Keys 配置 ====================
+# 强制加载指定的 .env 文件，override=True 确保 .env 优先级高于系统变量
+if ENV_PATH.exists():
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
+else:
+    print(f"[WARNING] .env file not found at: {ENV_PATH}")
 
-# HuggingFace Token（必需）
+
+# ==================== 核心服务配置 ====================
+
+# HuggingFace Token（必需，用于 WhisperX 说话人区分）
 HF_TOKEN = os.getenv("HF_TOKEN")
-if not HF_TOKEN:
-    raise ValueError(
-        "HF_TOKEN environment variable is required. "
-        "Please set it in .env file or system environment variables."
-    )
-
-# OpenAI API Key（可选）
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
-# Gemini API Key（可选）
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-
-# Moonshot API Key（defualt）
-MOONSHOT_API_KEY = os.getenv("MOONSHOT_API_KEY", "")
+# 注意：此处不抛出异常，允许无 Token 启动（虽然 Diarization 会失败），方便仅使用基础功能的场景
 
 
-# ==================== 音频分段配置 ====================
+# ==================== AI 服务配置 (统一架构) ====================
+
+# AI 提供商类型: 'openai' (兼容接口) 或 'gemini' (原生接口)
+AI_PROVIDER_TYPE = os.getenv("AI_PROVIDER_TYPE", "openai").lower()
+
+# AI 模型名称 (如 moonshot-v1-8k, gemini-2.0-flash, gpt-4)
+AI_MODEL_NAME = os.getenv("AI_MODEL_NAME", "kimi-k2-0905-preview")
+
+# AI API Key
+AI_API_KEY = os.getenv("AI_API_KEY", "")
+
+# AI Base URL (仅用于 OpenAI 兼容接口，如 Kimi/DeepSeek)
+AI_BASE_URL = os.getenv("AI_BASE_URL", "https://api.moonshot.cn/v1")
+
+# AI 查询超时时间（秒）
+AI_QUERY_TIMEOUT = 60
+
+# AI Mock 模式（用于前端调试，不消耗 Token）
+USE_AI_MOCK = os.getenv("USE_AI_MOCK", "false").lower() in ("true", "1")
+
+
+# ==================== 音频与存储配置 ====================
 
 # 分段时长（秒）
-# - 这个值需要通过实验找到最优值
-# - 平衡转录速度和用户体验
-SEGMENT_DURATION = 180  # 默认 180 秒（3 分钟）
-
-# 说明：
-# - 太小（如 60s）：分段过多，转录慢，网络请求多
-# - 太大（如 600s）：单段转录时间长，用户等待久，内存占用高
-# - 建议范围：120-300 秒
-# - 修改后重启服务即可生效，无需更新数据库
-
-
-# ==================== 转录配置 ====================
+SEGMENT_DURATION = 180
 
 # 默认语言
 DEFAULT_LANGUAGE = "en-US"
 
 # Whisper 模型
-WHISPER_MODEL = "base"  # tiny, base, small, medium, large
+WHISPER_MODEL = "base"
 
+# 音频存储路径 (使用绝对路径确保安全)
+AUDIO_STORAGE_PATH = os.path.join(BASE_DIR, "data", "audios")
 
-# ==================== 文件存储配置 ====================
-
-# 音频文件存储路径（相对于 backend 目录）
-AUDIO_STORAGE_PATH = "./data/audios/"
-
-# 最大文件大小（字节）
-MAX_FILE_SIZE = 1024 * 1024 * 1024  # 1GB
-
-
-# ==================== AI 查询配置 ====================
-
-# 默认 AI 提供商
-DEFAULT_AI_PROVIDER = "kimi-k2-0905-preview"
-
-# 可选提供商列表
-AVAILABLE_PROVIDERS = [
-    "kimi-k2-0905-preview",
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gpt-3.5-turbo",
-    "gpt-4",
-    "gpt-4-turbo",
-    "claude-3-sonnet",
-    "claude-3-opus"
-]
-
-# AI 查询超时时间（秒）
-# - 超过此时间未返回结果，将触发超时错误
-# - 建议值：30-60 秒（根据网络环境和 AI 提供商调整）
-AI_QUERY_TIMEOUT = 60  # 默认 60 秒
-
-# AI Mock 模式（用于调试，不调用真实 API）
-# - 设置为 "true" 或 "1" 时启用 mock 模式
-# - Mock 模式将返回模拟的 AI 响应数据，用于前端调试
-USE_AI_MOCK = os.getenv("USE_AI_MOCK", "false").lower() in ("true", "1")
+# 最大文件大小 (1GB)
+MAX_FILE_SIZE = 1024 * 1024 * 1024

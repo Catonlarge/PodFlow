@@ -1,74 +1,77 @@
 """
-AI 查询服务
+AI 查询服务 (通用重构版)
 
 提供统一的 AI 查询接口，支持自动判断查询类型（word/phrase/sentence）。
-支持 Google Gemini 和 Moonshot AI (Kimi)。
+支持:
+1. Google Gemini 原生接口
+2. OpenAI 兼容接口 (Kimi, DeepSeek, GPT-4, etc.)
 """
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from typing import Optional, Dict
 
-# Google GenAI
+# Google GenAI SDK
 from google import genai
-# OpenAI SDK (用于 Moonshot/Kimi)
+# OpenAI SDK (通用兼容客户端)
 from openai import OpenAI
 
+# 引入统一配置
 from app.config import (
-    GEMINI_API_KEY, 
-    MOONSHOT_API_KEY, 
-    DEFAULT_AI_PROVIDER, 
+    AI_PROVIDER_TYPE,
+    AI_MODEL_NAME,
+    AI_API_KEY,
+    AI_BASE_URL,
     AI_QUERY_TIMEOUT, 
     USE_AI_MOCK
 )
 
 logger = logging.getLogger(__name__)
 
-
 class AIService:
     """
     AI 查询服务类
     
     提供统一的查询接口，AI 自动判断查询类型（word/phrase/sentence）。
-    支持 Google Gemini 和 Moonshot AI (Kimi) 作为后端。
+    后端已解耦，通过 .env 配置决定使用 Gemini 还是 OpenAI 兼容接口。
     """
     
     def __init__(self):
         """
         初始化 AI 服务
-        
-        初始化可用的 AI 客户端。如果未配置 Key，则对应的客户端不可用。
+        根据 .env 配置初始化对应的客户端。
         """
         self.use_mock = USE_AI_MOCK
-        self.gemini_client = None
-        self.moonshot_client = None
+        self.client = None
+        self.provider_type = AI_PROVIDER_TYPE
         
         if self.use_mock:
             logger.info("AIService initialized with MOCK mode (no API key required)")
             return
 
-        # 初始化 Gemini 客户端
-        if GEMINI_API_KEY:
-            try:
-                self.gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-                logger.info("AIService: Gemini Client initialized")
-            except Exception as e:
-                logger.warning(f"AIService: Gemini Client initialization failed: {e}")
+        if not AI_API_KEY:
+            logger.warning("AIService: AI_API_KEY not found. Services will default to MOCK or fail.")
+            return
 
-        # 初始化 Moonshot (Kimi) 客户端
-        if MOONSHOT_API_KEY:
-            try:
-                self.moonshot_client = OpenAI(
-                    api_key=MOONSHOT_API_KEY,
-                    base_url="https://api.moonshot.cn/v1",
+        try:
+            # === 初始化逻辑分支 ===
+            if self.provider_type == "gemini":
+                # Google 原生模式
+                self.client = genai.Client(api_key=AI_API_KEY)
+                logger.info(f"AIService: Initialized Gemini Client (Model: {AI_MODEL_NAME})")
+                
+            else:
+                # OpenAI 兼容模式 (默认)
+                # 适用于: Kimi, DeepSeek, OpenAI, Yi, Qwen 等
+                self.client = OpenAI(
+                    api_key=AI_API_KEY,
+                    base_url=AI_BASE_URL
                 )
-                logger.info("AIService: Moonshot Client initialized")
-            except Exception as e:
-                logger.warning(f"AIService: Moonshot Client initialization failed: {e}")
-        
-        if not self.gemini_client and not self.moonshot_client:
-            logger.warning("AIService: No AI clients initialized. Only MOCK mode will work.")
-    
+                logger.info(f"AIService: Initialized OpenAI-Compatible Client (URL: {AI_BASE_URL}, Model: {AI_MODEL_NAME})")
+                
+        except Exception as e:
+            logger.error(f"AIService: Client initialization failed: {e}")
+
     def _mock_query(self, text: str, context: Optional[str] = None) -> Dict:
         """
         Mock 查询方法：返回模拟的 AI 响应数据（用于调试）
@@ -111,28 +114,26 @@ class AIService:
         
         logger.info(f"Mock AI 查询: type={query_type}, text={text[:30]}...")
         return mock_data
-    
+
     def query(self, text: str, context: Optional[str] = None, provider: Optional[str] = None) -> Dict:
         """
         统一查询接口：传入划线文本，AI 自动判断是 word/phrase/sentence
         
         Args:
             text: 用户划线的文本
-            context: 相邻 2-3 个 TranscriptCue 的文本（可选）
-            provider: AI 提供商 (如 'kimi-k2-turbo-preview', 'gemini-2.5-flash')
+            context: 上下文（可选）
+            provider: (保留参数以兼容旧代码) 如果传入，在日志中记录，实际使用 .env 配置的模型
         
         Returns:
             dict: 解析后的 JSON 对象
         """
-        # 1. Mock 模式
         if self.use_mock:
             return self._mock_query(text, context)
-        
-        # 2. 确定 Provider
-        current_provider = provider or DEFAULT_AI_PROVIDER
-        
-        # 3. 构建提示词 (Prompt)
-        # 我们使用相同的 Prompt 逻辑，以保证输出格式一致
+            
+        if not self.client:
+            raise ValueError("AI Client not initialized. Please check your .env configuration.")
+
+        # 3. 构建提示词 (Prompt) - 完整保留您的 Prompt
         system_prompt = """# Role
 你是一名专业的英语语言教学助手，擅长以简洁、准确的方式向英语学习者解释语言知识。
 
@@ -141,7 +142,7 @@ class AIService:
 
 # Constraints
 1. 输出必须严格遵守 JSON 格式，不要包含Markdown代码块标记（如 ```json）。直接输出 JSON 字符串。
-2. 解释内容需简洁明了，适合英语学习者，总字数控制在 100 字以内。
+2. 解释内容需简洁明了，适合英语学习者，总字数控制在 300 字以内。
 3. 如果是专业术语，必须在解释中包含背景知识。
 
 # Output Format (JSON)
@@ -165,99 +166,69 @@ class AIService:
             user_prompt = f"上下文：{context}\n\n查询内容：{text}"
         else:
             user_prompt = text
-        
-        # 4. 执行 API 调用
+
         try:
             response_text = ""
-            
-            # 使用线程池执行同步 API 调用，并设置超时
             executor = ThreadPoolExecutor(max_workers=1)
-            future = None
             
-            try:
-                # ============ Moonshot (Kimi) 分支 ============
-                if "kimi" in current_provider or "moonshot" in current_provider:
-                    if not self.moonshot_client:
-                        raise ValueError("Moonshot API Key 未配置，无法使用 Kimi 服务。")
-                    
-                    logger.debug(f"Calling Moonshot API ({current_provider}) with text: {text[:50]}...")
-                    
-                    def call_moonshot():
-                        completion = self.moonshot_client.chat.completions.create(
-                            model=current_provider, # 例如 "kimi-k2-turbo-preview"
-                            messages=[
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": user_prompt}
-                            ],
-                            temperature=0.3, # 降低随机性，保证格式稳定
-                        )
-                        return completion.choices[0].message.content
-
-                    future = executor.submit(call_moonshot)
+            def call_ai():
+                # 使用配置中的模型，忽略传入的 provider 参数以保持统一，或仅作为日志记录
+                target_model = AI_MODEL_NAME
                 
-                # ============ Gemini 分支 ============
-                elif "gemini" in current_provider:
-                    if not self.gemini_client:
-                        raise ValueError("Gemini API Key 未配置，无法使用 Gemini 服务。")
-                        
-                    logger.debug(f"Calling Gemini API ({current_provider}) with text: {text[:50]}...")
-                    
-                    def call_gemini():
-                        # Gemini 2.5 flash 使用 generate_content
-                        # 将 system prompt 和 user prompt 拼接，或者使用 system_instruction (视 SDK 版本而定)
-                        # 这里为了兼容性，简单拼接
-                        full_prompt = f"{system_prompt}\n\nUser Query:\n{user_prompt}"
-                        resp = self.gemini_client.models.generate_content(
-                            model=current_provider, # 例如 "gemini-2.5-flash"
-                            contents=full_prompt
-                        )
-                        return resp.text
-
-                    future = executor.submit(call_gemini)
-                
+                # === 调用逻辑分支 ===
+                if self.provider_type == "gemini":
+                    # Gemini 原生调用
+                    logger.debug(f"Calling Gemini ({target_model}) for text: {text[:20]}...")
+                    full_prompt = f"{system_prompt}\n\nUser Query:\n{user_prompt}"
+                    resp = self.client.models.generate_content(
+                        model=target_model,
+                        contents=full_prompt
+                    )
+                    return resp.text
                 else:
-                    raise ValueError(f"不支持的 AI 提供商: {current_provider}")
+                    # OpenAI 兼容调用 (Kimi/DeepSeek/GPT)
+                    logger.debug(f"Calling OpenAI/Kimi ({target_model}) for text: {text[:20]}...")
+                    completion = self.client.chat.completions.create(
+                        model=target_model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.3, # 保持低随机性
+                    )
+                    return completion.choices[0].message.content
 
-                # 等待结果（带超时）
+            # 执行并等待
+            try:
+                future = executor.submit(call_ai)
                 response_text = future.result(timeout=AI_QUERY_TIMEOUT)
-
             except FutureTimeoutError:
-                logger.error(f"AI 查询超时: 超过 {AI_QUERY_TIMEOUT} 秒未返回结果")
-                raise TimeoutError(f"AI 查询超时，请稍后重试")
+                logger.error(f"AI 查询超时: 超过 {AI_QUERY_TIMEOUT} 秒")
+                raise TimeoutError("AI Request Timed Out")
             finally:
                 executor.shutdown(wait=False)
-            
+
             if not response_text:
-                raise ValueError("AI 返回的响应为空")
-            
-            # 5. 解析 JSON
-            # 移除可能存在的 Markdown 标记
+                raise ValueError("AI Response is empty")
+
+            # 5. JSON 解析逻辑 (完整保留)
             response_text = response_text.strip()
-            if response_text.startswith("```json"):
-                response_text = response_text[7:]
-            if response_text.startswith("```"):
-                response_text = response_text[3:]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
+            if response_text.startswith("```json"): response_text = response_text[7:]
+            if response_text.startswith("```"): response_text = response_text[3:]
+            if response_text.endswith("```"): response_text = response_text[:-3]
             response_text = response_text.strip()
             
             try:
                 result = json.loads(response_text)
             except json.JSONDecodeError as e:
-                logger.error(f"JSON 解析失败: {e}\n响应内容: {response_text[:200]}")
-                raise ValueError(f"AI 返回的内容不是有效的 JSON") from e
+                logger.error(f"JSON Parsing Failed: {e}. Content: {response_text[:200]}")
+                raise ValueError(f"Invalid JSON from AI") from e
             
-            # 6. 验证字段
             if "type" not in result or "content" not in result:
-                raise ValueError("AI 返回的 JSON 格式不符合规范：缺少 type 或 content 字段")
-            
-            logger.info(f"AI 查询成功 ({current_provider}): type={result['type']}, text={text[:30]}...")
+                raise ValueError("Missing 'type' or 'content' in AI response")
+                
             return result
-            
-        except TimeoutError:
-            raise
-        except ValueError:
-            raise
+
         except Exception as e:
-            logger.error(f"AI API 调用失败: {e}", exc_info=True)
-            raise Exception(f"AI 查询失败：{str(e)}") from e
+            logger.error(f"AI Query Failed: {e}", exc_info=True)
+            raise e

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.models import get_db, Episode, TranscriptCue, AudioSegment, Highlight, Note, AIQueryRecord
-from app.config import AUDIO_STORAGE_PATH, DEFAULT_LANGUAGE, DEFAULT_AI_PROVIDER
+from app.config import AUDIO_STORAGE_PATH, DEFAULT_LANGUAGE, AI_MODEL_NAME
 from app.utils.file_utils import (
     calculate_md5_async,
     get_audio_duration,
@@ -1663,7 +1663,7 @@ async def query_ai(
             # 如果缓存 JSON 损坏，继续执行新查询
     
     # Step 3: 创建 AIQueryRecord（status="processing"）
-    provider = request.provider or DEFAULT_AI_PROVIDER
+    provider = request.provider or AI_MODEL_NAME
     
     # 构建上下文
     context_text = build_context_text(highlight, db)
@@ -1697,7 +1697,7 @@ async def query_ai(
                         'highlighted_text': highlight.highlighted_text[:50],
                         'has_context': bool(context_text),
                         'provider': provider,
-                        'has_gemini_key': bool(os.getenv('GEMINI_API_KEY'))
+                        'has_gemini_key': bool(os.getenv('AI_API_KEY'))
                     },
                     'timestamp': int(__import__('time').time() * 1000),
                     'sessionId': 'debug-session',
@@ -1735,7 +1735,7 @@ async def query_ai(
             db.commit()
             raise HTTPException(
                 status_code=500,
-                detail=f"AI 服务配置错误：{str(e)}。请检查 GEMINI_API_KEY 环境变量是否已设置。"
+                detail=f"AI 服务配置错误：{str(e)}。请检查 AI_API_KEY 环境变量是否已设置。"
             )
         
         # #region agent log

@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 venv/
-backend/data/   # 不上传本地音频和数据库，保护隐私
+backend/data/
 
 # Node
 node_modules/
@@ -11,6 +11,7 @@ dist/
 
 #cursor
 .cursor/
+.cursorignore
 
 # IDE
 .vscode/
@@ -22,4 +23,5 @@ backend/app/services/whisperx-service-example.py
 # Test reports
 reports/
 frontend/test-output.txt
+
 

@@ -1,7 +1,10 @@
 # PodFlow One-Click Launcher (Final Fix - Use GET)
 
 # 1. Set Project Root Directory
-$ProjectRoot = Get-Location
+# Get the directory where this script resides (root/otherUtils)
+$ScriptDir = $PSScriptRoot
+# Go up one level to get the real Project Root
+$ProjectRoot = Split-Path -Parent $ScriptDir
 Write-Host "========================================================" -ForegroundColor Cyan
 Write-Host "  PodFlow Launcher is Starting..."
 Write-Host "  Project Root: $ProjectRoot"

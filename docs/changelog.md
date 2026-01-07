@@ -2931,7 +2931,7 @@ temp_path = service.extract_segment_to_temp("audio.mp3", start_time=180.0, durat
    - 避免重复调用 AI API，节省成本
 
 4. **Provider 全局配置管理**：
-   - 默认值从 `config.DEFAULT_AI_PROVIDER` 获取（"gpt-3.5-turbo"）
+   - 默认值从 `config.AI_MODEL_NAME` 获取（"gpt-3.5-turbo"）
    - 支持灵活切换不同 AI 提供商（实验和对比）
    - 便于数据分析：统计不同模型的效果和成本
 

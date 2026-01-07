@@ -13,10 +13,10 @@ def get_default_ai_provider():
     """
     获取默认 AI 提供商
     
-    从 config.DEFAULT_AI_PROVIDER 获取，避免在 Column 定义时直接导入（可能产生循环依赖）。
+    从 config.AI_MODEL_NAME 获取，避免在 Column 定义时直接导入（可能产生循环依赖）。
     """
-    from app.config import DEFAULT_AI_PROVIDER
-    return DEFAULT_AI_PROVIDER
+    from app.config import AI_MODEL_NAME
+    return AI_MODEL_NAME
 
 
 # ==================== 新数据库模型（Task 1.1）====================
@@ -678,7 +678,7 @@ class AIQueryRecord(Base):
         context_text (str): 上下文（相邻 2-3 个 cue 的文本，用于专有名词识别）
         response_text (str): AI 返回的结果（JSON 字符串，Gemini 返回的完整 JSON 格式）
         detected_type (str): AI 检测到的类型（word/phrase/sentence，从 response_text 解析得到）
-        provider (str): AI 提供商（如 "gemini-2.5-flash"，默认从 config.DEFAULT_AI_PROVIDER 获取）
+        provider (str): AI 提供商（如 "gemini-2.5-flash"，默认从 config.AI_MODEL_NAME 获取）
         status (str): 查询状态（processing/completed/failed）
         error_message (str): 错误信息（失败时记录原因）
         created_at (datetime): 创建时间
@@ -705,7 +705,7 @@ class AIQueryRecord(Base):
             * detected_type 字段存储 AI 返回的 type 值，用于索引和查询
         
         - provider 全局配置管理：
-            * 默认值从 config.DEFAULT_AI_PROVIDER 获取
+            * 默认值从 config.AI_MODEL_NAME 获取
             * 支持灵活切换不同 AI 提供商（实验和对比）
             * 便于数据分析：统计不同模型的效果和成本
         

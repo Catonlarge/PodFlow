@@ -9,7 +9,10 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Get script directory (project root)
-$ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Get script directory (root/otherUtils)
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Get Project Root (Go up one level)
+$ProjectRoot = Split-Path -Parent $ScriptDir
 
 # Check if backend virtual environment exists
 $BackendVenvPath = Join-Path $ProjectRoot "backend\venv\Scripts\Activate.ps1"

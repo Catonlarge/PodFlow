@@ -127,7 +127,7 @@ def test_query_uses_default_provider(mock_openai_class):
     mock_openai_class.return_value = mock_client
 
     with patch('app.services.ai_service.MOONSHOT_API_KEY', 'sk-test'), \
-         patch('app.services.ai_service.DEFAULT_AI_PROVIDER', 'kimi-k2-turbo-preview'):
+         patch('app.services.ai_service.AI_MODEL_NAME', 'kimi-k2-turbo-preview'):
         
         service = AIService()
         service.query("default test")
