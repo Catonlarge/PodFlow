@@ -161,39 +161,6 @@ git clone https://github.com/Catonlarge/PodFlow.git
 
 ## 5. 第四步：配置 Token 与 Key (关键)
 
-这一步至关重要。我们需要配置两个东西：
-
-1. **Hugging Face Token** (必填)：用于激活说话人区分功能。
-2. **AI API Key** (选填)：用于激活 AI 笔记与解释功能。
-
-### 5.1 获取 Hugging Face Token (必填)
-
-WhisperX 的“说话人区分”功能使用了 Pyannote 模型，由于开源协议要求，**您必须手动同意协议并获取 Token**，否则程序会报错。
-
-1. **注册账号**：访问 [Hugging Face 官网](https://huggingface.co/join) 注册一个账号。
-2. **签署协议 (必须完成两步)**：
-* **第一步**：访问 [pyannote/segmentation](https://huggingface.co/pyannote/segmentation-3.0)，在页面上方勾选同意协议并点击 "Submit"。
-* **第二步**：访问 [pyannote/speaker-diarization](https://huggingface.co/pyannote/speaker-diarization-3.1)，同样勾选并点击 "Submit"。
-* *(注意：如果页面要求填写公司信息，填 "Personal" 即可)*。
-
-
-3. **创建 Token**：
-* 进入 [Access Tokens 设置页](https://huggingface.co/settings/tokens)。
-* 点击 **"Create new token"**。
-* **Type** 选择 **"Read"**，**Name** 随便填（如 `PodFlow`），点击创建。
-* 复制生成的 Token（以 `hf_` 开头）。
-
-
-基于你提供的最新代码（`config.py` 和 `ai_service.py`），配置逻辑已经从旧的“特定服务商专用 Key”变更为“统一接口架构”（支持原生 Gemini 和 OpenAI 兼容协议）。
-
-以下是根据新代码逻辑重写的**第 5 章节**。请用这段内容替换原文档中的对应部分。
-
----
-
-<div id="configKeys"></div>
-
-## 5. 第四步：配置 Token 与 Key (关键)
-
 这一步至关重要。我们需要配置两个核心服务：
 
 1. **Hugging Face Token** (必填)：用于激活 WhisperX 的说话人区分功能。
