@@ -2,7 +2,7 @@
 
 # 🎧 PodFlow
 
-**Breaking the Information Gap: A Local-First AI Workbench for Intensive Podcast Learning.**
+**Breaking the Information Gap: A Local-First AI Workbench for Intensive Podcast Learning.**  
 **打破信息差：一款本地优先、零边际成本的 AI 播客精听与知识管理工具。**
 
 [English](#english) | [中文](#chinese)
