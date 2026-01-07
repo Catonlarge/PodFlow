@@ -24,4 +24,7 @@ backend/app/services/whisperx-service-example.py
 reports/
 frontend/test-output.txt
 
+# docs
+docs/
+
 
