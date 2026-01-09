@@ -55,7 +55,7 @@ echo [INFO] Step B: Swapping Engine for Standard GPU...
 pip uninstall torch torchvision torchaudio -y
 :: 2. Install Stable GPU Torch (2.8.1 + CUDA 12.4)
 echo     - Installing GPU Torch (CUDA 12.4)...
-pip install torch==2.8.1 torchaudio==2.8.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cu124
+pip install torch==2.8.1 torchaudio==2.8.1 torchvision==0.23.1 --index-url https://download.pytorch.org/whl/cu124
 goto install_common
 
 :install_rtx50
