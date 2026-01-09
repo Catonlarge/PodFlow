@@ -36,10 +36,23 @@
     * **视听同步**：左侧展示精准的时间戳逐字稿，点击任意句子即可跳转音频。
     * **笔记联动**：右侧为笔记区域。支持对字幕进行划线、AI查询并生成笔记卡片，笔记卡片会自动挂载到对应的时间点上，形成“音频-字幕-笔记”的双向链接。
 
-
 * **🚧 工程标准与开发状态**
     * **架构设计**：后端基于 FastAPI，前端基于 React + Vite。
     * **开发状态**：本项目目前处于 **Alpha 开发阶段**，Bug 在所难免，功能也尚在完善中。
+
+### 📚 效果演示
+
+https://github.com/user-attachments/assets/e7a906f3-e13c-4729-9b7d-608c802dbb66
+
+<img width="1779" height="1401" alt="逐句高亮" src="https://github.com/user-attachments/assets/5d8de227-5f17-4d94-8127-e538b5925d2c" />
+
+<img width="1783" height="1438" alt="笔记高亮" src="https://github.com/user-attachments/assets/5524ebd9-d175-4f28-8555-6c1684f9a9f5" />
+
+<img width="1786" height="1439" alt="划线AI查询" src="https://github.com/user-attachments/assets/9402702d-fe65-4e43-816d-e05f5032401a" />
+
+<img width="1793" height="1440" alt="AI查询卡片保存笔记" src="https://github.com/user-attachments/assets/7a022061-df6a-40b5-80c4-31f86a2395f3" />
+
+<img width="1793" height="1432" alt="选择新的音频识别字幕" src="https://github.com/user-attachments/assets/888532c7-b534-4921-a879-af7178f7dad6" />
 
 ### 📚 使用说明
 
