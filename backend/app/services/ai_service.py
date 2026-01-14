@@ -72,6 +72,55 @@ class AIService:
         except Exception as e:
             logger.error(f"AIService: Client initialization failed: {e}")
 
+    def _create_fallback_response(self, text: str, context: Optional[str], raw_response: str) -> Dict:
+        """
+        兜底响应：当 AI 返回格式不正确时，自动推断类型并构建默认响应
+
+        Args:
+            text: 用户查询的文本
+            context: 上下文（可选）
+            raw_response: AI 原始响应（用于日志）
+
+        Returns:
+            dict: 符合格式的响应对象
+        """
+        text_trimmed = text.strip()
+        word_count = len(text_trimmed.split())
+
+        # 根据文本特征自动判断类型
+        if word_count <= 1:
+            query_type = "word"
+            fallback_data = {
+                "type": "word",
+                "content": {
+                    "phonetic": f"/{text_trimmed.lower()}/",
+                    "definition": f"{text_trimmed}（AI 响应格式错误，使用默认释义）",
+                    "explanation": f"这是 '{text_trimmed}' 的默认解释。由于 AI 响应格式不稳定，系统自动生成了此兜底内容。"
+                }
+            }
+        elif word_count <= 5:
+            query_type = "phrase"
+            fallback_data = {
+                "type": "phrase",
+                "content": {
+                    "phonetic": "",
+                    "definition": f"{text_trimmed}（AI 响应格式错误，使用默认释义）",
+                    "explanation": f"这是短语 '{text_trimmed}' 的默认解释。由于 AI 响应格式不稳定，系统自动生成了此兜底内容。"
+                }
+            }
+        else:
+            query_type = "sentence"
+            fallback_data = {
+                "type": "sentence",
+                "content": {
+                    "translation": f"这是句子 '{text_trimmed[:50]}...' 的默认翻译（AI 响应格式错误）。",
+                    "highlight_vocabulary": []
+                }
+            }
+
+        logger.warning(f"Created fallback response for {query_type}: {text[:30]}...")
+        return fallback_data
+
     def _mock_query(self, text: str, context: Optional[str] = None) -> Dict:
         """
         Mock 查询方法：返回模拟的 AI 响应数据（用于调试）
@@ -144,6 +193,7 @@ class AIService:
 1. 输出必须严格遵守 JSON 格式，不要包含Markdown代码块标记（如 ```json）。直接输出 JSON 字符串。
 2. 解释内容需简洁明了，适合英语学习者，总字数控制在 300 字以内。
 3. 如果是专业术语，必须在解释中包含背景知识。
+4. 你必须用中文回答。
 
 # Output Format (JSON)
 {
@@ -222,11 +272,17 @@ class AIService:
                 result = json.loads(response_text)
             except json.JSONDecodeError as e:
                 logger.error(f"JSON Parsing Failed: {e}. Content: {response_text[:200]}")
-                raise ValueError(f"Invalid JSON from AI") from e
-            
+                # 使用兜底逻辑
+                result = self._create_fallback_response(text, context, response_text)
+                logger.warning(f"Using fallback response: type={result.get('type')}")
+                return result
+
+            # 兜底逻辑：如果 AI 返回的 JSON 缺少 type 或 content，自动推断
             if "type" not in result or "content" not in result:
-                raise ValueError("Missing 'type' or 'content' in AI response")
-                
+                logger.warning(f"AI response missing 'type' or 'content', using fallback. Original: {result}")
+                result = self._create_fallback_response(text, context, response_text)
+                logger.warning(f"Using fallback response: type={result.get('type')}")
+
             return result
 
         except Exception as e:
