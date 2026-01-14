@@ -12,6 +12,7 @@ import { highlightService } from '../../services/highlightService';
 import { noteService } from '../../services/noteService';
 import { aiService } from '../../services/aiService';
 import AICard from './AICard';
+import SubtitleLoadState from '../../utils/SubtitleLoadState';
 
 /**
  * SubtitleList 组件
@@ -41,6 +42,7 @@ import AICard from './AICard';
  * @param {Function} [props.onNoteCreate] - 创建笔记成功后的回调函数 () => void
  * @param {Function} [props.onNoteDelete] - 删除笔记成功后的回调函数 (noteId: number) => void
  * @param {number} [props.noteDeleteTrigger] - 笔记删除触发器，当值变化时触发 highlights 刷新
+ * @param {Function} [props.onVisibleCueIdsChange] - 可见字幕ID变化回调 (cueIds: Set<number>) => void
  */
 export default function SubtitleList({
   cues: propsCues,
@@ -58,6 +60,7 @@ export default function SubtitleList({
   onNoteCreate,
   onNoteDelete,
   noteDeleteTrigger = 0,
+  onVisibleCueIdsChange,
 }) {
   const [cues, setCues] = useState(propsCues || []);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -113,11 +116,36 @@ export default function SubtitleList({
   const subtitleRefs = useRef({});
   const previousTranscriptionStatusRef = useRef(transcriptionStatus || null);
   const loadingProgressIntervalRef = useRef(null);
-  const lastLoadedSegmentIndexRef = useRef(-1); // 记录已加载的最后一个segment索引（初始为-1）
-  const isLoadingSubtitlesRef = useRef(false); // 防止重复加载字幕
+
+  // 使用 SubtitleLoadState 统一管理字幕加载状态（替代多个分散的 ref）
+  const subtitleLoadStateRef = useRef(new SubtitleLoadState());
   const lastLoadedEpisodeIdRef = useRef(null); // 记录已加载的 episodeId，避免重复加载
   const hasErrorRef = useRef(false); // 跟踪是否已经设置了错误状态，避免被重置
-  const loadingSegmentsRef = useRef(new Set()); // 防止重复加载同一个segment
+
+  // 向后兼容的 getter（避免修改所有现有代码）
+  const lastLoadedSegmentIndexRef = {
+    get current() {
+      return subtitleLoadStateRef.current.lastLoadedIndex;
+    },
+    set current(value) {
+      subtitleLoadStateRef.current.lastLoadedIndex = value;
+    },
+  };
+
+  const isLoadingSubtitlesRef = {
+    get current() {
+      return subtitleLoadStateRef.current.isInitialized;
+    },
+    set current(value) {
+      subtitleLoadStateRef.current.isInitialized = value;
+    },
+  };
+
+  const loadingSegmentsRef = {
+    get current() {
+      return subtitleLoadStateRef.current.loadingSegments;
+    },
+  };
 
   // 使用外部滚动容器或内部滚动容器
   // 当使用外部滚动容器时，containerRef 指向外部容器；否则使用内部容器
@@ -1296,6 +1324,64 @@ export default function SubtitleList({
     },
   });
 
+  /**
+   * 监听虚拟滚动的可见项变化，通知父组件当前的可见 cue_id 集合
+   * 用于同步笔记卡片的虚拟滚动渲染
+   *
+   * 优化：使用节流防止滚动时频繁触发回调
+   */
+  useEffect(() => {
+    if (!onVisibleCueIdsChange) return;
+
+    let timeoutId = null;
+    let lastCueIds = new Set();
+
+    const updateVisibleCueIds = () => {
+      const virtualItems = virtualizer.getVirtualItems();
+      const cueIds = new Set(
+        virtualItems
+          .map(item => {
+            const processedItem = processedItems[item.index];
+            // 只包含 subtitle 类型的项，排除 speaker 标签
+            if (processedItem?.type === 'subtitle' && processedItem?.cue?.id) {
+              return processedItem.cue.id;
+            }
+            return null;
+          })
+          .filter(Boolean)
+      );
+
+      // 只有当 cue_id 集合真正变化时才调用回调
+      const hasChanged = cueIds.size !== lastCueIds.size ||
+        Array.from(cueIds).some(id => !lastCueIds.has(id));
+
+      if (hasChanged) {
+        lastCueIds = cueIds;
+        onVisibleCueIdsChange(cueIds);
+      }
+    };
+
+    // 初始调用
+    updateVisibleCueIds();
+
+    // 监听滚动事件，使用节流
+    const handleScroll = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(updateVisibleCueIds, 100); // 100ms 节流
+    };
+
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (container) {
+        container.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, [processedItems, onVisibleCueIdsChange]);
 
   /**
    * 创建字幕行的 ref 回调（适配虚拟滚动）
@@ -1383,69 +1469,64 @@ export default function SubtitleList({
     if (!episodeId || !segments || segments.length === 0) {
       return;
     }
-    
-    // 获取下一个segment索引（基于已加载的最后一个segment索引）
-    // 如果 lastLoadedSegmentIndexRef.current 为 -1，说明还没有加载任何segment，从0开始
-    const nextSegmentIndex = lastLoadedSegmentIndexRef.current === -1 ? 0 : lastLoadedSegmentIndexRef.current + 1;
-    const nextSegment = segments.find(s => s.segment_index === nextSegmentIndex);
-    
-    if (!nextSegment) {
-      // 没有下一个segment，说明全部完成
+
+    // 使用统一的 SubtitleLoadState 管理加载状态
+    const subtitleLoadState = subtitleLoadStateRef.current;
+    const nextSegmentIndex = subtitleLoadState.getNextSegmentIndex(segments);
+
+    if (nextSegmentIndex === null) {
+      // 没有更多可加载的内容
       return;
     }
-    
-      // 如果下一个segment已完成，加载该segment的字幕并追加
-      if (nextSegment.status === 'completed') {
-        // 检查是否正在加载或已加载过这个segment
-        if (loadingSegmentsRef.current.has(nextSegmentIndex)) {
-          return;
-        }
-        
-        // 标记为正在加载
-        loadingSegmentsRef.current.add(nextSegmentIndex);
-        
-        try {
-          // 只加载这一个segment的字幕
-          const newCues = await getCuesBySegmentRange(episodeId, nextSegmentIndex, nextSegmentIndex);
-          
-          if (newCues && newCues.length > 0) {
-          // 追加到现有cues列表（按时间排序合并，并去重）
+
+    const nextSegment = segments.find(s => s.segment_index === nextSegmentIndex);
+    if (!nextSegment) {
+      return;
+    }
+
+    // 检查是否正在加载
+    if (subtitleLoadState.isLoading(nextSegmentIndex)) {
+      return;
+    }
+
+    // 标记为正在加载
+    subtitleLoadState.markLoading(nextSegmentIndex);
+
+    if (nextSegment.status === 'completed') {
+      try {
+        // 加载字幕
+        const newCues = await getCuesBySegmentRange(episodeId, nextSegmentIndex, nextSegmentIndex);
+
+        if (newCues && newCues.length > 0) {
           setCues((prevCues) => {
-            // 使用Map根据cue.id去重
             const cuesMap = new Map();
-            // 先添加已有的cues
             prevCues.forEach(cue => {
               cuesMap.set(cue.id, cue);
             });
-            // 再添加新的cues（如果id已存在会被覆盖，但内容应该相同）
             newCues.forEach(cue => {
               cuesMap.set(cue.id, cue);
             });
-            // 转换为数组并按时间排序
             const mergedCues = Array.from(cuesMap.values());
             return mergedCues.sort((a, b) => a.start_time - b.start_time);
           });
-          
-          // 更新已加载的最后一个segment索引
-          lastLoadedSegmentIndexRef.current = nextSegmentIndex;
-          // 从loadingSegmentsRef中移除，允许后续重新加载（如果需要）
-          loadingSegmentsRef.current.delete(nextSegmentIndex);
         }
+
+        // 标记加载完成
+        subtitleLoadState.markLoaded(nextSegmentIndex);
       } catch (error) {
-        // 加载失败时，从loadingSegmentsRef中移除，允许重试
-        loadingSegmentsRef.current.delete(nextSegmentIndex);
+        subtitleLoadState.loadingSegments.delete(nextSegmentIndex);
         console.error(`[SubtitleList] 加载 Segment ${nextSegmentIndex} 字幕失败:`, error);
       }
     } else if (nextSegment.status === 'pending' || (nextSegment.status === 'failed' && nextSegment.retry_count < 3)) {
-      // 如果下一个segment未开始或失败但可重试，触发识别
+      // 触发识别
       try {
         await subtitleService.triggerSegmentTranscription(episodeId, nextSegmentIndex);
         console.log(`[SubtitleList] 已触发 Segment ${nextSegmentIndex} 的识别任务`);
       } catch (error) {
+        subtitleLoadState.loadingSegments.delete(nextSegmentIndex);
         console.error(`[SubtitleList] 触发 Segment ${nextSegmentIndex} 识别失败:`, error);
       }
     }
-    // 如果status是processing，不处理，等待完成
   }, [episodeId, segments]);
   
   /**

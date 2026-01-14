@@ -21,6 +21,7 @@ import { ArrowForward, StickyNote2 } from '@mui/icons-material';
 import { noteService } from '../../services/noteService';
 import { highlightService } from '../../services/highlightService';
 import { useNotePosition } from '../../hooks/useNotePosition';
+import { waitForDOMRender } from '../../utils/domUtils';
 import NoteCard from './NoteCard';
 
 // Mock数据（用于开发调试，展示效果）
@@ -95,15 +96,17 @@ const mockHighlights = [
  * @param {Function} [props.onExpandedChange] - 展开/收缩状态变化回调 (isExpanded: boolean) => void
  * @param {React.RefObject} [props.scrollContainerRef] - 左侧字幕滚动容器引用（用于位置同步）
  * @param {Array} [props.cues] - TranscriptCue 数组（用于位置计算）
+ * @param {Set<number>} [props.visibleCueIds] - 当前可见的字幕ID集合（用于虚拟滚动同步）
  */
-const NoteSidebar = forwardRef(function NoteSidebar({ 
-  episodeId, 
-  onNoteClick, 
-  onNoteDelete, 
-  isExpanded: externalIsExpanded, 
+const NoteSidebar = forwardRef(function NoteSidebar({
+  episodeId,
+  onNoteClick,
+  onNoteDelete,
+  isExpanded: externalIsExpanded,
   onExpandedChange,
   scrollContainerRef,
-  cues = []
+  cues = [],
+  visibleCueIds
 }, ref) {
   // 笔记数据和划线数据
   const [notes, setNotes] = useState([]);
@@ -130,18 +133,28 @@ const NoteSidebar = forwardRef(function NoteSidebar({
   
   // 笔记侧边栏容器引用（用于位置计算）
   const noteSidebarRef = useRef(null);
-  
+
   // 将 highlights Map 转换为数组（用于 useNotePosition）
+  // 🔧 始终计算所有笔记的位置（不管是否可见）
+  // 原因：笔记位置需要在滚动到它们之前就准备好
+  // 如果只计算可见位置，滚动时会出现笔记卡片位置错乱
   const highlightsArray = useMemo(() => {
-    return Array.from(highlights.values());
+    const array = Array.from(highlights.values());
+    console.log('[NoteSidebar] highlightsArray 更新', {
+      highlights_size: highlights.size,
+      array_length: array.length,
+      array_ids: array.map(h => ({ id: h.id, cue_id: h.cue_id }))
+    });
+    return array;
   }, [highlights]);
-  
+
   // 使用 useNotePosition Hook 计算笔记位置
   const notePositions = useNotePosition({
     highlights: highlightsArray,
     cues: cues,
     scrollContainerRef: scrollContainerRef,
-    noteSidebarRef: noteSidebarRef
+    noteSidebarRef: noteSidebarRef,
+    isExpanded: isExpanded // 传递展开状态，用于触发位置更新
   });
 
   // 数据加载逻辑
@@ -256,6 +269,12 @@ const NoteSidebar = forwardRef(function NoteSidebar({
         }
         
         // 更新状态
+        console.log('[NoteSidebar] 数据加载完成，更新状态', {
+          notes_count: displayNotes.length,
+          highlights_count: highlightsData.length,
+          highlightMap_size: highlightMap.size,
+          episodeId
+        });
         setNotes(displayNotes);
         setHighlights(highlightMap);
         loadedEpisodeIdRef.current = episodeId; // 记录已加载的 episodeId
@@ -452,7 +471,22 @@ const NoteSidebar = forwardRef(function NoteSidebar({
     const dateB = new Date(b.created_at);
     return dateA - dateB;
   });
-  
+
+  // 🔧 虚拟滚动优化：只渲染可见字幕对应的笔记卡片
+  // 过滤出与可见字幕关联的笔记
+  const visibleNotes = useMemo(() => {
+    // 如果没有提供 visibleCueIds 或为空，显示所有笔记（向后兼容）
+    if (!visibleCueIds || visibleCueIds.size === 0) {
+      return sortedNotes;
+    }
+
+    return sortedNotes.filter(note => {
+      const highlight = highlights.get(note.highlight_id);
+      if (!highlight) return false;
+      return visibleCueIds.has(highlight.cue_id);
+    });
+  }, [sortedNotes, highlights, visibleCueIds]);
+
   // 提升笔记卡片到最前面（通过highlight_id）
   const bringNoteToFront = useCallback((highlightId) => {
     setFrontNoteHighlightId(highlightId);
@@ -460,30 +494,87 @@ const NoteSidebar = forwardRef(function NoteSidebar({
 
   // 直接添加新笔记到状态（用于创建笔记后立即显示，避免数据库查询延迟）
   const addNoteDirectly = useCallback(async (noteData, highlightData) => {
+    console.log('[NoteSidebar] addNoteDirectly: ========== 开始 ==========', {
+      timestamp: new Date().toISOString(),
+      note_id: noteData?.id,
+      note_type: noteData?.note_type,
+      highlight_id: highlightData?.id,
+      cue_id: highlightData?.cue_id
+    });
+
     if (!noteData || noteData.note_type === 'underline') {
       // underline类型不显示，直接返回
+      console.log('[NoteSidebar] addNoteDirectly: 跳过（underline类型）');
       return;
     }
-    
+
+    // 在添加笔记之前，先检查字幕元素是否存在
+    let subtitleElementExists = false;
+    if (highlightData?.cue_id && scrollContainerRef?.current) {
+      const subtitleElement = scrollContainerRef.current.querySelector(
+        `[data-subtitle-id="${highlightData.cue_id}"]`
+      );
+      subtitleElementExists = !!subtitleElement;
+      console.log('[NoteSidebar] addNoteDirectly: 添加前检查字幕元素', {
+        cue_id: highlightData.cue_id,
+        subtitle_exists: subtitleElementExists,
+        selector: `[data-subtitle-id="${highlightData.cue_id}"]`
+      });
+    }
+
     // 添加新笔记到状态
     setNotes((prev) => {
       // 检查是否已存在（避免重复添加）
       const exists = prev.some(n => n.id === noteData.id);
       if (exists) {
+        console.log('[NoteSidebar] addNoteDirectly: 笔记已存在，跳过添加');
         return prev;
       }
+      console.log('[NoteSidebar] addNoteDirectly: 添加新笔记到状态');
       return [...prev, noteData];
     });
-    
-    // 添加对应的highlight到状态
+
+    // 添加对应的highlight到状态（注意：这会触发 useNotePosition 重新计算）
     if (highlightData) {
       setHighlights((prev) => {
         const newMap = new Map(prev);
         newMap.set(highlightData.id, highlightData);
+        console.log('[NoteSidebar] addNoteDirectly: 添加 highlight 到状态', {
+          timestamp: new Date().toISOString(),
+          highlight_id: highlightData.id,
+          cue_id: highlightData.cue_id,
+          total_highlights: newMap.size
+        });
+        console.log('[NoteSidebar] addNoteDirectly: ⚠️ 这将触发 useNotePosition 重新计算位置');
         return newMap;
       });
     }
-    
+
+    // 等待 DOM 渲染（使用 requestAnimationFrame）
+    // 替换原来的 setTimeout(100ms) 固定延迟
+    if (highlightData?.cue_id && scrollContainerRef?.current) {
+      try {
+        await waitForDOMRender(scrollContainerRef, highlightData.cue_id, 3000);
+        const subtitleElement = scrollContainerRef.current.querySelector(
+          `[data-subtitle-id="${highlightData.cue_id}"]`
+        );
+        console.log('[NoteSidebar] addNoteDirectly: DOM 渲染完成', {
+          cue_id: highlightData.cue_id,
+          subtitle_exists: !!subtitleElement,
+          element_info: subtitleElement ? {
+            tag: subtitleElement.tagName,
+            visible: subtitleElement.offsetParent !== null,
+            rect: subtitleElement.getBoundingClientRect()
+          } : null
+        });
+      } catch (error) {
+        console.warn('[NoteSidebar] addNoteDirectly: 等待 DOM 超时', {
+          cue_id: highlightData.cue_id,
+          error: error.message
+        });
+      }
+    }
+
     // 如果有新笔记，自动展开
     if (!hasUserInteractedRef.current) {
       if (externalIsExpanded === undefined) {
@@ -491,7 +582,9 @@ const NoteSidebar = forwardRef(function NoteSidebar({
       }
       onExpandedChange?.(true);
     }
-  }, [externalIsExpanded, onExpandedChange]);
+
+    console.log('[NoteSidebar] addNoteDirectly: ========== 完成 ==========');
+  }, [externalIsExpanded, onExpandedChange, scrollContainerRef]);
 
   // 暴露 ref 给父组件（用于双向链接和刷新）
   // 必须在所有条件返回之前调用，确保 hooks 调用顺序一致
@@ -685,7 +778,7 @@ const NoteSidebar = forwardRef(function NoteSidebar({
                 boxSizing: 'border-box', // 确保容器高度不受绝对定位子元素影响
               }}
             >
-              {sortedNotes.map((note) => {
+              {visibleNotes.map((note) => {
                 const highlight = highlights.get(note.highlight_id);
                 const position = highlight ? notePositions[highlight.id] : null;
                 

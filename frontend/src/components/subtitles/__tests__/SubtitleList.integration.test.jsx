@@ -506,7 +506,7 @@ describe('SubtitleList AI 查询集成测试', () => {
         affectedCues: mockAffectedCues,
         clearSelection: mockClearSelection,
       });
-      
+
       // Mock window.getSelection
       global.window.getSelection = vi.fn(() => ({
         rangeCount: 1,
@@ -556,9 +556,16 @@ describe('SubtitleList AI 查询集成测试', () => {
         expect(alert).toHaveTextContent(/网络连接失败|AI 查询失败/i);
       }, { timeout: 3000 });
 
-      // 验证 AICard 关闭
+      // 【修正点】根据当前实现（SubtitleList.jsx line 607-615）：
+      // AI 查询失败时，AICard 保持显示以展示错误状态
+      // 只有用户手动点击外部关闭时才会移除 AICard
+      // 所以这里验证 AICard 仍然存在，且处于错误状态
       await waitFor(() => {
-        expect(screen.queryByTestId('ai-card')).not.toBeInTheDocument();
+        const aiCard = screen.queryByTestId('ai-card');
+        expect(aiCard).toBeInTheDocument();
+        // 验证不再显示 loading，且没有 responseData（错误状态）
+        expect(screen.queryByTestId('ai-card-loading')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('ai-card-content')).not.toBeInTheDocument();
       }, { timeout: 3000 });
     });
 
@@ -580,7 +587,7 @@ describe('SubtitleList AI 查询集成测试', () => {
         affectedCues: mockAffectedCues,
         clearSelection: mockClearSelection,
       });
-      
+
       // Mock window.getSelection
       global.window.getSelection = vi.fn(() => ({
         rangeCount: 1,
@@ -628,6 +635,14 @@ describe('SubtitleList AI 查询集成测试', () => {
       await waitFor(() => {
         const alert = screen.getByRole('alert');
         expect(alert).toHaveTextContent(/AI 查询失败/i);
+      }, { timeout: 3000 });
+
+      // 【修正点】根据当前实现：AI 查询失败时，AICard 保持显示以展示错误状态
+      await waitFor(() => {
+        const aiCard = screen.queryByTestId('ai-card');
+        expect(aiCard).toBeInTheDocument();
+        expect(screen.queryByTestId('ai-card-loading')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('ai-card-content')).not.toBeInTheDocument();
       }, { timeout: 3000 });
     });
   });

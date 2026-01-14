@@ -69,29 +69,37 @@ export default function MainLayout({
 
   // 主体滚动容器引用（用于 SubtitleList 的自动滚动）
   const mainScrollRef = useRef(null);
-  
+
   // 用户滚动状态（用于 SubtitleList 的自动滚动暂停逻辑）
   const userScrollTimeoutRef = useRef(null);
   const isUserScrollingRef = useRef(false);
-  
+
   // 用户交互状态（用于 SubtitleList 的自动滚动暂停逻辑）
   // 当用户进行划线、查询卡片展示等操作时，需要暂停自动滚动
   // TODO: 当 SelectionMenu 实现后，需要根据其打开状态更新 isInteracting
   const [isInteracting] = useState(false);
-  
+
   // 笔记侧边栏展开/收缩状态（用于控制收缩/展开按钮显示）
   const [isNoteSidebarExpanded, setIsNoteSidebarExpanded] = useState(false);
-  
+
+  // 可见字幕ID集合（用于同步笔记卡片的虚拟滚动渲染）
+  const [visibleCueIds, setVisibleCueIds] = useState(new Set());
+
+  // 处理可见字幕ID变化（来自 SubtitleList 的虚拟滚动）
+  const handleVisibleCueIdsChange = useCallback((cueIds) => {
+    setVisibleCueIds(cueIds);
+  }, []);
+
   // 处理笔记侧边栏展开/收缩状态变化（使用 useCallback 避免无限循环）
   const handleNoteSidebarExpandedChange = useCallback((expanded) => {
     setIsNoteSidebarExpanded(expanded);
   }, []);
-  
+
   // 处理收缩按钮点击
   const handleCollapseSidebar = useCallback(() => {
     setIsNoteSidebarExpanded(false);
   }, []);
-  
+
   // 处理展开按钮点击
   const handleExpandSidebar = useCallback(() => {
     setIsNoteSidebarExpanded(true);
@@ -491,7 +499,7 @@ export default function MainLayout({
             willChange: 'flex', // 只优化 flex 属性
           }}
         >
-          <SubtitleList 
+          <SubtitleList
             currentTime={currentTime}
             duration={duration}
             onCueClick={handleCueClick}
@@ -507,6 +515,7 @@ export default function MainLayout({
             onNoteCreate={handleNoteCreate}
             onNoteDelete={handleNoteDelete}
             noteDeleteTrigger={noteDeleteTrigger}
+            onVisibleCueIdsChange={handleVisibleCueIdsChange}
           />
         </Box>
 
@@ -518,6 +527,7 @@ export default function MainLayout({
             flex: { xs: '0 0 0', md: isNoteSidebarExpanded ? '0 0 30%' : '0 0 0' },
             width: { xs: 0, md: isNoteSidebarExpanded ? '30%' : 0 },
             maxWidth: { xs: 0, md: isNoteSidebarExpanded ? '30%' : 0 },
+            height: '100%', // 添加明确的高度，确保子元素的 height: 100% 能正常工作
             px: 2,
             pt: 2,
             pb: 2,
@@ -534,7 +544,7 @@ export default function MainLayout({
             willChange: 'flex, opacity', // 只优化 flex 和 opacity 属性
           }}
         >
-          <NoteSidebar 
+          <NoteSidebar
             ref={noteSidebarRef}
             episodeId={episodeId}
             onNoteClick={handleNoteClick}
@@ -543,6 +553,7 @@ export default function MainLayout({
             onExpandedChange={handleNoteSidebarExpandedChange}
             scrollContainerRef={mainScrollRef}
             cues={cues}
+            visibleCueIds={visibleCueIds}
           />
         </Box>
       </Box>

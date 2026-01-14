@@ -595,5 +595,151 @@ describe('NoteSidebar', () => {
       consoleErrorSpy.mockRestore();
     });
   });
+
+  describe('虚拟滚动 - visibleCueIds 过滤', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('应该根据 visibleCueIds 过滤笔记，只渲染可见字幕对应的笔记', async () => {
+      const visibleCueIds = new Set([1, 2]); // 只显示 cue_id 为 1 和 2 的笔记
+
+      noteService.getNotesByEpisode.mockResolvedValue(mockNotes);
+      highlightService.getHighlightsByEpisode.mockResolvedValue(mockHighlights);
+
+      render(
+        <NoteSidebar
+          episodeId={1}
+          visibleCueIds={visibleCueIds}
+        />
+      );
+
+      await waitFor(() => {
+        // 应该只渲染 2 个笔记（对应 cue_id 1 和 2）
+        const noteCards = screen.queryAllByTestId(/^note-card-/);
+        expect(noteCards.length).toBe(2);
+      });
+
+      // 验证具体渲染了哪些笔记
+      expect(screen.getByTestId('note-card-1')).toBeInTheDocument();
+      expect(screen.getByTestId('note-card-2')).toBeInTheDocument();
+      expect(screen.queryByTestId('note-card-3')).not.toBeInTheDocument();
+    });
+
+    it('应该在 visibleCueIds 未提供时显示所有笔记（向后兼容）', async () => {
+      noteService.getNotesByEpisode.mockResolvedValue(mockNotes);
+      highlightService.getHighlightsByEpisode.mockResolvedValue(mockHighlights);
+
+      render(
+        <NoteSidebar
+          episodeId={1}
+          // 不传递 visibleCueIds
+        />
+      );
+
+      await waitFor(() => {
+        // 应该渲染所有非 underline 类型的笔记（note 3 是 underline 类型，会被过滤掉）
+        const noteCards = screen.queryAllByTestId(/^note-card-/);
+        expect(noteCards.length).toBe(2);
+      });
+
+      expect(screen.getByTestId('note-card-1')).toBeInTheDocument();
+      expect(screen.getByTestId('note-card-2')).toBeInTheDocument();
+      expect(screen.queryByTestId('note-card-3')).not.toBeInTheDocument(); // underline 类型被过滤
+    });
+
+    it('应该在 visibleCueIds 为空 Set 时显示所有笔记', async () => {
+      const emptyVisibleCueIds = new Set();
+
+      noteService.getNotesByEpisode.mockResolvedValue(mockNotes);
+      highlightService.getHighlightsByEpisode.mockResolvedValue(mockHighlights);
+
+      render(
+        <NoteSidebar
+          episodeId={1}
+          visibleCueIds={emptyVisibleCueIds}
+        />
+      );
+
+      await waitFor(() => {
+        // 应该渲染所有非 underline 类型的笔记（note 3 是 underline 类型，会被过滤掉）
+        const noteCards = screen.queryAllByTestId(/^note-card-/);
+        expect(noteCards.length).toBe(2);
+      });
+    });
+
+    it('应该在 visibleCueIds 变化时动态更新可见笔记', async () => {
+      const initialVisibleCueIds = new Set([1]);
+
+      noteService.getNotesByEpisode.mockResolvedValue(mockNotes);
+      highlightService.getHighlightsByEpisode.mockResolvedValue(mockHighlights);
+
+      const { rerender } = render(
+        <NoteSidebar
+          episodeId={1}
+          visibleCueIds={initialVisibleCueIds}
+        />
+      );
+
+      // 初始状态：只显示 cue_id 1 的笔记
+      await waitFor(() => {
+        expect(screen.getByTestId('note-card-1')).toBeInTheDocument();
+        expect(screen.queryByTestId('note-card-2')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('note-card-3')).not.toBeInTheDocument();
+      });
+
+      // 更新 visibleCueIds：添加 cue_id 2
+      const updatedVisibleCueIds = new Set([1, 2]);
+      rerender(
+        <NoteSidebar
+          episodeId={1}
+          visibleCueIds={updatedVisibleCueIds}
+        />
+      );
+
+      // 验证笔记卡片更新
+      await waitFor(() => {
+        expect(screen.getByTestId('note-card-1')).toBeInTheDocument();
+        expect(screen.getByTestId('note-card-2')).toBeInTheDocument();
+        expect(screen.queryByTestId('note-card-3')).not.toBeInTheDocument();
+      });
+    });
+
+    it('应该正确过滤没有对应 highlight 的笔记', async () => {
+      // 创建一个 highlight_id 不存在的笔记
+      const notesWithMissingHighlight = [
+        ...mockNotes,
+        {
+          id: 4,
+          highlight_id: 999, // 不存在的 highlight_id
+          content: '孤立的笔记',
+          note_type: 'thought',
+          created_at: '2025-01-14T10:00:00Z',
+          updated_at: '2025-01-14T10:00:00Z',
+        },
+      ];
+
+      const visibleCueIds = new Set([1, 2, 3]);
+
+      noteService.getNotesByEpisode.mockResolvedValue(notesWithMissingHighlight);
+      highlightService.getHighlightsByEpisode.mockResolvedValue(mockHighlights);
+
+      render(
+        <NoteSidebar
+          episodeId={1}
+          visibleCueIds={visibleCueIds}
+        />
+      );
+
+      await waitFor(() => {
+        // 应该只渲染 2 个笔记（note 3 是 underline 类型被过滤，note 4 缺少 highlight 被过滤）
+        const noteCards = screen.queryAllByTestId(/^note-card-/);
+        expect(noteCards.length).toBe(2);
+      });
+
+      expect(screen.queryByTestId('note-card-3')).not.toBeInTheDocument(); // underline 类型被过滤
+      expect(screen.queryByTestId('note-card-4')).not.toBeInTheDocument(); // 缺少 highlight 被过滤
+    });
+  });
 });
 
